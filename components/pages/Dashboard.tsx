@@ -161,18 +161,18 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
   };
 
   return (
-    <div>
+    <div className="dark:bg-gray-900 min-h-full">
       {configMissing && (
-        <div className="bg-amber-50 border-b border-amber-200 px-8 py-2 text-sm text-amber-800">
+        <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-8 py-2 text-sm text-amber-800 dark:text-amber-200">
           Configure Supabase to see real stats.
         </div>
       )}
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-8 py-6 sticky top-0 z-10">
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-8 py-6 sticky top-0 z-10">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-            <div className="flex items-center mt-2 text-sm text-gray-600">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
+            <div className="flex items-center mt-2 text-sm text-gray-600 dark:text-gray-400">
               <Calendar className="w-4 h-4 mr-2" />
               <span>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
               <span className="mx-2">•</span>
@@ -181,22 +181,22 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
           </div>
           <div className="flex items-center space-x-4">
             <div className="relative">
-              <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500" />
               <input 
                 type="text" 
                 placeholder="Search courses, learners..." 
-                className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg w-80 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" 
+                className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg w-80 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white transition-all" 
               />
             </div>
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition-all">
-              <Filter className="w-6 h-6 text-gray-600" />
+            <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all dark:text-gray-300">
+              <Filter className="w-6 h-6 text-gray-600 dark:text-gray-400" />
             </button>
             <div className="relative">
               <button 
                 onClick={() => setShowNotifications(!showNotifications)}
-                className="p-2 hover:bg-gray-100 rounded-lg relative transition-all"
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg relative transition-all dark:text-gray-300"
               >
-                <Bell className="w-6 h-6 text-gray-600" />
+                <Bell className="w-6 h-6 text-gray-600 dark:text-gray-400" />
                 {notifications.filter(n => !n.read).length > 0 && (
                   <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
                 )}
@@ -204,38 +204,38 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
 
               {/* Notifications Dropdown */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-96 bg-white rounded-xl shadow-2xl border border-gray-200 z-50">
-                  <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-                    <h3 className="font-bold text-lg">Notifications</h3>
+                <div className="absolute right-0 mt-2 w-96 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 z-50">
+                  <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <h3 className="font-bold text-lg text-gray-900 dark:text-white">Notifications</h3>
                     <button 
                       onClick={clearAllNotifications}
-                      className="text-sm text-blue-600 hover:text-blue-700 font-semibold"
+                      className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold"
                     >
                       Mark all read
                     </button>
                   </div>
                   <div className="max-h-96 overflow-y-auto">
                     {notifications.length === 0 ? (
-                      <div className="p-6 text-center text-gray-500 text-sm">No notifications yet.</div>
+                      <div className="p-6 text-center text-gray-500 dark:text-gray-400 text-sm">No notifications yet.</div>
                     ) : notifications.map(notif => (
                       <div 
                         key={notif.id}
                         onClick={() => markNotificationRead(notif.id)}
-                        className={`p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-all ${!notif.read ? 'bg-blue-50' : ''}`}
+                        className={`p-4 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-all ${!notif.read ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center space-x-2 mb-1">
-                              {notif.type === 'success' && <CheckCircle className="w-4 h-4 text-green-600" />}
-                              {notif.type === 'warning' && <AlertCircle className="w-4 h-4 text-orange-600" />}
-                              {notif.type === 'info' && <Bell className="w-4 h-4 text-blue-600" />}
-                              <p className="font-semibold text-sm">{notif.title}</p>
+                              {notif.type === 'success' && <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />}
+                              {notif.type === 'warning' && <AlertCircle className="w-4 h-4 text-orange-600 dark:text-orange-400" />}
+                              {notif.type === 'info' && <Bell className="w-4 h-4 text-blue-600 dark:text-blue-400" />}
+                              <p className="font-semibold text-sm text-gray-900 dark:text-white">{notif.title}</p>
                             </div>
-                            <p className="text-sm text-gray-600">{notif.message}</p>
-                            <p className="text-xs text-gray-500 mt-1">{notif.time}</p>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">{notif.message}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">{notif.time}</p>
                           </div>
                           {!notif.read && (
-                            <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
+                            <div className="w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full"></div>
                           )}
                         </div>
                       </div>
@@ -286,13 +286,13 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
         {/* Charts Section */}
         <div className="grid lg:grid-cols-2 gap-6 mb-6">
           {/* Weekly Progress Chart */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold">Learning Progress</h3>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Learning Progress</h3>
               <select 
                 value={selectedPeriod}
                 onChange={(e) => setSelectedPeriod(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
               >
                 <option value="7days">Last 7 days</option>
                 <option value="30days">Last 30 days</option>
@@ -303,7 +303,7 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
             {/* Chart */}
             <div className="h-64 flex items-end justify-around space-x-2 mb-4">
               {weeklyData.length === 0 ? (
-                <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">No activity data yet.</div>
+                <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm">No activity data yet.</div>
               ) : weeklyData.map((data, i) => (
                 <div key={i} className="flex flex-col items-center flex-1 group">
                   <div className="relative w-full">
@@ -319,18 +319,18 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
                       </div>
                     </div>
                   </div>
-                  <span className="text-xs text-gray-600 mt-2 font-medium">{data.week}</span>
+                  <span className="text-xs text-gray-600 dark:text-gray-400 mt-2 font-medium">{data.week}</span>
                 </div>
               ))}
             </div>
 
             {/* Legend */}
-            <div className="flex items-center justify-center space-x-6 pt-4 border-t border-gray-200">
+            <div className="flex items-center justify-center space-x-6 pt-4 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-center">
                 <div className="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
-                <span className="text-sm text-gray-600">Completion Rate</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">Completion Rate</span>
               </div>
-              <button className="text-sm text-blue-600 hover:text-blue-700 font-semibold flex items-center">
+              <button className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold flex items-center">
                 <Download className="w-4 h-4 mr-1" />
                 Export Data
               </button>
@@ -338,29 +338,29 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
           </div>
 
           {/* Top Performing Courses */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold">Top Performing Courses</h3>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Top Performing Courses</h3>
               <button 
                 onClick={() => setCurrentView('courses')}
-                className="text-blue-600 text-sm hover:text-blue-700 font-semibold transition-all"
+                className="text-blue-600 dark:text-blue-400 text-sm hover:text-blue-700 dark:hover:text-blue-300 font-semibold transition-all"
               >
                 View All →
               </button>
             </div>
             <div className="space-y-4">
               {topCourses.length === 0 ? (
-                <div className="py-6 text-center text-gray-500 text-sm">No courses yet.</div>
+                <div className="py-6 text-center text-gray-500 dark:text-gray-400 text-sm">No courses yet.</div>
               ) : topCourses.map((course) => (
                 <div 
                   key={course.id}
                   onClick={() => setSelectedCourse(course.id === selectedCourse ? null : course.id)}
-                  className={`p-4 rounded-xl hover:bg-gray-50 transition-all cursor-pointer ${selectedCourse === course.id ? 'bg-blue-50 border-2 border-blue-500' : 'bg-gray-50 border-2 border-transparent'}`}
+                  className={`p-4 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all cursor-pointer ${selectedCourse === course.id ? 'bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-500 dark:border-blue-400' : 'bg-gray-50 dark:bg-gray-700/50 border-2 border-transparent'}`}
                 >
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex-1">
-                      <p className="font-semibold text-sm mb-1">{course.name}</p>
-                      <div className="flex items-center space-x-2 text-xs text-gray-600">
+                      <p className="font-semibold text-sm mb-1 text-gray-900 dark:text-white">{course.name}</p>
+                      <div className="flex items-center space-x-2 text-xs text-gray-600 dark:text-gray-400">
                         <span className="flex items-center">
                           <Users className="w-3 h-3 mr-1" />
                           {course.learners} learners
@@ -373,7 +373,7 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
                       </div>
                     </div>
                     <div className={`flex items-center space-x-1 text-xs font-semibold px-2 py-1 rounded-full ${
-                      course.trend === 'up' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      course.trend === 'up' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
                     }`}>
                       {course.trend === 'up' ? <TrendingUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
                       <span>{course.trendValue}%</span>
@@ -381,29 +381,29 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
                   </div>
                   
                   <div className="flex items-center mb-2">
-                    <div className="flex-1 bg-gray-200 rounded-full h-2 mr-3">
+                    <div className="flex-1 bg-gray-200 dark:bg-gray-600 rounded-full h-2 mr-3">
                       <div 
-                        className="bg-blue-500 h-2 rounded-full transition-all duration-500" 
+                        className="bg-blue-500 dark:bg-blue-400 h-2 rounded-full transition-all duration-500" 
                         style={{width: `${course.completion}%`}}
                       ></div>
                     </div>
-                    <span className="text-sm font-semibold text-gray-700">{course.completion}%</span>
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{course.completion}%</span>
                   </div>
 
                   {/* Expanded Details */}
                   {selectedCourse === course.id && (
-                    <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
+                    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 space-y-2">
                       <div className="flex justify-between text-xs">
-                        <span className="text-gray-600">Status:</span>
-                        <span className="font-semibold text-green-600 capitalize">{course.status}</span>
+                        <span className="text-gray-600 dark:text-gray-400">Status:</span>
+                        <span className="font-semibold text-green-600 dark:text-green-400 capitalize">{course.status}</span>
                       </div>
                       <div className="flex justify-between text-xs">
-                        <span className="text-gray-600">Last Updated:</span>
-                        <span className="font-semibold">{course.lastUpdated}</span>
+                        <span className="text-gray-600 dark:text-gray-400">Last Updated:</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">{course.lastUpdated}</span>
                       </div>
                       <div className="flex justify-between text-xs">
-                        <span className="text-gray-600">Drop-off Point:</span>
-                        <span className="font-semibold text-orange-600">{course.dropOffPoint}</span>
+                        <span className="text-gray-600 dark:text-gray-400">Drop-off Point:</span>
+                        <span className="font-semibold text-orange-600 dark:text-orange-400">{course.dropOffPoint}</span>
                       </div>
                       <button 
                         onClick={() => setCurrentView('courses')}
@@ -420,41 +420,41 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
         </div>
 
         {/* Recent Activity */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h3 className="text-xl font-bold">Recent Activity</h3>
-              <p className="text-sm text-gray-600 mt-1">Real-time updates from your platform</p>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Recent Activity</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Real-time updates from your platform</p>
             </div>
-            <button className="text-blue-600 text-sm hover:text-blue-700 font-semibold transition-all">
+            <button className="text-blue-600 dark:text-blue-400 text-sm hover:text-blue-700 dark:hover:text-blue-300 font-semibold transition-all">
               View All Activity →
             </button>
           </div>
           <div className="space-y-1">
             {recentActivity.length === 0 ? (
-              <div className="py-8 text-center text-gray-500 text-sm">No recent activity yet.</div>
+              <div className="py-8 text-center text-gray-500 dark:text-gray-400 text-sm">No recent activity yet.</div>
             ) : recentActivity.map((activity) => (
               <div 
                 key={activity.id}
-                className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 rounded-xl transition-all cursor-pointer group"
+                className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-all cursor-pointer group"
               >
                 <div className="flex items-center flex-1">
                   <div className="w-12 h-12 bg-gradient-to-br from-blue-400 to-blue-500 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-md">
                     {activity.avatar}
                   </div>
                   <div className="ml-4 flex-1">
-                    <p className="text-sm">
+                    <p className="text-sm text-gray-900 dark:text-gray-100">
                       <span className="font-semibold">{activity.user}</span>
-                      <span className="text-gray-600"> {activity.action} </span>
+                      <span className="text-gray-600 dark:text-gray-400"> {activity.action} </span>
                       <span className="font-semibold">{activity.course}</span>
                     </p>
                     <div className="flex items-center space-x-3 mt-1">
-                      <p className="text-xs text-gray-500">{activity.time}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-500">{activity.time}</p>
                       {activity.score && (
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                          activity.score >= 80 ? 'bg-green-100 text-green-700' :
-                          activity.score >= 50 ? 'bg-orange-100 text-orange-700' :
-                          'bg-red-100 text-red-700'
+                          activity.score >= 80 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
+                          activity.score >= 50 ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400' :
+                          'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
                         }`}>
                           Score: {activity.score}%
                         </span>
@@ -464,7 +464,7 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
                 </div>
                 <div className="flex items-center space-x-3">
                   {getActivityIcon(activity.type)}
-                  <ChevronRight className="w-5 h-5 text-gray-400 group-hover:translate-x-1 transition-transform" />
+                  <ChevronRight className="w-5 h-5 text-gray-400 dark:text-gray-500 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
             ))}

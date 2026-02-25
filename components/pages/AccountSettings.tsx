@@ -102,10 +102,10 @@ export default function AccountSettings() {
     title: string;
     children: React.ReactNode;
   }) => (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 mb-6">
       <div className="flex items-center gap-2 mb-4">
-        <Icon className="w-5 h-5 text-gray-600" />
-        <h3 className="text-lg font-bold text-gray-900">{title}</h3>
+        <Icon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+        <h3 className="text-lg font-bold text-gray-900 dark:text-white">{title}</h3>
       </div>
       {children}
     </div>
@@ -120,10 +120,10 @@ export default function AccountSettings() {
     description?: string;
     action: React.ReactNode;
   }) => (
-    <div className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
+    <div className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-700 last:border-0">
       <div>
-        <p className="font-semibold text-gray-900">{label}</p>
-        {description && <p className="text-sm text-gray-500 mt-0.5">{description}</p>}
+        <p className="font-semibold text-gray-900 dark:text-white">{label}</p>
+        {description && <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>}
       </div>
       <div className="flex-shrink-0 ml-4">{action}</div>
     </div>
@@ -132,8 +132,8 @@ export default function AccountSettings() {
   return (
     <div className="p-8 max-w-3xl">
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900">Account Settings</h2>
-        <p className="text-gray-600 mt-1">Manage your account preferences and security</p>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Account Settings</h2>
+        <p className="text-gray-600 dark:text-gray-400 mt-1">Manage your account preferences and security</p>
       </div>
 
       <Section icon={Lock} title="Security">
@@ -171,17 +171,17 @@ export default function AccountSettings() {
           label="Theme"
           description="Choose your interface theme"
           action={
-            <div className="flex rounded-lg border border-gray-200 p-0.5 bg-gray-100">
+            <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 p-0.5 bg-gray-100 dark:bg-gray-700">
               <button
                 onClick={() => update({ theme: 'light' })}
-                className={`p-2 rounded-md ${settings.theme === 'light' ? 'bg-white shadow text-amber-600' : 'text-gray-500'}`}
+                className={`p-2 rounded-md ${settings.theme === 'light' ? 'bg-white dark:bg-gray-600 shadow text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}
                 title="Light"
               >
                 <Sun className="w-4 h-4" />
               </button>
               <button
                 onClick={() => update({ theme: 'dark' })}
-                className={`p-2 rounded-md ${settings.theme === 'dark' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}
+                className={`p-2 rounded-md ${settings.theme === 'dark' ? 'bg-white dark:bg-gray-600 shadow text-indigo-600 dark:text-indigo-400' : 'text-gray-500 dark:text-gray-400'}`}
                 title="Dark"
               >
                 <Moon className="w-4 h-4" />
@@ -196,7 +196,7 @@ export default function AccountSettings() {
             <select
               value={settings.language}
               onChange={(e) => update({ language: e.target.value })}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500"
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
             >
               <option value="en">English</option>
               <option value="es">Spanish</option>
@@ -286,12 +286,12 @@ export default function AccountSettings() {
         />
       </Section>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 mb-6">
         <div className="flex items-center gap-2 mb-4">
-          <BookOpen className="w-5 h-5 text-gray-600" />
-          <h3 className="text-lg font-bold text-gray-900">Inferred Learning Preferences</h3>
+          <BookOpen className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white">Inferred Learning Preferences</h3>
         </div>
-        <p className="text-sm text-gray-500 mb-4">Weights learned from your activity (video, reading, quiz).</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Weights learned from your activity (video, reading, quiz).</p>
         <LearningPreferences />
       </div>
 
@@ -361,22 +361,22 @@ export default function AccountSettings() {
         <Row label="Terms & Privacy" action={<ChevronRight className="w-5 h-5 text-gray-400" />} />
       </Section>
 
-      <div className="bg-red-50/80 rounded-xl border border-red-200 p-6 mb-6">
+      <div className="bg-red-50/80 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 p-6 mb-6">
         <div className="flex items-center gap-2 mb-4">
-          <AlertTriangle className="w-5 h-5 text-red-600" />
-          <h3 className="text-lg font-bold text-red-900">Danger Zone</h3>
+          <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" />
+          <h3 className="text-lg font-bold text-red-900 dark:text-red-200">Danger Zone</h3>
         </div>
         <div className="space-y-3">
           <div className="flex items-center justify-between py-2">
             <div>
-              <p className="font-semibold text-gray-900">Deactivate Account</p>
-              <p className="text-sm text-gray-600">Temporarily disable your account</p>
+              <p className="font-semibold text-gray-900 dark:text-white">Deactivate Account</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Temporarily disable your account</p>
             </div>
           </div>
           <div className="flex items-center justify-between py-2">
             <div>
-              <p className="font-semibold text-gray-900">Delete Account Permanently</p>
-              <p className="text-sm text-gray-600">This action cannot be undone</p>
+              <p className="font-semibold text-gray-900 dark:text-white">Delete Account Permanently</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">This action cannot be undone</p>
             </div>
             <button
               onClick={() => setShowDeleteConfirm(true)}
@@ -390,9 +390,9 @@ export default function AccountSettings() {
 
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowDeleteConfirm(false)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Delete account?</h3>
-            <p className="text-gray-600 text-sm mb-6">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Delete account?</h3>
+            <p className="text-gray-600 dark:text-gray-400 text-sm mb-6">
               This will permanently delete your account and all associated data. This action cannot be undone.
             </p>
             {deleteError && (
@@ -401,7 +401,7 @@ export default function AccountSettings() {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-2.5 border border-gray-300 rounded-xl font-semibold text-gray-700 hover:bg-gray-50"
+                className="flex-1 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>
