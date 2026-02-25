@@ -51,6 +51,22 @@ const CoursifyLMS = () => {
     }
   }, []);
 
+  // If user landed with ?code=... (e.g. old OAuth redirect to /), exchange code for session and clean URL
+  useEffect(() => {
+    if (typeof window === 'undefined' || !process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (!code) return;
+    supabase.auth.exchangeCodeForSession(code).then(() => {
+      params.delete('code');
+      const search = params.toString();
+      const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
+      window.history.replaceState({}, '', url);
+    }).catch(() => {
+      window.history.replaceState({}, '', window.location.pathname);
+    });
+  }, []);
+
   useEffect(() => {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
       setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
@@ -66,9 +82,51 @@ const CoursifyLMS = () => {
       if (!cancelled) setAuthChecked(true);
     };
 
+    const applySession = (session: { user: { id: string; email?: string; user_metadata?: Record<string, unknown> } }) => {
+      if (!session?.user) return;
+      const name = session.user.user_metadata?.full_name ?? session.user.user_metadata?.name ?? session.user.email?.split('@')[0] ?? 'User';
+      const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
+      setUserDisplay({ displayName: name, email: session.user.email ?? undefined, initials: initials || 'U', role: 'Learner' });
+      unblock();
+      supabase.from('user_profiles').select('full_name, role').eq('id', session.user.id).maybeSingle().then(({ data: profileData }) => {
+        if (cancelled) return;
+        if (profileData) {
+          const profile = profileData as { full_name: string | null; role: string };
+          const displayName = (profile.full_name ?? name) as string;
+          const role = profile.role === 'admin' ? 'Admin Account' : profile.role === 'instructor' ? 'Instructor' : 'Learner';
+          setUserDisplay((prev) => ({ ...prev, displayName, role }));
+        }
+      });
+      supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('user_id', session.user.id).then(({ count }) => {
+        if (!cancelled) setProfileStats({ courses: count ?? 0, certificates: 0, badges: 0 });
+      });
+      if (!cancelled && typeof window !== 'undefined') {
+        const saved = localStorage.getItem(SESSION_MODE_KEY);
+        const mode: SessionMode = saved === 'learner' || saved === 'instructor' ? saved : null;
+        setSessionMode(mode);
+        if (mode === 'learner') setCurrentView('learn');
+        else if (mode === 'instructor') setCurrentView('dashboard');
+      }
+    };
+
     const loadUser = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        let session: { user: { id: string; email?: string; user_metadata?: Record<string, unknown> }; access_token?: string; refresh_token?: string } | null = null;
+        const { data: { session: clientSession } } = await supabase.auth.getSession();
+        session = clientSession;
+        if (!session?.user && typeof window !== 'undefined') {
+          const res = await fetch('/api/auth/session', { credentials: 'include' });
+          const data = await res.json().catch(() => ({}));
+          const serverSession = data?.session;
+          if (serverSession?.user && serverSession?.access_token && serverSession?.refresh_token) {
+            session = serverSession;
+            try {
+              await supabase.auth.setSession({ access_token: serverSession.access_token, refresh_token: serverSession.refresh_token });
+            } catch {
+              // use server session for this load even if setSession failed
+            }
+          }
+        }
         if (cancelled) return;
         if (!session?.user) {
           setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
@@ -77,27 +135,7 @@ const CoursifyLMS = () => {
           unblock();
           return;
         }
-        const name = session.user.user_metadata?.full_name ?? session.user.user_metadata?.name ?? session.user.email?.split('@')[0] ?? 'User';
-        const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
-        setUserDisplay({ displayName: name, email: session.user.email ?? undefined, initials: initials || 'U', role: 'Learner' });
-        unblock();
-        const { data: profileData } = await supabase.from('user_profiles').select('full_name, role').eq('id', session.user.id).maybeSingle();
-        if (cancelled) return;
-        if (profileData) {
-          const profile = profileData as { full_name: string | null; role: string };
-          const displayName = (profile.full_name ?? name) as string;
-          const role = profile.role === 'admin' ? 'Admin Account' : profile.role === 'instructor' ? 'Instructor' : 'Learner';
-          setUserDisplay({ displayName, email: session.user.email ?? undefined, initials: initials || 'U', role });
-        }
-        const { count: coursesCount } = await supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('user_id', session.user.id);
-        if (!cancelled) setProfileStats({ courses: coursesCount ?? 0, certificates: 0, badges: 0 });
-        if (!cancelled && typeof window !== 'undefined') {
-          const saved = localStorage.getItem(SESSION_MODE_KEY);
-          const mode: SessionMode = saved === 'learner' || saved === 'instructor' ? saved : null;
-          setSessionMode(mode);
-          if (mode === 'learner') setCurrentView('learn');
-          else if (mode === 'instructor') setCurrentView('dashboard');
-        }
+        applySession(session);
       } catch {
         if (!cancelled) {
           setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
@@ -186,7 +224,8 @@ const CoursifyLMS = () => {
       return;
     }
     try {
-      const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: typeof window !== 'undefined' ? window.location.origin : '' } });
+      const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : '';
+      const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } });
       if (error) setSignInError(error.message || 'Google sign-in failed');
     } catch (err) {
       setSignInError(err instanceof Error ? err.message : 'Google sign-in failed');

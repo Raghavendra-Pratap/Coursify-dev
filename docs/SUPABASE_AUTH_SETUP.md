@@ -58,6 +58,12 @@ No extra config needed if your dashboard’s “Authorization Path” is set to 
 
 After this, "Sign in with Google" should work and redirect back to `http://localhost:3000`.
 
+4. **Redirect URLs (required for OAuth):** In Supabase → **Authentication** → **URL Configuration**, add your app URLs to **Redirect URLs** so Supabase can send users back after sign-in:
+   - Local: `http://localhost:3000/auth/callback`
+   - Vercel/preview: `https://coursify-dev.vercel.app/auth/callback` (or your preview URL)
+   - Production: `https://yourdomain.com/auth/callback`
+   Set **Site URL** to your main app URL (e.g. `https://coursify-dev.vercel.app`). Without these, you may stay stuck on the login page after "Sign in with Google".
+
 ---
 
 ## 5. Optional: Profile photo upload (Full profile page)
