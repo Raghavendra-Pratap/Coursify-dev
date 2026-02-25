@@ -87,38 +87,66 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
       }
       setConfigMissing(false);
       try {
-        const { data, error } = await supabase.from('user_profiles').select('id, full_name, role, organization');
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentUserId = session?.user?.id ?? null;
+        let profileIdsToFetch: string[] | null = null;
+
+        if (currentUserId) {
+          const { data: myProfile } = await supabase.from('user_profiles').select('role').eq('id', currentUserId).maybeSingle();
+          const role = (myProfile as { role?: string } | null)?.role;
+          if (role !== 'admin') {
+            const { data: myCourses } = await supabase.from('courses').select('id').eq('created_by', currentUserId);
+            const courseIds = (myCourses ?? []).map((c: { id: string }) => c.id);
+            if (courseIds.length === 0) {
+              setLearners([]);
+              return;
+            }
+            const { data: enrollments } = await supabase.from('enrollments').select('user_id').in('course_id', courseIds);
+            const userIds = [...new Set((enrollments ?? []).map((e: { user_id: string }) => e.user_id))];
+            if (userIds.length === 0) {
+              setLearners([]);
+              return;
+            }
+            profileIdsToFetch = userIds;
+          }
+        }
+
+        const query = supabase.from('user_profiles').select('id, full_name, role, organization');
+        if (profileIdsToFetch != null) {
+          query.in('id', profileIdsToFetch);
+        }
+        const { data, error } = await query;
         if (error) throw error;
         const raw = data || [];
-          const fromDb = raw.map((p: { id: string; full_name: string | null; role: string; organization: string | null }) => {
-            const name = p.full_name || 'Unknown';
-            const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || '?';
-            return {
-              id: p.id,
-              name,
-              email: '(signed up)',
-              avatar: initials,
-              avatarColor: 'from-indigo-400 to-indigo-500',
-              status: 'active',
-              enrolledCourses: 0,
-              completedCourses: 0,
-              inProgressCourses: 0,
-              totalProgress: 0,
-              averageScore: 0,
-              totalTimeSpent: '0h',
-              lastActive: '—',
-              joinedDate: '—',
-              streak: 0,
-              badges: 0,
-              certificates: 0,
-              department: p.organization || '—',
-              role: p.role,
-              manager: '—',
-              courses: [],
-              activityLog: []
-            };
-          });
-          setLearners(fromDb);
+        const fromDb = raw.map((p: { id: string; full_name: string | null; role: string; organization: string | null }) => {
+          const name = p.full_name || 'Unknown';
+          const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || '?';
+          return {
+            id: p.id,
+            name,
+            email: '(signed up)',
+            avatar: initials,
+            avatarColor: 'from-indigo-400 to-indigo-500',
+            status: 'active',
+            enrolledCourses: 0,
+            completedCourses: 0,
+            inProgressCourses: 0,
+            totalProgress: 0,
+            averageScore: 0,
+            totalTimeSpent: '0h',
+            lastActive: '—',
+            joinedDate: '—',
+            streak: 0,
+            badges: 0,
+            certificates: 0,
+            department: p.organization || '—',
+            role: p.role,
+            manager: '—',
+            courses: [],
+            activityLog: []
+          };
+        });
+        setLearners(fromDb);
       } catch {
         setConfigMissing(true);
         setLearners([]);
