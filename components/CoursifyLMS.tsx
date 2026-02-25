@@ -84,7 +84,8 @@ const CoursifyLMS = () => {
 
     const applySession = (session: { user: { id: string; email?: string; user_metadata?: Record<string, unknown> } }) => {
       if (!session?.user) return;
-      const name = session.user.user_metadata?.full_name ?? session.user.user_metadata?.name ?? session.user.email?.split('@')[0] ?? 'User';
+      const rawName = session.user.user_metadata?.full_name ?? session.user.user_metadata?.name ?? (session.user.email ? session.user.email.split('@')[0] : null) ?? 'User';
+      const name = typeof rawName === 'string' ? rawName : 'User';
       const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
       setUserDisplay({ displayName: name, email: session.user.email ?? undefined, initials: initials || 'U', role: 'Learner' });
       unblock();
