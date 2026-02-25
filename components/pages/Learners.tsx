@@ -102,7 +102,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
               return;
             }
             const { data: enrollments } = await supabase.from('enrollments').select('user_id').in('course_id', courseIds);
-            const userIds = [...new Set((enrollments ?? []).map((e: { user_id: string }) => e.user_id))];
+            const userIds = Array.from(new Set((enrollments ?? []).map((e: { user_id: string }) => e.user_id)));
             if (userIds.length === 0) {
               setLearners([]);
               return;
