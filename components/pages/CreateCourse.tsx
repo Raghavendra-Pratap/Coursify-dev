@@ -801,7 +801,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
       let msg = err?.message || 'Failed to save course.';
       if (typeof err?.details === 'string') msg += ` (${err.details})`;
       if (msg.includes('row-level security') || msg.includes('RLS') || msg.includes('policy')) {
-        msg += ' Sign in and ensure your user can create courses.';
+        msg += ' Run database/FIX_LESSONS_RLS.sql in Supabase SQL Editor (you must be signed in).';
       }
       if (msg.toLowerCase().includes('reading_materials') || msg.toLowerCase().includes('does not exist')) {
         msg += ' Run database/ADD_READING_SUPPORT.sql in Supabase if you use reading content.';

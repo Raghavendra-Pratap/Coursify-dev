@@ -351,8 +351,33 @@ CREATE POLICY "Users can view lessons of accessible modules" ON lessons
     )
   );
 
-CREATE POLICY "Users can manage lessons in their courses" ON lessons
-  FOR ALL USING (
+CREATE POLICY "Users can insert lessons in their courses" ON lessons
+  FOR INSERT WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM modules
+      JOIN courses ON courses.id = modules.course_id
+      WHERE modules.id = lessons.module_id
+      AND courses.created_by = auth.uid()
+    )
+  );
+CREATE POLICY "Users can update lessons in their courses" ON lessons
+  FOR UPDATE USING (
+    EXISTS (
+      SELECT 1 FROM modules
+      JOIN courses ON courses.id = modules.course_id
+      WHERE modules.id = lessons.module_id
+      AND courses.created_by = auth.uid()
+    )
+  ) WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM modules
+      JOIN courses ON courses.id = modules.course_id
+      WHERE modules.id = lessons.module_id
+      AND courses.created_by = auth.uid()
+    )
+  );
+CREATE POLICY "Users can delete lessons in their courses" ON lessons
+  FOR DELETE USING (
     EXISTS (
       SELECT 1 FROM modules
       JOIN courses ON courses.id = modules.course_id

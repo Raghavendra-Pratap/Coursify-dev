@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
-// Client-side Supabase client (for use in React components)
+import { createBrowserClient } from '@supabase/ssr'
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
@@ -7,13 +8,17 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('⚠️ Supabase configuration missing. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local')
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true
+// Use cookie-based browser client when in browser so session persists on refresh
+function getSupabaseClient() {
+  if (typeof window !== 'undefined') {
+    return createBrowserClient(supabaseUrl, supabaseAnonKey)
   }
-})
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { autoRefreshToken: true, persistSession: true, detectSessionInUrl: true }
+  })
+}
+
+export const supabase = getSupabaseClient()
 
 // Server-side Supabase client (for use in API routes and server components)
 // This uses the service role key for admin operations

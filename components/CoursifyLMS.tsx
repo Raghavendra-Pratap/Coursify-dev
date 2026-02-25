@@ -11,10 +11,14 @@ import Analytics from './pages/Analytics';
 import Reports from './pages/Reports';
 import Profile from './pages/Profile';
 import AccountSettings from './pages/AccountSettings';
+import MyLearning from './pages/MyLearning';
+
+const SESSION_MODE_KEY = 'coursify_session_mode';
+type SessionMode = 'instructor' | 'learner' | null;
 
 // Guard: detect undefined page (wrong export or circular dep)
-const pageNames = ['Dashboard', 'CreateCourse', 'MyCourses', 'Learners', 'Analytics', 'Reports', 'Profile', 'AccountSettings'] as const;
-const pageComponents = [Dashboard, CreateCourse, MyCourses, Learners, Analytics, Reports, Profile, AccountSettings];
+const pageNames = ['Dashboard', 'CreateCourse', 'MyCourses', 'Learners', 'Analytics', 'Reports', 'Profile', 'AccountSettings', 'MyLearning'] as const;
+const pageComponents = [Dashboard, CreateCourse, MyCourses, Learners, Analytics, Reports, Profile, AccountSettings, MyLearning];
 const undefinedPages = pageNames.filter((_, i) => pageComponents[i] == null);
 if (undefinedPages.length > 0) {
   console.error('CoursifyLMS: undefined page component(s):', undefinedPages);
@@ -23,6 +27,7 @@ if (undefinedPages.length > 0) {
 type UserDisplay = { displayName: string; email?: string; initials: string; role?: string };
 
 const CoursifyLMS = () => {
+  const [sessionMode, setSessionMode] = useState<SessionMode>(null);
   const [currentView, setCurrentView] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -47,49 +52,70 @@ const CoursifyLMS = () => {
   }, []);
 
   useEffect(() => {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
+      setProfileStats({ courses: 0, certificates: 0, badges: 0 });
+      setAuthChecked(true);
+      return;
+    }
+
+    let cancelled = false;
+    const MAX_WAIT_MS = 2500;
+
+    const unblock = () => {
+      if (!cancelled) setAuthChecked(true);
+    };
+
     const loadUser = async () => {
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-        setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
-        setProfileStats({ courses: 0, certificates: 0, badges: 0 });
-        setAuthChecked(true);
-        return;
-      }
       try {
         const { data: { session } } = await supabase.auth.getSession();
+        if (cancelled) return;
         if (!session?.user) {
           setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
           setProfileStats({ courses: 0, certificates: 0, badges: 0 });
+          setSessionMode(null);
+          unblock();
           return;
         }
         const name = session.user.user_metadata?.full_name ?? session.user.user_metadata?.name ?? session.user.email?.split('@')[0] ?? 'User';
         const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
-        const { data: profileData, error: profileError } = await supabase.from('user_profiles').select('full_name, role').eq('id', session.user.id).maybeSingle();
-        if (profileError) {
-          setUserDisplay({ displayName: name, email: session.user.email ?? undefined, initials: initials || 'U', role: 'Learner' });
-        } else {
-          const profile = profileData as { full_name: string | null; role: string } | null;
-          const displayName = (profile?.full_name ?? name) as string;
-          const role = profile?.role === 'admin' ? 'Admin Account' : profile?.role === 'instructor' ? 'Instructor' : 'Learner';
-          setUserDisplay({
-            displayName,
-            email: session.user.email ?? undefined,
-            initials: initials || 'U',
-            role
-          });
+        setUserDisplay({ displayName: name, email: session.user.email ?? undefined, initials: initials || 'U', role: 'Learner' });
+        unblock();
+        const { data: profileData } = await supabase.from('user_profiles').select('full_name, role').eq('id', session.user.id).maybeSingle();
+        if (cancelled) return;
+        if (profileData) {
+          const profile = profileData as { full_name: string | null; role: string };
+          const displayName = (profile.full_name ?? name) as string;
+          const role = profile.role === 'admin' ? 'Admin Account' : profile.role === 'instructor' ? 'Instructor' : 'Learner';
+          setUserDisplay({ displayName, email: session.user.email ?? undefined, initials: initials || 'U', role });
         }
         const { count: coursesCount } = await supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('user_id', session.user.id);
-        setProfileStats({ courses: coursesCount ?? 0, certificates: 0, badges: 0 });
+        if (!cancelled) setProfileStats({ courses: coursesCount ?? 0, certificates: 0, badges: 0 });
+        if (!cancelled && typeof window !== 'undefined') {
+          const saved = localStorage.getItem(SESSION_MODE_KEY);
+          const mode: SessionMode = saved === 'learner' || saved === 'instructor' ? saved : null;
+          setSessionMode(mode);
+          if (mode === 'learner') setCurrentView('learn');
+          else if (mode === 'instructor') setCurrentView('dashboard');
+        }
       } catch {
-        setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
-        setProfileStats({ courses: 0, certificates: 0, badges: 0 });
-      } finally {
-        setAuthChecked(true);
+        if (!cancelled) {
+          setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
+          setProfileStats({ courses: 0, certificates: 0, badges: 0 });
+          unblock();
+        }
       }
     };
+
     loadUser();
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+    const fallback = setTimeout(unblock, MAX_WAIT_MS);
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(() => loadUser());
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      clearTimeout(fallback);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -132,7 +158,14 @@ const CoursifyLMS = () => {
       if (session?.user) {
         const name = session.user.user_metadata?.full_name ?? session.user.email?.split('@')[0] ?? 'User';
         const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
-        setUserDisplay({ displayName: name, email: session.user.email ?? undefined, initials, role: 'Instructor' });
+        setUserDisplay({ displayName: name, email: session.user.email ?? undefined, initials, role: 'Learner' });
+        setAuthChecked(true);
+        const { data: profile } = await supabase.from('user_profiles').select('full_name, role').eq('id', session.user.id).maybeSingle();
+        if (profile) {
+          const displayName = (profile.full_name ?? name) as string;
+          const role = profile.role === 'admin' ? 'Admin Account' : profile.role === 'instructor' ? 'Instructor' : 'Learner';
+          setUserDisplay({ displayName, email: session.user.email ?? undefined, initials, role });
+        }
       }
     } catch (err) {
       setSignInError(err instanceof Error ? err.message : 'Sign in failed');
@@ -212,11 +245,17 @@ const CoursifyLMS = () => {
         </div>
         
         <nav className="p-4 space-y-2">
-          <NavItem icon={Home} label="Dashboard" view="dashboard" />
-          <NavItem icon={Video} label="My Courses" view="courses" />
-          <NavItem icon={Users} label="Learners" view="learners" />
-          <NavItem icon={BarChart3} label="Analytics" view="analytics" />
-          <NavItem icon={FileText} label="Reports" view="reports" />
+          {sessionMode === 'learner' ? (
+            <NavItem icon={BookOpen} label="My learning" view="learn" />
+          ) : (
+            <>
+              <NavItem icon={Home} label="Dashboard" view="dashboard" />
+              <NavItem icon={Video} label="My Courses" view="courses" />
+              <NavItem icon={Users} label="Learners" view="learners" />
+              <NavItem icon={BarChart3} label="Analytics" view="analytics" />
+              <NavItem icon={FileText} label="Reports" view="reports" />
+            </>
+          )}
         </nav>
         
         {/* User area: full when sidebar open, icon when collapsed */}
@@ -312,7 +351,55 @@ const CoursifyLMS = () => {
   if (supabaseConfigured && !authChecked) {
     return (
       <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center p-4">
-        <div className="text-gray-600 dark:text-gray-400">Checking sign-in…</div>
+        <div className="flex flex-col items-center gap-6 w-full max-w-sm">
+          <div className="relative w-14 h-14">
+            <div className="absolute inset-0 rounded-full border-4 border-blue-200 dark:border-blue-900/50" />
+            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-600 dark:border-t-blue-400 animate-spin" />
+          </div>
+          <p className="text-gray-600 dark:text-gray-400 font-medium">Checking sign-in…</p>
+          <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+            <div className="h-full w-1/4 bg-blue-500 dark:bg-blue-400 rounded-full animate-load-bar" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const needsSessionMode = !requireSignIn && authChecked && sessionMode === null && supabaseConfigured;
+
+  if (needsSessionMode) {
+    return (
+      <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-8 text-center">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">How do you want to use Coursify?</h1>
+          <p className="text-gray-600 dark:text-gray-400 mb-8">Choose your experience. You can switch next time you sign in.</p>
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== 'undefined') localStorage.setItem(SESSION_MODE_KEY, 'instructor');
+                setSessionMode('instructor');
+                setCurrentView('dashboard');
+              }}
+              className="w-full py-4 px-6 rounded-xl border-2 border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-400 text-blue-700 dark:text-blue-300 font-semibold hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors flex items-center justify-center gap-3"
+            >
+              <Video className="w-6 h-6" />
+              Open as Instructor
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== 'undefined') localStorage.setItem(SESSION_MODE_KEY, 'learner');
+                setSessionMode('learner');
+                setCurrentView('learn');
+              }}
+              className="w-full py-4 px-6 rounded-xl border-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-gray-200 font-semibold hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center justify-center gap-3"
+            >
+              <BookOpen className="w-6 h-6" />
+              Open as Learner
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -351,6 +438,7 @@ const CoursifyLMS = () => {
       {currentView === 'dashboard' && (Dashboard != null ? <Dashboard sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} setCurrentView={setCurrentView} /> : fallback)}
       {currentView === 'courses' && (MyCourses != null ? <MyCourses setCurrentView={setCurrentView} /> : fallback)}
       {currentView === 'create' && (CreateCourse != null ? <CreateCourse setCurrentView={setCurrentView} /> : fallback)}
+      {currentView === 'learn' && (MyLearning != null ? <MyLearning setCurrentView={setCurrentView} /> : fallback)}
       {currentView === 'learners' && (Learners != null ? <Learners setCurrentView={setCurrentView} /> : fallback)}
       {currentView === 'analytics' && (Analytics != null ? <Analytics /> : fallback)}
       {currentView === 'reports' && (Reports != null ? <Reports /> : fallback)}
@@ -456,6 +544,40 @@ const CoursifyLMS = () => {
                   >
                     Sign In
                   </button>
+                </div>
+              )}
+
+              {userDisplay.role !== 'Sign in to save' && (
+                <div className="mb-6">
+                  {sessionMode === 'instructor' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (typeof window !== 'undefined') localStorage.setItem(SESSION_MODE_KEY, 'learner');
+                        setSessionMode('learner');
+                        setCurrentView('learn');
+                        setShowProfileModal(false);
+                      }}
+                      className="w-full py-2.5 flex items-center justify-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700"
+                    >
+                      <BookOpen className="w-4 h-4" />
+                      Switch to Learner view
+                    </button>
+                  ) : sessionMode === 'learner' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (typeof window !== 'undefined') localStorage.setItem(SESSION_MODE_KEY, 'instructor');
+                        setSessionMode('instructor');
+                        setCurrentView('dashboard');
+                        setShowProfileModal(false);
+                      }}
+                      className="w-full py-2.5 flex items-center justify-center gap-2 text-sm font-semibold text-blue-600 dark:text-blue-400 border border-blue-300 dark:border-blue-600 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                    >
+                      <Video className="w-4 h-4" />
+                      Switch to Instructor view
+                    </button>
+                  ) : null}
                 </div>
               )}
 
