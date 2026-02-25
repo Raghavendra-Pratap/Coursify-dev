@@ -479,6 +479,26 @@ CREATE POLICY "Users can view analytics for their courses" ON course_analytics
 CREATE POLICY "Users can create analytics events" ON course_analytics
   FOR INSERT WITH CHECK (true);
 
+-- Course collaborators (co-instructors): owner can add/remove; collaborators can edit course and see learners/analytics
+CREATE TABLE IF NOT EXISTS course_collaborators (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  course_id UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  invited_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(course_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_course_collaborators_course_id ON course_collaborators(course_id);
+CREATE INDEX IF NOT EXISTS idx_course_collaborators_user_id ON course_collaborators(user_id);
+
+-- Helper for RLS: true if current user is course owner, collaborator, or admin (admin = invisible backdoor)
+CREATE OR REPLACE FUNCTION public.is_course_owner_or_collaborator(cid UUID)
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (SELECT 1 FROM courses c WHERE c.id = cid AND c.created_by = auth.uid())
+     OR EXISTS (SELECT 1 FROM course_collaborators cc WHERE cc.course_id = cid AND cc.user_id = auth.uid())
+     OR EXISTS (SELECT 1 FROM user_profiles up WHERE up.id = auth.uid() AND up.role = 'admin');
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
 -- Learner invites (instructor invites by email; optional course to auto-enroll)
 CREATE TABLE IF NOT EXISTS learner_invites (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

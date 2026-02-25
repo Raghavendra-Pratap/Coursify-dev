@@ -145,7 +145,7 @@ const CoursifyLMS = () => {
       return;
     }
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email: signInEmail.trim(), password: signInPassword });
+      const { data, error } = await supabase.auth.signInWithPassword({ email: signInEmail.trim(), password: signInPassword });
       if (error) {
         setSignInError(error.message || 'Sign in failed');
         return;
@@ -154,18 +154,25 @@ const CoursifyLMS = () => {
       setSignInEmail('');
       setSignInPassword('');
       setSignInError(null);
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const name = session.user.user_metadata?.full_name ?? session.user.email?.split('@')[0] ?? 'User';
+      const session = data.session;
+      const user = data.user ?? session?.user;
+      if (user) {
+        const name = user.user_metadata?.full_name ?? user.user_metadata?.name ?? user.email?.split('@')[0] ?? 'User';
         const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
-        setUserDisplay({ displayName: name, email: session.user.email ?? undefined, initials, role: 'Learner' });
+        setUserDisplay({ displayName: name, email: user.email ?? undefined, initials, role: 'Learner' });
         setAuthChecked(true);
-        const { data: profile } = await supabase.from('user_profiles').select('full_name, role').eq('id', session.user.id).maybeSingle();
-        if (profile) {
-          const displayName = (profile.full_name ?? name) as string;
-          const role = profile.role === 'admin' ? 'Admin Account' : profile.role === 'instructor' ? 'Instructor' : 'Learner';
-          setUserDisplay({ displayName, email: session.user.email ?? undefined, initials, role });
-        }
+        const saved = typeof window !== 'undefined' ? localStorage.getItem(SESSION_MODE_KEY) : null;
+        const mode: SessionMode = saved === 'learner' || saved === 'instructor' ? saved : null;
+        setSessionMode(mode);
+        if (mode === 'learner') setCurrentView('learn');
+        else if (mode === 'instructor') setCurrentView('dashboard');
+        supabase.from('user_profiles').select('full_name, role').eq('id', user.id).maybeSingle().then(({ data: profile }) => {
+          if (profile) {
+            const displayName = (profile.full_name ?? name) as string;
+            const role = profile.role === 'admin' ? 'Admin Account' : profile.role === 'instructor' ? 'Instructor' : 'Learner';
+            setUserDisplay((prev) => ({ ...prev, displayName, role }));
+          }
+        });
       }
     } catch (err) {
       setSignInError(err instanceof Error ? err.message : 'Sign in failed');

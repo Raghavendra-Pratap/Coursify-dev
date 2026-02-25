@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Play, Users, Plus, Clock, Video, Edit, X, Eye, Filter, Grid, List, Star, TrendingUp, TrendingDown,
   Download, Share2, Copy, Trash2, Archive, MoreVertical, BookOpen, CheckCircle, Award, Mail, Link2, Globe,
-  Search, BarChart3, Folder, AlertCircle
+  Search, BarChart3, Folder, AlertCircle, UserPlus, Loader2
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { getPreferences, getCourseRecommendationScore } from '@/lib/preference-loop';
@@ -64,6 +64,14 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
   const [courseToShare, setCourseToShare] = useState<CourseRow | null>(null);
   const [shareCopyFeedback, setShareCopyFeedback] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<CourseId | null>(null);
+  const [showCollaboratorsModal, setShowCollaboratorsModal] = useState(false);
+  const [courseForCollaborators, setCourseForCollaborators] = useState<CourseRow | null>(null);
+  const [collaboratorsList, setCollaboratorsList] = useState<{ id: string; full_name: string | null; isOwner: boolean; role?: string }[]>([]);
+  const [collaboratorsLoading, setCollaboratorsLoading] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [courseOwnerId, setCourseOwnerId] = useState<string | null>(null);
   const [courses, setCourses] = useState<CourseRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [configMissing, setConfigMissing] = useState(false);
@@ -348,6 +356,99 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
     }
   };
 
+  const openCollaboratorsModal = (course: CourseRow) => {
+    setCourseForCollaborators(course);
+    setShowCollaboratorsModal(true);
+    setCollaboratorsList([]);
+    setCourseOwnerId(null);
+    setInviteEmail('');
+    setInviteError(null);
+    setActiveDropdown(null);
+  };
+
+  useEffect(() => {
+    if (!showCollaboratorsModal || !courseForCollaborators || typeof courseForCollaborators.id !== 'string') return;
+    const courseId = courseForCollaborators.id;
+    setCollaboratorsLoading(true);
+    (async () => {
+      try {
+        const { data: courseRow } = await supabase.from('courses').select('created_by').eq('id', courseId).maybeSingle();
+        const ownerId = (courseRow as { created_by?: string } | null)?.created_by ?? null;
+        setCourseOwnerId(ownerId);
+        const { data: collabRows } = await supabase.from('course_collaborators').select('user_id').eq('course_id', courseId);
+        const userIds = Array.from(new Set([...(ownerId ? [ownerId] : []), ...(collabRows ?? []).map((r: { user_id: string }) => r.user_id)]));
+        if (userIds.length === 0) {
+          setCollaboratorsList(ownerId ? [{ id: ownerId, full_name: null, isOwner: true }] : []);
+          return;
+        }
+        const { data: profiles } = await supabase.from('user_profiles').select('id, full_name, role').in('id', userIds);
+        const map = new Map((profiles ?? []).map((p: { id: string; full_name: string | null; role?: string }) => [p.id, p]));
+        const list = userIds
+          .map((id) => {
+            const p = map.get(id);
+            return { id, full_name: p?.full_name ?? null, isOwner: id === ownerId, role: p?.role };
+          })
+          .filter((c) => c.role !== 'admin');
+        setCollaboratorsList(list);
+      } catch {
+        setCollaboratorsList([]);
+      } finally {
+        setCollaboratorsLoading(false);
+      }
+    })();
+  }, [showCollaboratorsModal, courseForCollaborators]);
+
+  const handleInviteCollaborator = async () => {
+    if (!courseForCollaborators || typeof courseForCollaborators.id !== 'string' || !inviteEmail.trim()) return;
+    setInviteError(null);
+    setInviteLoading(true);
+    try {
+      const res = await fetch('/api/courses/invite-collaborator', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ courseId: courseForCollaborators.id, email: inviteEmail.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setInviteError(data?.error ?? 'Failed to invite');
+        return;
+      }
+      setInviteEmail('');
+      const { data: collabRows } = await supabase.from('course_collaborators').select('user_id').eq('course_id', courseForCollaborators.id);
+      const newIds = (collabRows ?? []).map((r: { user_id: string }) => r.user_id).filter((id) => !collaboratorsList.some((c) => c.id === id));
+      if (newIds.length) {
+        const { data: profiles } = await supabase.from('user_profiles').select('id, full_name, role').in('id', newIds);
+        const visible = (profiles ?? []).filter((p: { role?: string }) => p.role !== 'admin');
+        const map = new Map(visible.map((p: { id: string; full_name: string | null }) => [p.id, p.full_name]));
+        setCollaboratorsList((prev) => [...prev, ...newIds.filter((id) => map.has(id)).map((id) => ({ id, full_name: map.get(id) ?? null, isOwner: false }))]);
+      }
+    } catch {
+      setInviteError('Request failed');
+    } finally {
+      setInviteLoading(false);
+    }
+  };
+
+  const handleRemoveCollaborator = async (userIdToRemove: string) => {
+    if (!courseForCollaborators || typeof courseForCollaborators.id !== 'string' || !userId) return;
+    const isOwnerRow = courseOwnerId === userIdToRemove;
+    if (isOwnerRow) return;
+    const amOwner = courseOwnerId === userId;
+    const canRemove = amOwner ? true : userIdToRemove === userId;
+    if (!canRemove) return;
+    try {
+      const { error } = await supabase.from('course_collaborators').delete().eq('course_id', courseForCollaborators.id).eq('user_id', userIdToRemove);
+      if (error) throw error;
+      setCollaboratorsList((prev) => prev.filter((c) => c.id !== userIdToRemove));
+      if (userIdToRemove === userId) {
+        setShowCollaboratorsModal(false);
+        setCourseForCollaborators(null);
+      }
+    } catch {
+      setInviteError('Could not remove collaborator');
+    }
+  };
+
   const handleArchiveCourse = async (courseId: CourseId) => {
     if (typeof courseId === 'string') {
       try {
@@ -581,6 +682,13 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
                           >
                             <Archive className="w-4 h-4 mr-2" />
                             Archive
+                          </button>
+                          <button 
+                            onClick={() => { openCollaboratorsModal(course); }}
+                            className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                          >
+                            <UserPlus className="w-4 h-4 mr-2" />
+                            Collaborators
                           </button>
                           <button className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm">
                             <Download className="w-4 h-4 mr-2" />
@@ -844,6 +952,13 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
                                   <Copy className="w-4 h-4 mr-2" />
                                   Duplicate
                                 </button>
+                                <button 
+                                  onClick={() => { openCollaboratorsModal(course); setActiveDropdown(null); }}
+                                  className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                                >
+                                  <UserPlus className="w-4 h-4 mr-2" />
+                                  Collaborators
+                                </button>
                                 <button className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm">
                                   <Download className="w-4 h-4 mr-2" />
                                   Export
@@ -941,6 +1056,77 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
                   Delete Course
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Collaborators Modal */}
+      {showCollaboratorsModal && courseForCollaborators && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full mx-4 max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Collaborators — {courseForCollaborators.title}</h3>
+              <button
+                type="button"
+                onClick={() => { setShowCollaboratorsModal(false); setCourseForCollaborators(null); setInviteError(null); }}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              {collaboratorsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <>
+                  <ul className="space-y-2 mb-6">
+                    {collaboratorsList.map((c) => (
+                      <li key={c.id} className="flex items-center justify-between gap-2 py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
+                        <span className="text-gray-900 dark:text-white font-medium truncate">
+                          {c.full_name ?? 'Unknown'}
+                          {c.isOwner && <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">(Owner)</span>}
+                        </span>
+                        {!c.isOwner && (courseOwnerId === userId || c.id === userId) && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCollaborator(c.id)}
+                            className="text-sm text-red-600 dark:text-red-400 hover:underline shrink-0"
+                          >
+                            {c.id === userId ? 'Leave' : 'Remove'}
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  {courseOwnerId === userId && (
+                    <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                      <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Invite co-instructor</p>
+                      <div className="flex gap-2">
+                        <input
+                          type="email"
+                          placeholder="Email address"
+                          value={inviteEmail}
+                          onChange={(e) => { setInviteEmail(e.target.value); setInviteError(null); }}
+                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleInviteCollaborator}
+                          disabled={inviteLoading || !inviteEmail.trim()}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1 shrink-0"
+                        >
+                          {inviteLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                          Invite
+                        </button>
+                      </div>
+                      {inviteError && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{inviteError}</p>}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>

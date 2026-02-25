@@ -95,8 +95,13 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
           const { data: myProfile } = await supabase.from('user_profiles').select('role').eq('id', currentUserId).maybeSingle();
           const role = (myProfile as { role?: string } | null)?.role;
           if (role !== 'admin') {
-            const { data: myCourses } = await supabase.from('courses').select('id').eq('created_by', currentUserId);
-            const courseIds = (myCourses ?? []).map((c: { id: string }) => c.id);
+            const [{ data: myCourses }, { data: collabRows }] = await Promise.all([
+              supabase.from('courses').select('id').eq('created_by', currentUserId),
+              supabase.from('course_collaborators').select('course_id').eq('user_id', currentUserId)
+            ]);
+            const ownedIds = (myCourses ?? []).map((c: { id: string }) => c.id);
+            const collabIds = (collabRows ?? []).map((c: { course_id: string }) => c.course_id);
+            const courseIds = Array.from(new Set([...ownedIds, ...collabIds]));
             if (courseIds.length === 0) {
               setLearners([]);
               return;
