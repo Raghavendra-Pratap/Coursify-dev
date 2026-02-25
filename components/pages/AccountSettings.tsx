@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Sun,
   Moon,
+  X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { LearningPreferences } from '../LearningPreferences';
@@ -71,6 +72,12 @@ export default function AccountSettings() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -91,6 +98,36 @@ export default function AccountSettings() {
     }
     saveStored({});
     setSettings({ ...defaultSettings, ...loadStored() });
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+    setPasswordSuccess(false);
+    if (newPassword.length < 6) {
+      setPasswordError('Password must be at least 6 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Passwords do not match.');
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        setPasswordError(error.message || 'Failed to update password.');
+        return;
+      }
+      setPasswordSuccess(true);
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => { setShowPasswordModal(false); setPasswordSuccess(false); }, 1500);
+    } catch {
+      setPasswordError('Something went wrong.');
+    } finally {
+      setChangingPassword(false);
+    }
   };
 
   const Section = ({
@@ -134,6 +171,9 @@ export default function AccountSettings() {
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Account Settings</h2>
         <p className="text-gray-600 dark:text-gray-400 mt-1">Manage your account preferences and security</p>
+        <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
+          Theme and Clear Cache work now. Password change works. Other options are saved locally and will apply when we add those features.
+        </p>
       </div>
 
       <Section icon={Lock} title="Security">
@@ -141,27 +181,27 @@ export default function AccountSettings() {
           label="Password"
           description="Change your password"
           action={
-            <button className="px-4 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50 rounded-lg">
+            <button
+              type="button"
+              onClick={() => { setShowPasswordModal(true); setPasswordError(null); setPasswordSuccess(false); setNewPassword(''); setConfirmPassword(''); }}
+              className="px-4 py-2 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
+            >
               Change
             </button>
           }
         />
         <Row
           label="Two-Factor Authentication"
-          description="Add an extra layer of security"
+          description="Coming soon"
           action={
-            <button className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg">
-              Enable
-            </button>
+            <span className="text-xs text-gray-500 dark:text-gray-400 px-2">Coming soon</span>
           }
         />
         <Row
           label="Active Sessions"
-          description="Manage devices logged into your account"
+          description="Coming soon"
           action={
-            <button className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg">
-              Manage
-            </button>
+            <span className="text-xs text-gray-500 dark:text-gray-400 px-2">Coming soon</span>
           }
         />
       </Section>
@@ -191,7 +231,7 @@ export default function AccountSettings() {
         />
         <Row
           label="Language"
-          description="Select your preferred language"
+          description="Saved; app language coming soon"
           action={
             <select
               value={settings.language}
@@ -209,6 +249,7 @@ export default function AccountSettings() {
       </Section>
 
       <Section icon={Bell} title="Notifications">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Saved locally; email/reminders will use these when available.</p>
         <Row
           label="Email Notifications"
           description="Receive updates via email"
@@ -260,6 +301,7 @@ export default function AccountSettings() {
       </Section>
 
       <Section icon={BookOpen} title="Learning Preferences">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Saved locally for when we add these features.</p>
         <Row
           label="Sound Effects"
           description="Play sounds for actions and achievements"
@@ -291,11 +333,12 @@ export default function AccountSettings() {
           <BookOpen className="w-5 h-5 text-gray-600 dark:text-gray-400" />
           <h3 className="text-lg font-bold text-gray-900 dark:text-white">Inferred Learning Preferences</h3>
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Weights learned from your activity (video, reading, quiz).</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Weights learned from your activity (video, reading, quiz). Display only for now.</p>
         <LearningPreferences />
       </div>
 
       <Section icon={User} title="Privacy">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Saved locally; will apply when profile visibility is implemented.</p>
         <Row
           label="Public Profile"
           description="Make your profile visible to others"
@@ -337,18 +380,14 @@ export default function AccountSettings() {
       <Section icon={Cloud} title="Data & Storage">
         <Row
           label="Download My Data"
-          description="Export your data"
-          action={
-            <button className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg">
-              <ChevronRight className="w-5 h-5" />
-            </button>
-          }
+          description="Coming soon"
+          action={<span className="text-xs text-gray-500 dark:text-gray-400">Coming soon</span>}
         />
         <Row
           label="Clear Cache"
-          description="Clear locally stored preferences"
+          description="Clear locally stored preferences (works now)"
           action={
-            <button onClick={handleClearCache} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg">
+            <button onClick={handleClearCache} className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
               <ChevronRight className="w-5 h-5" />
             </button>
           }
@@ -356,9 +395,10 @@ export default function AccountSettings() {
       </Section>
 
       <Section icon={HelpCircle} title="Support">
-        <Row label="Help Center" action={<ChevronRight className="w-5 h-5 text-gray-400" />} />
-        <Row label="Contact Support" action={<ChevronRight className="w-5 h-5 text-gray-400" />} />
-        <Row label="Terms & Privacy" action={<ChevronRight className="w-5 h-5 text-gray-400" />} />
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Links coming soon.</p>
+        <Row label="Help Center" action={<span className="text-xs text-gray-500 dark:text-gray-400">Coming soon</span>} />
+        <Row label="Contact Support" action={<span className="text-xs text-gray-500 dark:text-gray-400">Coming soon</span>} />
+        <Row label="Terms & Privacy" action={<span className="text-xs text-gray-500 dark:text-gray-400">Coming soon</span>} />
       </Section>
 
       <div className="bg-red-50/80 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 p-6 mb-6">
@@ -370,7 +410,7 @@ export default function AccountSettings() {
           <div className="flex items-center justify-between py-2">
             <div>
               <p className="font-semibold text-gray-900 dark:text-white">Deactivate Account</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Temporarily disable your account</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Coming soon</p>
             </div>
           </div>
           <div className="flex items-center justify-between py-2">
@@ -387,6 +427,58 @@ export default function AccountSettings() {
           </div>
         </div>
       </div>
+
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowPasswordModal(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Change password</h3>
+              <button onClick={() => setShowPasswordModal(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg dark:text-gray-200">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              {passwordError && (
+                <p className="text-sm text-red-600 dark:text-red-400">{passwordError}</p>
+              )}
+              {passwordSuccess && (
+                <p className="text-sm text-green-600 dark:text-green-400">Password updated. You can close this.</p>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New password</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                  placeholder="At least 6 characters"
+                  minLength={6}
+                  autoComplete="new-password"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Confirm new password</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                  placeholder="Repeat password"
+                  autoComplete="new-password"
+                />
+              </div>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setShowPasswordModal(false)} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
+                  Cancel
+                </button>
+                <button type="submit" disabled={changingPassword} className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50">
+                  {changingPassword ? 'Updating…' : 'Update password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowDeleteConfirm(false)}>

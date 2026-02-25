@@ -304,7 +304,18 @@ const CoursifyLMS = () => {
     </div>
   ) : null;
 
-  const requireSignIn = authChecked && userDisplay.role === 'Sign in to save' && !!process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseConfigured = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const isGuest = userDisplay.role === 'Sign in to save';
+  const requireSignIn = authChecked && isGuest && supabaseConfigured;
+
+  // Don't show the app until we've checked auth (avoids flashing dashboard to guests)
+  if (supabaseConfigured && !authChecked) {
+    return (
+      <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center p-4">
+        <div className="text-gray-600 dark:text-gray-400">Checking sign-in…</div>
+      </div>
+    );
+  }
 
   if (requireSignIn) {
     return (
