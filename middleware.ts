@@ -14,10 +14,10 @@ export async function middleware(request: NextRequest) {
         return request.cookies.get(name)?.value
       },
       set(name: string, value: string, options: Record<string, unknown>) {
-        response.cookies.set({ name, value, ...options })
+        response.cookies.set({ name, value, ...options, path: '/', sameSite: 'lax' })
       },
       remove(name: string, options: Record<string, unknown>) {
-        response.cookies.set({ name, value: '', ...options })
+        response.cookies.set({ name, value: '', maxAge: 0, ...options, path: '/', sameSite: 'lax' })
       },
     },
   })

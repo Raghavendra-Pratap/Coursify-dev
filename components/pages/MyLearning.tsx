@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { BookOpen, Play, CheckCircle, ChevronRight } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 interface MyLearningProps {
   setCurrentView: (view: string) => void;
+  /** When provided, Start/Continue opens this course in the take-course view. */
+  onStartCourse?: (courseId: string) => void;
 }
 
 type EnrolledCourse = {
@@ -16,44 +17,16 @@ type EnrolledCourse = {
   completed_at: string | null;
 };
 
-export default function MyLearning({ setCurrentView }: MyLearningProps) {
+export default function MyLearning({ setCurrentView, onStartCourse }: MyLearningProps) {
   const [courses, setCourses] = useState<EnrolledCourse[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-        setLoading(false);
-        return;
-      }
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user) {
-          setCourses([]);
-          setLoading(false);
-          return;
-        }
-        const { data: enrollments } = await supabase
-          .from('enrollments')
-          .select('id, course_id, progress_percentage, completed_at')
-          .eq('user_id', session.user.id);
-        if (!enrollments?.length) {
-          setCourses([]);
-          setLoading(false);
-          return;
-        }
-        const courseIds = Array.from(new Set(enrollments.map((e: { course_id: string }) => e.course_id)));
-        const { data: courseRows } = await supabase.from('courses').select('id, title').in('id', courseIds);
-        const courseMap = new Map((courseRows ?? []).map((c: { id: string; title: string }) => [c.id, c.title]));
-        setCourses(
-          enrollments.map((e: { id: string; course_id: string; progress_percentage: number; completed_at: string | null }) => ({
-            id: e.id,
-            course_id: e.course_id,
-            title: courseMap.get(e.course_id) ?? 'Course',
-            progress_percentage: e.progress_percentage ?? 0,
-            completed_at: e.completed_at,
-          }))
-        );
+        const res = await fetch('/api/learning/enrolled', { credentials: 'include', cache: 'no-store' });
+        const data = await res.json().catch(() => ({ courses: [] }));
+        setCourses(Array.isArray(data.courses) ? data.courses : []);
       } catch {
         setCourses([]);
       } finally {
@@ -63,8 +36,12 @@ export default function MyLearning({ setCurrentView }: MyLearningProps) {
     load();
   }, []);
 
-  const handleContinue = (_courseId: string) => {
-    setCurrentView('courses');
+  const handleContinue = (courseId: string) => {
+    if (onStartCourse) {
+      onStartCourse(courseId);
+    } else {
+      setCurrentView('courses');
+    }
   };
 
   return (

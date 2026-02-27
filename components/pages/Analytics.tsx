@@ -77,56 +77,34 @@ const Analytics: React.FC = () => {
       }
       setConfigMissing(false);
       try {
-        const [analyticsRes, coursesRes, profilesRes, enrollmentsRes] = await Promise.all([
-          supabase.from('course_analytics').select('event_type, course_id'),
-          supabase.from('courses').select('id, title').limit(10),
-          supabase.from('user_profiles').select('id', { count: 'exact', head: true }),
-          supabase.from('enrollments').select('course_id, completed_at, progress_percentage')
-        ]);
-        const data = analyticsRes.data || [];
-        const completes = data.filter((r: { event_type?: string }) => r.event_type === 'complete').length;
-        const views = data.filter((r: { event_type?: string }) => r.event_type === 'view').length;
-        const totalLearners = profilesRes.count ?? 0;
-        const enrollments = enrollmentsRes.data ?? [];
-        const totalEnrollments = enrollments.length;
-        const completedEnrollments = enrollments.filter((e: { completed_at: string | null }) => e.completed_at).length;
-        const avgCompletionRate = totalEnrollments > 0 ? Math.round((completedEnrollments / totalEnrollments) * 100) : 0;
+        const res = await fetch('/api/instructor/analytics', { credentials: 'include', cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setConfigMissing(true);
+          return;
+        }
+        const overview = data.overview ?? { totalLearners: 0, activeLearners: 0, coursesCompleted: 0, avgCompletionRate: 0 };
+        const coursePerformanceList = Array.isArray(data.coursePerformance) ? data.coursePerformance : [];
         setOverviewStats({
-          totalLearners: { current: totalLearners, previous: 0, change: 0, trend: 'up' },
-          activeLearners: { current: views || totalLearners, previous: 0, change: 0, trend: 'up' },
-          coursesCompleted: { current: completes || completedEnrollments, previous: 0, change: 0, trend: 'up' },
-          avgCompletionRate: { current: avgCompletionRate, previous: 0, change: 0, trend: 'up' }
+          totalLearners: { current: overview.totalLearners ?? 0, previous: 0, change: 0, trend: 'up' },
+          activeLearners: { current: overview.activeLearners ?? 0, previous: 0, change: 0, trend: 'up' },
+          coursesCompleted: { current: overview.coursesCompleted ?? 0, previous: 0, change: 0, trend: 'up' },
+          avgCompletionRate: { current: overview.avgCompletionRate ?? 0, previous: 0, change: 0, trend: 'up' }
         });
-        const courses = coursesRes.data || [];
-        const byCourse: Record<string, { enrolled: number; completed: number; inProgress: number; totalProgress: number }> = {};
-        courses.forEach((c: { id: string }) => {
-          byCourse[c.id] = { enrolled: 0, completed: 0, inProgress: 0, totalProgress: 0 };
-        });
-        enrollments.forEach((e: { course_id: string; completed_at: string | null; progress_percentage?: number }) => {
-          if (!byCourse[e.course_id]) byCourse[e.course_id] = { enrolled: 0, completed: 0, inProgress: 0, totalProgress: 0 };
-          byCourse[e.course_id].enrolled++;
-          byCourse[e.course_id].totalProgress += e.progress_percentage ?? 0;
-          if (e.completed_at) byCourse[e.course_id].completed++;
-          else byCourse[e.course_id].inProgress++;
-        });
-        setCoursePerformance(courses.map((c: { id: string; title: string }) => {
-          const bc = byCourse[c.id] ?? { enrolled: 0, completed: 0, inProgress: 0, totalProgress: 0 };
-          const completionRate = bc.enrolled ? Math.round(bc.totalProgress / bc.enrolled) : 0;
-          return {
-            id: c.id,
-            name: c.title,
-            enrolled: bc.enrolled,
-            completed: bc.completed,
-            inProgress: bc.inProgress,
-            completionRate,
-            avgScore: 0,
-            avgTime: '—',
-            dropOffRate: 0,
-            satisfaction: 0,
-            trend: 'up',
-            trendValue: 0
-          };
-        }));
+        setCoursePerformance(coursePerformanceList.map((c: { id: string | number; name: string; enrolled: number; completed: number; inProgress: number; completionRate: number }) => ({
+          id: c.id,
+          name: c.name,
+          enrolled: c.enrolled,
+          completed: c.completed,
+          inProgress: c.inProgress,
+          completionRate: c.completionRate ?? 0,
+          avgScore: 0,
+          avgTime: '—',
+          dropOffRate: 0,
+          satisfaction: 0,
+          trend: 'up',
+          trendValue: 0
+        })));
       } catch {
         setConfigMissing(true);
       }

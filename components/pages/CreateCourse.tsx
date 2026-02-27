@@ -10,6 +10,8 @@ import { supabase } from '@/lib/supabase';
 
 interface CreateCourseProps {
   setCurrentView: (view: string) => void;
+  initialCourseId?: string | null;
+  onBackToCourses?: () => void;
 }
 
 // Updated data structure: Lessons contain content items (video segments, quizzes, forms, reading)
@@ -209,7 +211,7 @@ function SegmentEnforcedIframePlayer({
   );
 }
 
-/** YouTube embed that enforces segment end (uses IFrame API to pause at end time) */
+/** YouTube embed for segment preview. Uses iframe with start/end params only (no IFrame API) to avoid postMessage origin errors on localhost. */
 function YouTubeSegmentPlayer({
   videoId,
   startSeconds = 0,
@@ -223,90 +225,19 @@ function YouTubeSegmentPlayer({
   title?: string;
   className?: string;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<unknown>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container || !videoId) return;
-
-    const loadApi = (): Promise<void> => {
-      if (typeof window !== 'undefined' && (window as unknown as { YT?: { Player: unknown } }).YT?.Player) {
-        return Promise.resolve();
-      }
-      return new Promise((resolve) => {
-        const existing = document.getElementById('youtube-iframe-api');
-        if (existing) {
-          (window as unknown as { onYouTubeIframeAPIReady?: () => void }).onYouTubeIframeAPIReady = () => resolve();
-          return;
-        }
-        const script = document.createElement('script');
-        script.id = 'youtube-iframe-api';
-        script.src = 'https://www.youtube.com/iframe_api';
-        script.async = true;
-        (window as unknown as { onYouTubeIframeAPIReady?: () => void }).onYouTubeIframeAPIReady = () => resolve();
-        document.head.appendChild(script);
-      });
-    };
-
-    loadApi().then(() => {
-      type YTPlayer = { getCurrentTime?: () => number; pauseVideo?: () => void; seekTo?: (s: number) => void; destroy?: () => void };
-      const YT = (window as unknown as { YT?: { Player: new (el: HTMLElement, opts: Record<string, unknown>) => YTPlayer } }).YT;
-      if (!YT || !container) return;
-
-      const player = new YT.Player(container, {
-        videoId,
-        playerVars: {
-          start: Math.floor(startSeconds),
-          end: endSeconds != null && endSeconds > 0 ? Math.floor(endSeconds) : undefined,
-          rel: 0,
-          modestbranding: 1,
-          iv_load_policy: 3,
-        },
-        events: {},
-      }) as YTPlayer;
-
-      playerRef.current = player;
-
-      // Enforce segment: learner cannot play before start or past end
-      const hasBounds = endSeconds != null && endSeconds > 0;
-      if (hasBounds || startSeconds > 0) {
-        intervalRef.current = setInterval(() => {
-          try {
-            const current = player.getCurrentTime?.();
-            if (typeof current !== 'number') return;
-            if (current < startSeconds - 0.3) {
-              player.seekTo?.(startSeconds);
-            }
-            if (hasBounds && current >= endSeconds - 0.3) {
-              player.seekTo?.(endSeconds);
-              player.pauseVideo?.();
-            }
-          } catch {
-            // ignore
-          }
-        }, 500);
-      }
-    });
-
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      intervalRef.current = null;
-      try {
-        const p = playerRef.current as { destroy?: () => void };
-        if (p?.destroy) p.destroy();
-      } catch {
-        // ignore
-      }
-      playerRef.current = null;
-    };
-  }, [videoId, startSeconds, endSeconds]);
-
-  return <div ref={containerRef} className={className} title={title} />;
+  const embedUrl = getYouTubeEmbedUrl(videoId, startSeconds, endSeconds);
+  return (
+    <iframe
+      title={title ?? 'YouTube segment'}
+      src={embedUrl}
+      className={className}
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      allowFullScreen
+    />
+  );
 }
 
-const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
+const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCourseId, onBackToCourses }) => {
   const [currentModule, setCurrentModule] = useState(0);
   const [currentLesson, setCurrentLesson] = useState(0);
   const [selectedContent, setSelectedContent] = useState(0);
@@ -361,10 +292,94 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
   });
 
   // Version history (loaded from course_versions when savedCourseId is set)
-  const [versions, setVersions] = useState<{ id: number; name: string; changes: string; timestamp: string; isCurrent: boolean; author: string }[]>([]);
+  const [versions, setVersions] = useState<{ id: string; name: string; changes: string; timestamp: string; isCurrent: boolean; author: string }[]>([]);
 
   // Drive files (populated when Google Drive is connected)
   const [driveFiles] = useState<{ id: number; name: string; size: string; type: string; modified: string }[]>([]);
+
+  // Edit load state: when opening a course by initialCourseId
+  const [courseLoadState, setCourseLoadState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
+
+  // Load existing course when editing from My Courses
+  useEffect(() => {
+    if (!initialCourseId || !process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      setCourseLoadState('idle');
+      return;
+    }
+    setCourseLoadState('loading');
+    const db = supabase as any;
+    (async () => {
+      try {
+        const { data: courseRow, error: courseErr } = await db.from('courses').select('id, title, description, status').eq('id', initialCourseId).maybeSingle();
+        if (courseErr || !courseRow) {
+          setCourseLoadState('error');
+          return;
+        }
+        setSavedCourseId((courseRow as { id: string }).id);
+        const c = courseRow as { title: string; description: string | null; status: string };
+        const { data: modRows } = await db.from('modules').select('id, title, order_index').eq('course_id', initialCourseId).order('order_index');
+        const modules: Module[] = [];
+        if (!modRows?.length) {
+          setCourseData({ title: c.title, description: c.description || '', lastEdited: 'Just now', status: (c.status as 'draft' | 'published') || 'draft', modules: [] });
+          setCourseLoadState('loaded');
+          return;
+        }
+        for (let mi = 0; mi < modRows.length; mi++) {
+          const mod = modRows[mi] as { id: string; title: string; order_index: number };
+          const { data: lessonRows } = await db.from('lessons').select('id, title, order_index, duration_seconds').eq('module_id', mod.id).order('order_index');
+          const lessons: Lesson[] = [];
+          for (let li = 0; li < (lessonRows || []).length; li++) {
+            const les = (lessonRows as { id: string; title: string; order_index: number; duration_seconds: number | null }[])[li];
+            const dur = les.duration_seconds != null ? formatSecondsToHHMMSS(les.duration_seconds) : '0:00';
+            const { data: itemRows } = await db.from('content_items').select('id, content_type, order_index').eq('lesson_id', les.id).order('order_index');
+            const content: ContentItem[] = [];
+            for (let ci = 0; ci < (itemRows || []).length; ci++) {
+              const item = (itemRows as { id: string; content_type: string; order_index: number }[])[ci];
+              const type = (item.content_type === 'video' || item.content_type === 'quiz' || item.content_type === 'form' || item.content_type === 'reading') ? item.content_type : 'reading';
+              const contentItem: ContentItem = { id: ci, type: type as ContentType, order: item.order_index };
+              if (type === 'video') {
+                const { data: vsRows } = await db.from('video_segments').select('name, duration_seconds, start_time_seconds, end_time_seconds, source, source_url').eq('content_item_id', item.id);
+                const vs = vsRows?.[0] as { name: string; duration_seconds: number; start_time_seconds: number; end_time_seconds: number; source: string; source_url: string | null } | undefined;
+                contentItem.videoSegment = vs ? { id: ci, name: vs.name, duration: formatSecondsToHHMMSS(vs.duration_seconds || 0), startTime: formatSecondsToHHMMSS(vs.start_time_seconds || 0), endTime: formatSecondsToHHMMSS(vs.end_time_seconds || 0), status: 'active', size: '', lastEdited: '', source: (vs.source as VideoSource) || 'upload', sourceUrl: vs.source_url || undefined } : undefined;
+              }
+              if (type === 'reading') {
+                const { data: rmRows } = await db.from('reading_materials').select('title, type, url, body').eq('content_item_id', item.id).maybeSingle();
+                const rm = rmRows as { title: string; type: string; url: string | null; body: string | null } | undefined;
+                contentItem.reading = rm ? { title: rm.title, type: (rm.type as 'url' | 'native'), url: rm.url || undefined, body: rm.body || undefined } : undefined;
+              }
+              if (type === 'quiz') {
+                const { data: qRows } = await db.from('quizzes').select('title, passing_score').eq('content_item_id', item.id).maybeSingle();
+                const q = qRows as { title: string; passing_score: number } | undefined;
+                contentItem.quiz = q ? { id: ci, title: q.title, questions: [], passingScore: q.passing_score ?? 70 } : undefined;
+              }
+              content.push(contentItem);
+            }
+            lessons.push({ id: li, title: les.title, order: les.order_index, content, duration: dur });
+          }
+          modules.push({ id: mi, title: mod.title, order: mod.order_index, lessons, duration: '0:00' });
+        }
+        setCourseData({ title: c.title, description: c.description || '', lastEdited: 'Just now', status: (c.status as 'draft' | 'published') || 'draft', modules });
+        setCourseLoadState('loaded');
+        try {
+          const { data: versionRows } = await db.from('course_versions').select('id, version_number, changes_description, created_at, is_current').eq('course_id', initialCourseId).order('version_number', { ascending: false });
+          if (versionRows?.length) {
+            setVersions((versionRows as { id: string; version_number: number; changes_description: string | null; created_at: string; is_current: boolean }[]).map(v => ({
+              id: v.id,
+              name: `Version ${v.version_number}`,
+              changes: v.changes_description || 'No description',
+              timestamp: new Date(v.created_at).toLocaleString(),
+              isCurrent: !!v.is_current,
+              author: 'Author'
+            })));
+          } else setVersions([]);
+        } catch {
+          setVersions([]);
+        }
+      } catch {
+        setCourseLoadState('error');
+      }
+    })();
+  }, [initialCourseId]);
 
   const currentModuleData = courseData.modules[currentModule];
   const currentLessonData = currentModuleData?.lessons[currentLesson];
@@ -374,10 +389,12 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
   const handleDragStart = (e: React.DragEvent, type: 'module' | 'lesson' | 'content', id: number, moduleId?: number, lessonId?: number) => {
     setDraggedItem({ type, id, moduleId, lessonId });
     e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', `${type}-${id}`);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
   };
 
@@ -415,24 +432,31 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
         }
       }
     } else if (draggedItem.type === 'content' && targetType === 'content' && draggedItem.lessonId === targetLessonId) {
-      // Reorder content within same lesson
-      const modules = [...courseData.modules];
-      const module = modules.find(m => m.id === draggedItem.moduleId);
-      if (module) {
-        const lesson = module.lessons.find(l => l.id === draggedItem.lessonId);
-        if (lesson) {
-          const content = [...lesson.content];
-          const draggedIndex = content.findIndex(c => c.id === draggedItem.id);
-          const targetIndex = content.findIndex(c => c.id === targetId);
-          
-          if (draggedIndex !== -1 && targetIndex !== -1) {
-            const [removed] = content.splice(draggedIndex, 1);
-            content.splice(targetIndex, 0, removed);
-            content.forEach((c, idx) => { c.order = idx; });
-            lesson.content = content;
-            setCourseData({ ...courseData, modules });
-          }
-        }
+      // Reorder content within same lesson (immutable update so UI and save see new order)
+      const draggedIndex = courseData.modules
+        .find(m => m.id === draggedItem.moduleId)
+        ?.lessons.find(l => l.id === draggedItem.lessonId)
+        ?.content.findIndex(c => c.id === draggedItem.id) ?? -1;
+      const targetIndex = courseData.modules
+        .find(m => m.id === targetModuleId)
+        ?.lessons.find(l => l.id === targetLessonId)
+        ?.content.findIndex(c => c.id === targetId) ?? -1;
+      if (draggedIndex !== -1 && targetIndex !== -1 && draggedIndex !== targetIndex) {
+        const modules = courseData.modules.map(m => {
+          if (m.id !== draggedItem.moduleId) return m;
+          return {
+            ...m,
+            lessons: m.lessons.map(l => {
+              if (l.id !== draggedItem.lessonId) return l;
+              const content = [...l.content];
+              const [removed] = content.splice(draggedIndex, 1);
+              content.splice(targetIndex, 0, removed);
+              content.forEach((c, idx) => { c.order = idx; });
+              return { ...l, content };
+            })
+          };
+        });
+        setCourseData({ ...courseData, modules });
       }
     }
     
@@ -664,12 +688,40 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
     }
   };
 
-  const handleRestoreVersion = (versionId: number) => {
-    const updatedVersions = versions.map(v => ({
-      ...v,
-      isCurrent: v.id === versionId
-    }));
-    setVersions(updatedVersions);
+  const handleDeleteModule = (moduleId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const modules = courseData.modules.filter(m => m.id !== moduleId);
+    const newIdx = Math.min(currentModule, Math.max(0, modules.length - 1));
+    setCurrentModule(newIdx);
+    setCurrentLesson(0);
+    setSelectedContent(0);
+    setCourseData({ ...courseData, modules });
+  };
+
+  const handleDeleteLesson = (moduleIdx: number, lessonId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const modules = [...courseData.modules];
+    const mod = modules[moduleIdx];
+    if (!mod) return;
+    const lessons = mod.lessons.filter(l => l.id !== lessonId);
+    modules[moduleIdx] = { ...mod, lessons };
+    const newLessonIdx = currentModule === moduleIdx ? Math.min(currentLesson, Math.max(0, lessons.length - 1)) : currentLesson;
+    if (currentModule === moduleIdx) setCurrentLesson(newLessonIdx);
+    setSelectedContent(0);
+    setCourseData({ ...courseData, modules });
+  };
+
+  const handleRestoreVersion = async (versionId: string) => {
+    if (!savedCourseId) return;
+    const db = supabase as any;
+    const { data: ver } = await db.from('course_versions').select('course_snapshot').eq('id', versionId).maybeSingle();
+    const snapshot = (ver as { course_snapshot?: unknown } | null)?.course_snapshot;
+    if (snapshot && typeof snapshot === 'object' && snapshot !== null && 'modules' in snapshot) {
+      setCourseData(prev => ({ ...prev, ...(snapshot as { title?: string; description?: string; modules: Module[] }) }));
+    }
+    await db.from('course_versions').update({ is_current: false }).eq('course_id', savedCourseId);
+    await db.from('course_versions').update({ is_current: true }).eq('id', versionId);
+    setVersions(prev => prev.map(v => ({ ...v, isCurrent: v.id === versionId })));
   };
 
   const connectGoogleDrive = () => {
@@ -705,12 +757,23 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
       const db = supabase as any;
       let finalCourseId: string;
       if (savedCourseId) {
-        const { error: updateErr } = await db.from('courses').update({
-          title: courseData.title,
-          description: courseData.description,
-          updated_at: new Date().toISOString()
-        }).eq('id', savedCourseId);
-        if (updateErr) throw updateErr;
+        // Replace full structure server-side so module/lesson counts stay correct (avoids RLS blocking deletes).
+        const res = await fetch(`/api/instructor/courses/${savedCourseId}/structure`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            title: courseData.title,
+            description: courseData.description,
+            modules: courseData.modules,
+          }),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const msg = (errData as { error?: string; details?: string })?.error || res.statusText || 'Failed to update course structure';
+          const details = (errData as { details?: string })?.details;
+          throw new Error(details ? `${msg}: ${details}` : msg);
+        }
         finalCourseId = savedCourseId;
       } else {
         const { data: courseRow, error: courseErr } = await db.from('courses').insert({
@@ -725,6 +788,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
         setSavedCourseId(courseId);
         finalCourseId = courseId;
       }
+      // Insert modules/lessons/content only for new courses; existing courses are updated via structure API above.
       if (!savedCourseId) {
       for (let mi = 0; mi < courseData.modules.length; mi++) {
         const mod = courseData.modules[mi];
@@ -773,9 +837,18 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
               const vs = item.videoSegment;
               const startSec = vs.startTimestamp ?? parseTimeToSecondsForSave(vs.startTime || '0:00');
               const endSec = vs.endTimestamp ?? parseTimeToSecondsForSave(vs.endTime || vs.duration || '0:00');
+              const videoUrl = vs.sourceUrl ?? '';
+              const storageType = vs.source === 'google_drive' ? 'google_drive' : (vs.source === 'youtube' || vs.source === 'external_url' ? 'external_url' : 'supabase');
               await db.from('video_segments').insert({
+                lesson_id: lessonId,
+                segment_index: item.order,
+                video_url: videoUrl,
+                start_time: startSec,
+                end_time: endSec,
+                storage_type: storageType,
+                storage_path: videoUrl || null,
                 content_item_id: contentItemId,
-                name: vs.name,
+                name: vs.name ?? 'Video',
                 duration_seconds: endSec - startSec || 0,
                 start_time_seconds: startSec,
                 end_time_seconds: endSec,
@@ -794,6 +867,33 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
         }
       }
       }
+      // Record version history (lesson/module level tracking)
+      try {
+        const { data: maxVer } = await db.from('course_versions').select('version_number').eq('course_id', finalCourseId).order('version_number', { ascending: false }).limit(1).maybeSingle();
+        const nextVersion = (maxVer as { version_number: number } | null)?.version_number != null ? (maxVer as { version_number: number }).version_number + 1 : 1;
+        await db.from('course_versions').update({ is_current: false }).eq('course_id', finalCourseId);
+        await db.from('course_versions').insert({
+          course_id: finalCourseId,
+          version_number: nextVersion,
+          changes_description: `Saved: ${courseData.modules.length} module(s), ${courseData.modules.reduce((acc, m) => acc + m.lessons.length, 0)} lesson(s)`,
+          created_by: userId,
+          is_current: true,
+          course_snapshot: { title: courseData.title, description: courseData.description, modules: courseData.modules }
+        });
+        const { data: versionRows } = await db.from('course_versions').select('id, version_number, changes_description, created_at, is_current').eq('course_id', finalCourseId).order('version_number', { ascending: false });
+        if (versionRows?.length) {
+          setVersions((versionRows as { id: string; version_number: number; changes_description: string | null; created_at: string; is_current: boolean }[]).map(v => ({
+            id: v.id,
+            name: `Version ${v.version_number}`,
+            changes: v.changes_description || 'No description',
+            timestamp: new Date(v.created_at).toLocaleString(),
+            isCurrent: !!v.is_current,
+            author: 'You'
+          })));
+        }
+      } catch (_) {
+        // course_versions table or RLS may not exist; save still succeeded
+      }
       setCourseData(prev => ({ ...prev, lastEdited: 'Just now' }));
       showSaveMessage(savedCourseId ? 'Course updated.' : 'Course saved to database.');
     } catch (e: unknown) {
@@ -801,7 +901,10 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
       let msg = err?.message || 'Failed to save course.';
       if (typeof err?.details === 'string') msg += ` (${err.details})`;
       if (msg.includes('row-level security') || msg.includes('RLS') || msg.includes('policy')) {
-        msg += ' Run database/FIX_LESSONS_RLS.sql in Supabase SQL Editor (you must be signed in).';
+        msg += ' Run database/FIX_LESSONS_RLS.sql in Supabase SQL Editor. Stay signed in to the app when saving (so your session is sent). For more help run database/DEBUG_LESSONS_RLS.sql.';
+      }
+      if (msg.toLowerCase().includes('video_segments')) {
+        msg += ' Run database/FIX_VIDEO_SEGMENTS_RLS.sql in Supabase SQL Editor so video links and timestamps can be saved.';
       }
       if (msg.toLowerCase().includes('reading_materials') || msg.toLowerCase().includes('does not exist')) {
         msg += ' Run database/ADD_READING_SUPPORT.sql in Supabase if you use reading content.';
@@ -836,6 +939,27 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
     showSaveMessage('Save the course first, then click Publish again.');
   };
 
+  if (initialCourseId && courseLoadState === 'loading') {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-4 p-8">
+        <p className="text-gray-600">Loading course…</p>
+      </div>
+    );
+  }
+  if (initialCourseId && courseLoadState === 'error') {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-4 p-8">
+        <p className="text-gray-700 font-medium">Could not load course.</p>
+        <button
+          onClick={() => onBackToCourses?.()}
+          className="text-blue-600 hover:underline font-semibold"
+        >
+          ← Back to Courses
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full flex flex-col">
       {saveMessage && (
@@ -848,7 +972,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
       <div className="w-80 bg-white border-r border-gray-200 overflow-auto flex-shrink-0">
         <div className="p-6 border-b border-gray-200">
           <button 
-            onClick={() => setCurrentView('courses')} 
+            onClick={() => { onBackToCourses ? onBackToCourses() : setCurrentView('courses'); }} 
             className="flex items-center text-blue-600 hover:text-blue-700 mb-4 transition-all"
           >
             <ChevronRight className="w-5 h-5 rotate-180" />
@@ -908,9 +1032,20 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
                       </p>
                     )}
                   </div>
-                  {currentModule === moduleIdx && (
-                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse flex-shrink-0"></div>
-                  )}
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {currentModule === moduleIdx && (
+                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteModule(module.id, e)}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      title="Delete module"
+                      aria-label="Delete module"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
                   <span>{module.lessons.length} lessons</span>
@@ -938,8 +1073,8 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
                             : 'bg-gray-50 border-gray-200 hover:border-blue-300'
                         } ${draggedItem?.type === 'lesson' && draggedItem.id === lesson.id ? 'opacity-50' : ''}`}
                       >
-                        <div className="flex items-center">
-                          <Menu className="w-3 h-3 text-gray-400 mr-2 cursor-move" />
+                        <div className="flex items-center w-full">
+                          <Menu className="w-3 h-3 text-gray-400 mr-2 cursor-move flex-shrink-0" />
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold truncate">{lesson.order + 1}. {lesson.title}</p>
                             <div className="flex items-center justify-between mt-1 text-xs text-gray-500">
@@ -947,6 +1082,15 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView }) => {
                               <span>{lesson.duration}</span>
                             </div>
                           </div>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteLesson(moduleIdx, lesson.id, e)}
+                            className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+                            title="Delete lesson"
+                            aria-label="Delete lesson"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
                     ))}

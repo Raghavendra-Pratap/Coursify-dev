@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
-import { BookOpen, ArrowRight } from 'lucide-react'
+import { BookOpen, ArrowRight, Loader2 } from 'lucide-react'
 
 type Course = { id: string; title: string; description: string | null; status: string }
 
@@ -11,35 +10,33 @@ export default function CoursePage({ params }: { params: { id: string } }) {
   const [course, setCourse] = useState<Course | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [signedIn, setSignedIn] = useState(false)
+  const [enrolling, setEnrolling] = useState(false)
+  const [enrollError, setEnrollError] = useState<string | null>(null)
+
+  const id = typeof params.id === 'string' ? params.id : (params as unknown as { id: string }).id
 
   useEffect(() => {
-    const id = typeof params.id === 'string' ? params.id : (params as unknown as { id: string }).id
     if (!id) {
       setLoading(false)
       setError('Invalid course link.')
       return
     }
     async function load() {
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-        setError('App not configured.')
-        setLoading(false)
-        return
-      }
       try {
-        const { data, error: e } = await supabase
-          .from('courses')
-          .select('id, title, description, status')
-          .eq('id', id)
-          .maybeSingle()
-        if (e) {
-          setError('Could not load course.')
+        const [courseRes, sessionRes] = await Promise.all([
+          fetch(`/api/courses/${encodeURIComponent(id)}`, { credentials: 'include' }),
+          fetch('/api/auth/session', { credentials: 'include' }),
+        ])
+        const data = await courseRes.json().catch(() => ({}))
+        if (!courseRes.ok) {
+          setError(data?.error ?? (courseRes.status === 404 ? 'Course not found.' : 'Could not load course.'))
           setCourse(null)
-        } else if (data) {
-          setCourse(data as Course)
-          if ((data as Course).status !== 'published') setError('This course is not published yet.')
         } else {
-          setError('Course not found.')
+          setCourse(data as Course)
         }
+        const sessionData = await sessionRes.json().catch(() => ({}))
+        setSignedIn(!!sessionData?.session?.user)
       } catch {
         setError('Something went wrong.')
       } finally {
@@ -47,7 +44,7 @@ export default function CoursePage({ params }: { params: { id: string } }) {
       }
     }
     load()
-  }, [params.id])
+  }, [id])
 
   if (loading) {
     return (
@@ -91,13 +88,51 @@ export default function CoursePage({ params }: { params: { id: string } }) {
           {error && course?.status !== 'published' && (
             <p className="text-amber-700 bg-amber-50 rounded-lg p-3 text-sm mb-6">{error}</p>
           )}
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors"
-          >
-            Go to Coursify to enroll
-            <ArrowRight className="w-4 h-4" />
-          </Link>
+          {signedIn ? (
+            <>
+              <button
+                type="button"
+                disabled={enrolling}
+                onClick={async () => {
+                  setEnrollError(null)
+                  setEnrolling(true)
+                  try {
+                    const res = await fetch(`/api/courses/${encodeURIComponent(id)}/enroll`, {
+                      method: 'POST',
+                      credentials: 'include',
+                    })
+                    const data = await res.json().catch(() => ({}))
+                    if (!res.ok) {
+                      setEnrollError(data?.error || 'Enrollment failed')
+                      return
+                    }
+                    if (typeof window !== 'undefined') {
+                      window.localStorage.setItem('coursify_session_mode', 'learner')
+                    }
+                    window.location.href = '/'
+                  } catch {
+                    setEnrollError('Something went wrong.')
+                  } finally {
+                    setEnrolling(false)
+                  }
+                }}
+                className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-70"
+              >
+                {enrolling ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {enrolling ? 'Enrolling…' : 'Enroll in this course'}
+                <ArrowRight className="w-4 h-4" />
+              </button>
+              {enrollError && <p className="mt-2 text-sm text-red-600">{enrollError}</p>}
+            </>
+          ) : (
+            <Link
+              href={`/?enroll=${encodeURIComponent(id)}`}
+              className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors"
+            >
+              Go to Coursify to enroll
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          )}
         </div>
       </div>
     </div>

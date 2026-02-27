@@ -95,19 +95,9 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
           const { data: myProfile } = await supabase.from('user_profiles').select('role').eq('id', currentUserId).maybeSingle();
           const role = (myProfile as { role?: string } | null)?.role;
           if (role !== 'admin') {
-            const [{ data: myCourses }, { data: collabRows }] = await Promise.all([
-              supabase.from('courses').select('id').eq('created_by', currentUserId),
-              supabase.from('course_collaborators').select('course_id').eq('user_id', currentUserId)
-            ]);
-            const ownedIds = (myCourses ?? []).map((c: { id: string }) => c.id);
-            const collabIds = (collabRows ?? []).map((c: { course_id: string }) => c.course_id);
-            const courseIds = Array.from(new Set([...ownedIds, ...collabIds]));
-            if (courseIds.length === 0) {
-              setLearners([]);
-              return;
-            }
-            const { data: enrollments } = await supabase.from('enrollments').select('user_id').in('course_id', courseIds);
-            const userIds = Array.from(new Set((enrollments ?? []).map((e: { user_id: string }) => e.user_id)));
+            const res = await fetch('/api/instructor/learners', { credentials: 'include', cache: 'no-store' });
+            const data = await res.json().catch(() => ({ userIds: [] }));
+            const userIds = Array.isArray(data.userIds) ? data.userIds : [];
             if (userIds.length === 0) {
               setLearners([]);
               return;
@@ -163,7 +153,31 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   useEffect(() => {
     const fetchCourses = async () => {
       if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return;
-      const { data } = await supabase.from('courses').select('id, title').eq('status', 'published').order('title');
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id ?? null;
+      if (!currentUserId) {
+        setPublishedCourses([]);
+        return;
+      }
+      const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', currentUserId).maybeSingle();
+      const role = (profile as { role?: string } | null)?.role;
+      if (role === 'admin') {
+        const { data } = await supabase.from('courses').select('id, title').eq('status', 'published').order('title');
+        setPublishedCourses((data as { id: string; title: string }[]) || []);
+        return;
+      }
+      const [owned, collab] = await Promise.all([
+        supabase.from('courses').select('id').eq('created_by', currentUserId),
+        supabase.from('course_collaborators').select('course_id').eq('user_id', currentUserId)
+      ]);
+      const ownedIds = (owned.data ?? []).map((c: { id: string }) => c.id);
+      const collabIds = (collab.data ?? []).map((c: { course_id: string }) => c.course_id);
+      const combined = Array.from(new Set([...ownedIds, ...collabIds]));
+      if (combined.length === 0) {
+        setPublishedCourses([]);
+        return;
+      }
+      const { data } = await supabase.from('courses').select('id, title').in('id', combined).eq('status', 'published').order('title');
       setPublishedCourses((data as { id: string; title: string }[]) || []);
     };
     fetchCourses();

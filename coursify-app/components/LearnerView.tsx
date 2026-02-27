@@ -90,23 +90,59 @@ export function LearnerView({ courseId, userId }: LearnerViewProps) {
         setLesson(lessonData)
         setCurrentSegmentIndex(0)
 
-        if (lessonData.content_type === 'video') {
-          const { data: segmentsData, error: segmentsError } = await supabase
-            .from('video_segments')
-            .select('*')
-            .eq('lesson_id', lessonId)
-            .order('segment_index')
+        // Fetch video segments via content_items (app schema: lesson → content_items → video_segments)
+        const { data: videoContentItems } = await supabase
+          .from('content_items')
+          .select('id')
+          .eq('lesson_id', lessonId)
+          .eq('content_type', 'video')
+          .order('order_index')
 
-          if (segmentsError) throw segmentsError
-          if (segmentsData) {
-            setSegments(segmentsData)
-          }
-        } else {
+        const contentItemIds = (videoContentItems ?? []).map((c: { id: string }) => c.id).filter(Boolean)
+        if (contentItemIds.length === 0) {
           setSegments([])
+          return
         }
+
+        const { data: segmentsData, error: segmentsError } = await supabase
+          .from('video_segments')
+          .select('*')
+          .in('content_item_id', contentItemIds)
+
+        if (segmentsError) throw segmentsError
+
+        // Order by content_items order (match segment to content item by content_item_id)
+        const orderById = new Map<string, number>(contentItemIds.map((id: string, i: number) => [id, i]))
+        type SegmentRow = { content_item_id?: string };
+        const ordered = (segmentsData ?? []).slice().sort((a: SegmentRow, b: SegmentRow) => {
+          const aOrd = orderById.get(a.content_item_id ?? '') ?? 999
+          const bOrd = orderById.get(b.content_item_id ?? '') ?? 999
+          return aOrd - bOrd
+        })
+
+        // Normalize to shape expected by MicroVideoPlayer (support both legacy and new columns)
+        const mapStorageType = (v: string | undefined): 'google_drive' | 'supabase' | 'external_url' => {
+          if (v === 'google_drive') return 'google_drive'
+          if (v === 'supabase') return 'supabase'
+          return 'external_url' // youtube, upload, external_url, or missing
+        }
+        const normalized: VideoSegment[] = ordered.map((s: Record<string, unknown>) => ({
+          id: s.id as string,
+          lesson_id: (s.lesson_id as string) ?? lessonId,
+          segment_index: (s.segment_index as number) ?? 0,
+          video_url: (s.source_url as string) ?? (s.video_url as string) ?? '',
+          start_time: (s.start_time_seconds as number) ?? (s.start_time as number) ?? null,
+          end_time: (s.end_time_seconds as number) ?? (s.end_time as number) ?? null,
+          storage_type: mapStorageType((s.source as string) ?? (s.storage_type as string)),
+          storage_path: (s.storage_path as string) ?? null,
+          created_at: (s.created_at as string) ?? '',
+          updated_at: (s.updated_at as string) ?? '',
+        }))
+        setSegments(normalized)
       }
     } catch (err) {
       console.error('Error loading lesson:', err)
+      setSegments([])
     }
   }
 
@@ -203,7 +239,7 @@ export function LearnerView({ courseId, userId }: LearnerViewProps) {
               <p className="text-gray-600">{lesson.description}</p>
             )}
 
-            {lesson.content_type === 'video' && segments.length > 0 && (
+            {segments.length > 0 && (
               <div className="space-y-4">
                 <div key={segments[currentSegmentIndex]?.id}>
                   <h4 className="text-sm font-medium mb-2">

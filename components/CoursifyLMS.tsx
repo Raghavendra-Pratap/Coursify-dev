@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Play, Upload, Edit, Users, BarChart3, Settings, Plus, Check, X, Clock, FileText, Video, Folder, ChevronRight, Menu, Search, Bell, Award, TrendingUp, Home, BookOpen, Zap, Eye, Share2, Download, Target, Mail, User, LogOut } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import Dashboard from './pages/Dashboard';
 import CreateCourse from './pages/CreateCourse';
 import MyCourses from './pages/MyCourses';
@@ -12,13 +13,14 @@ import Reports from './pages/Reports';
 import Profile from './pages/Profile';
 import AccountSettings from './pages/AccountSettings';
 import MyLearning from './pages/MyLearning';
+import TakeCourse from './pages/TakeCourse';
 
 const SESSION_MODE_KEY = 'coursify_session_mode';
 type SessionMode = 'instructor' | 'learner' | null;
 
 // Guard: detect undefined page (wrong export or circular dep)
-const pageNames = ['Dashboard', 'CreateCourse', 'MyCourses', 'Learners', 'Analytics', 'Reports', 'Profile', 'AccountSettings', 'MyLearning'] as const;
-const pageComponents = [Dashboard, CreateCourse, MyCourses, Learners, Analytics, Reports, Profile, AccountSettings, MyLearning];
+const pageNames = ['Dashboard', 'CreateCourse', 'MyCourses', 'Learners', 'Analytics', 'Reports', 'Profile', 'AccountSettings', 'MyLearning', 'TakeCourse'] as const;
+const pageComponents = [Dashboard, CreateCourse, MyCourses, Learners, Analytics, Reports, Profile, AccountSettings, MyLearning, TakeCourse];
 const undefinedPages = pageNames.filter((_, i) => pageComponents[i] == null);
 if (undefinedPages.length > 0) {
   console.error('CoursifyLMS: undefined page component(s):', undefinedPages);
@@ -27,6 +29,7 @@ if (undefinedPages.length > 0) {
 type UserDisplay = { displayName: string; email?: string; initials: string; role?: string };
 
 const CoursifyLMS = () => {
+  const { user, isLoading: authLoading, isAuthenticated, signOut: authSignOut } = useAuth();
   const [sessionMode, setSessionMode] = useState<SessionMode>(null);
   const [currentView, setCurrentView] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -37,7 +40,10 @@ const CoursifyLMS = () => {
   const [signInError, setSignInError] = useState<string | null>(null);
   const [userDisplay, setUserDisplay] = useState<UserDisplay>({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
   const [profileStats, setProfileStats] = useState({ courses: 0, certificates: 0, badges: 0 });
-  const [authChecked, setAuthChecked] = useState(false);
+  const [isRedirectingToGoogle, setIsRedirectingToGoogle] = useState(false);
+  const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
+  const [learningCourseId, setLearningCourseId] = useState<string | null>(null);
+  const authChecked = !authLoading;
 
   // Apply saved theme (dark/light) on load so dark mode works before user opens Settings
   useEffect(() => {
@@ -67,113 +73,91 @@ const CoursifyLMS = () => {
     });
   }, []);
 
+  // Sync auth context user -> userDisplay and profileStats; restore session mode from localStorage
   useEffect(() => {
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    if (!user) {
       setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
       setProfileStats({ courses: 0, certificates: 0, badges: 0 });
-      setAuthChecked(true);
+      setSessionMode(null);
       return;
     }
-
-    let cancelled = false;
-    const MAX_WAIT_MS = 2500;
-
-    const unblock = () => {
-      if (!cancelled) setAuthChecked(true);
-    };
-
-    const applySession = (session: { user: { id: string; email?: string; user_metadata?: Record<string, unknown> } }) => {
-      if (!session?.user) return;
-      const rawName = session.user.user_metadata?.full_name ?? session.user.user_metadata?.name ?? (session.user.email ? session.user.email.split('@')[0] : null) ?? 'User';
-      const name = typeof rawName === 'string' ? rawName : 'User';
-      const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
-      setUserDisplay({ displayName: name, email: session.user.email ?? undefined, initials: initials || 'U', role: 'Learner' });
-      unblock();
-      supabase.from('user_profiles').select('full_name, role').eq('id', session.user.id).maybeSingle().then(({ data: profileData }) => {
-        if (cancelled) return;
-        if (profileData) {
-          const profile = profileData as { full_name: string | null; role: string };
-          const displayName = (profile.full_name ?? name) as string;
-          const role = profile.role === 'admin' ? 'Admin Account' : profile.role === 'instructor' ? 'Instructor' : 'Learner';
-          setUserDisplay((prev) => ({ ...prev, displayName, role }));
-        }
-      });
-      supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('user_id', session.user.id).then(({ count }) => {
-        if (!cancelled) setProfileStats({ courses: count ?? 0, certificates: 0, badges: 0 });
-      });
-      if (!cancelled && typeof window !== 'undefined') {
+    const rawName = user.user_metadata?.full_name ?? user.user_metadata?.name ?? (user.email ? user.email.split('@')[0] : null) ?? 'User';
+    const name = typeof rawName === 'string' ? rawName : 'User';
+    const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
+    setUserDisplay({ displayName: name, email: user.email ?? undefined, initials: initials || 'U', role: 'Learner' });
+    supabase.from('user_profiles').select('full_name, role').eq('id', user.id).maybeSingle().then(({ data: profileData }) => {
+      if (profileData) {
+        const profile = profileData as { full_name: string | null; role: string };
+        const displayName = (profile.full_name ?? name) as string;
+        const role = profile.role === 'admin' ? 'Admin Account' : profile.role === 'instructor' ? 'Instructor' : 'Learner';
+        setUserDisplay((prev) => ({ ...prev, displayName, role }));
+      }
+    });
+    supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('user_id', user.id).then(({ count }) => {
+      const n = count ?? 0;
+      setProfileStats({ courses: n, certificates: 0, badges: 0 });
+      if (typeof window !== 'undefined') {
         const saved = localStorage.getItem(SESSION_MODE_KEY);
-        const mode: SessionMode = saved === 'learner' || saved === 'instructor' ? saved : null;
+        let mode: SessionMode = saved === 'learner' || saved === 'instructor' ? saved : null;
+        if (mode === null && n > 0) {
+          mode = 'learner';
+          localStorage.setItem(SESSION_MODE_KEY, 'learner');
+        }
         setSessionMode(mode);
-        if (mode === 'learner') setCurrentView('learn');
+        if (mode === 'learner') setCurrentView('courses');
         else if (mode === 'instructor') setCurrentView('dashboard');
       }
-    };
-
-    const loadUser = async () => {
-      try {
-        let session: { user: { id: string; email?: string; user_metadata?: Record<string, unknown> }; access_token?: string; refresh_token?: string } | null = null;
-        const { data: { session: clientSession } } = await supabase.auth.getSession();
-        session = clientSession;
-        if (!session?.user && typeof window !== 'undefined') {
-          const res = await fetch('/api/auth/session', { credentials: 'include' });
-          const data = await res.json().catch(() => ({}));
-          const serverSession = data?.session;
-          if (serverSession?.user && serverSession?.access_token && serverSession?.refresh_token) {
-            session = serverSession;
-            try {
-              await supabase.auth.setSession({ access_token: serverSession.access_token, refresh_token: serverSession.refresh_token });
-            } catch {
-              // use server session for this load even if setSession failed
-            }
-          }
-        }
-        if (cancelled) return;
-        if (!session?.user) {
-          setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
-          setProfileStats({ courses: 0, certificates: 0, badges: 0 });
-          setSessionMode(null);
-          unblock();
-          return;
-        }
-        applySession(session);
-      } catch {
-        if (!cancelled) {
-          setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
-          setProfileStats({ courses: 0, certificates: 0, badges: 0 });
-          unblock();
-        }
+    });
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(SESSION_MODE_KEY);
+      const mode: SessionMode = saved === 'learner' || saved === 'instructor' ? saved : null;
+      if (mode !== null) {
+        setSessionMode(mode);
+        if (mode === 'learner') setCurrentView('courses');
+        else if (mode === 'instructor') setCurrentView('dashboard');
       }
-    };
+    }
+  }, [user]);
 
-    loadUser();
-    const fallback = setTimeout(unblock, MAX_WAIT_MS);
+  // After sign-in: process pending invites (auto-enroll) and ?enroll= param; default invited users to learner mode
+  useEffect(() => {
+    if (!user || typeof window === 'undefined') return;
+    (async () => {
+      const params = new URLSearchParams(window.location.search);
+      const enrollCourseId = params.get('enroll');
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => loadUser());
-    return () => {
-      cancelled = true;
-      clearTimeout(fallback);
-      subscription.unsubscribe();
-    };
-  }, []);
+      const res = await fetch('/api/invites/process-pending', { method: 'POST', credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      const enrolledFromInvites = (data?.enrolled ?? 0) > 0;
+      if (enrolledFromInvites) {
+        window.localStorage.setItem(SESSION_MODE_KEY, 'learner');
+        setSessionMode('learner');
+        setCurrentView('courses');
+      }
+
+      if (enrollCourseId) {
+        const enrollRes = await fetch(`/api/courses/${encodeURIComponent(enrollCourseId)}/enroll`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (enrollRes.ok) {
+          window.localStorage.setItem(SESSION_MODE_KEY, 'learner');
+          setSessionMode('learner');
+          setCurrentView('courses');
+        }
+        params.delete('enroll');
+        const search = params.toString();
+        const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
+        window.history.replaceState({}, '', url);
+      }
+    })();
+  }, [user]);
 
   const handleLogout = async () => {
     setShowProfileModal(false);
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-      setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
-      setProfileStats({ courses: 0, certificates: 0, badges: 0 });
-      return;
-    }
-    try {
-      const { error } = await supabase.auth.signOut();
-      setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
-      setProfileStats({ courses: 0, certificates: 0, badges: 0 });
-      if (error) console.warn('Sign out warning:', error.message);
-    } catch (err) {
-      console.warn('Sign out error:', err);
-      setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
-      setProfileStats({ courses: 0, certificates: 0, badges: 0 });
-    }
+    setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
+    setProfileStats({ courses: 0, certificates: 0, badges: 0 });
+    await authSignOut();
   };
 
   const handleSignIn = async (e: React.FormEvent) => {
@@ -199,11 +183,10 @@ const CoursifyLMS = () => {
         const name = user.user_metadata?.full_name ?? user.user_metadata?.name ?? user.email?.split('@')[0] ?? 'User';
         const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
         setUserDisplay({ displayName: name, email: user.email ?? undefined, initials, role: 'Learner' });
-        setAuthChecked(true);
         const saved = typeof window !== 'undefined' ? localStorage.getItem(SESSION_MODE_KEY) : null;
         const mode: SessionMode = saved === 'learner' || saved === 'instructor' ? saved : null;
         setSessionMode(mode);
-        if (mode === 'learner') setCurrentView('learn');
+        if (mode === 'learner') setCurrentView('courses');
         else if (mode === 'instructor') setCurrentView('dashboard');
         supabase.from('user_profiles').select('full_name, role').eq('id', user.id).maybeSingle().then(({ data: profile }) => {
           if (profile) {
@@ -226,8 +209,16 @@ const CoursifyLMS = () => {
     }
     try {
       const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : '';
-      const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } });
-      if (error) setSignInError(error.message || 'Google sign-in failed');
+      const { data, error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } });
+      if (error) {
+        setSignInError(error.message || 'Google sign-in failed');
+        return;
+      }
+      if (data?.url && typeof window !== 'undefined') {
+        setIsRedirectingToGoogle(true);
+        window.location.href = data.url;
+        return;
+      }
     } catch (err) {
       setSignInError(err instanceof Error ? err.message : 'Google sign-in failed');
     }
@@ -272,9 +263,9 @@ const CoursifyLMS = () => {
   // Main App Layout
   const AppLayout = ({ children }: { children: React.ReactNode }) => (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Sidebar */}
-      <div className={`bg-gradient-to-b from-blue-600 to-blue-700 text-white transition-all ${sidebarOpen ? 'w-64' : 'w-20'}`}>
-        <div className="p-4 border-b border-blue-500 flex items-center justify-between">
+      {/* Sidebar: flex column so avatar/sign-out stay at bottom of sidebar in all states */}
+      <div className={`relative flex flex-col h-screen bg-gradient-to-b from-blue-600 to-blue-700 text-white transition-all flex-shrink-0 ${sidebarOpen ? 'w-64' : 'w-20'}`}>
+        <div className="flex-shrink-0 p-4 border-b border-blue-500 flex items-center justify-between">
           {sidebarOpen && (
             <div className="flex items-center">
               <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
@@ -291,87 +282,65 @@ const CoursifyLMS = () => {
           </button>
         </div>
         
-        <nav className="p-4 space-y-2">
-          {sessionMode === 'learner' ? (
-            <NavItem icon={BookOpen} label="My learning" view="learn" />
+        {currentView === 'take' ? (
+          <div id="take-course-sidebar-content" className="flex-1 min-h-0 overflow-hidden flex flex-col" aria-label="Course content" />
+        ) : (
+          <nav className="flex-1 min-h-0 p-4 space-y-2 overflow-y-auto">
+            {sessionMode === 'learner' ? (
+              <NavItem icon={BookOpen} label="My learning" view="courses" />
+            ) : (
+              <>
+                <NavItem icon={Home} label="Dashboard" view="dashboard" />
+                <NavItem icon={Video} label="My Courses" view="courses" />
+                <NavItem icon={Users} label="Learners" view="learners" />
+                <NavItem icon={BarChart3} label="Analytics" view="analytics" />
+                <NavItem icon={FileText} label="Reports" view="reports" />
+              </>
+            )}
+          </nav>
+        )}
+        
+        {/* User area: always in sidebar at bottom (expanded vs collapsed) */}
+        <div className={`flex-shrink-0 border-t border-blue-500 bg-blue-700 ${sidebarOpen ? 'p-4' : 'p-2 flex flex-col items-center gap-1'}`}>
+          {userDisplay.role === 'Sign in to save' ? (
+            <button 
+              onClick={() => { setShowSignInModal(true); setShowProfileModal(false); }}
+              className={sidebarOpen ? 'w-full flex items-center justify-center p-3 rounded-lg bg-white text-blue-600 hover:bg-blue-50 font-semibold transition-all' : 'p-2 rounded-lg hover:bg-blue-600 transition-all'}
+              title={sidebarOpen ? undefined : 'Sign In'}
+            >
+              {sidebarOpen ? 'Sign In' : <User className="w-5 h-5" />}
+            </button>
           ) : (
             <>
-              <NavItem icon={Home} label="Dashboard" view="dashboard" />
-              <NavItem icon={Video} label="My Courses" view="courses" />
-              <NavItem icon={Users} label="Learners" view="learners" />
-              <NavItem icon={BarChart3} label="Analytics" view="analytics" />
-              <NavItem icon={FileText} label="Reports" view="reports" />
+              <button 
+                onClick={() => setShowProfileModal(true)}
+                className={sidebarOpen ? 'w-full flex items-center p-2 rounded-lg hover:bg-blue-600 transition-all text-left' : 'p-2 rounded-lg hover:bg-blue-600 transition-all'}
+                title={sidebarOpen ? undefined : userDisplay.displayName}
+              >
+                <div className={`bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-bold shadow-lg ${sidebarOpen ? 'w-10 h-10 text-sm' : 'w-9 h-9 text-xs'}`}>
+                  {userDisplay.initials}
+                </div>
+                {sidebarOpen && (
+                  <>
+                    <div className="ml-3 flex-1">
+                      <p className="text-sm font-semibold">{userDisplay.displayName}</p>
+                      <p className="text-xs text-blue-200">{userDisplay.role}</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-blue-200" />
+                  </>
+                )}
+              </button>
+              <button 
+                onClick={handleLogout}
+                className={sidebarOpen ? 'w-full flex items-center p-2 rounded-lg hover:bg-blue-600 transition-all text-left mt-2' : 'p-2 rounded-lg hover:bg-blue-600 transition-all mt-1'}
+                title={sidebarOpen ? undefined : 'Sign Out'}
+              >
+                <LogOut className={sidebarOpen ? 'w-5 h-5 mr-3' : 'w-5 h-5'} />
+                {sidebarOpen && <span className="text-sm font-semibold">Sign Out</span>}
+              </button>
             </>
           )}
-        </nav>
-        
-        {/* User area: full when sidebar open, icon when collapsed */}
-        {sidebarOpen ? (
-          <div className="absolute bottom-0 w-64 p-4 border-t border-blue-500 bg-blue-700">
-            {userDisplay.role === 'Sign in to save' ? (
-              <button 
-                onClick={() => { setShowSignInModal(true); setShowProfileModal(false); }}
-                className="w-full flex items-center justify-center p-3 rounded-lg bg-white text-blue-600 hover:bg-blue-50 font-semibold transition-all"
-              >
-                Sign In
-              </button>
-            ) : (
-              <>
-                <button 
-                  onClick={() => setShowProfileModal(true)}
-                  className="w-full flex items-center p-2 rounded-lg hover:bg-blue-600 transition-all text-left"
-                >
-                  <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-lg">
-                    {userDisplay.initials}
-                  </div>
-                  <div className="ml-3 flex-1">
-                    <p className="text-sm font-semibold">{userDisplay.displayName}</p>
-                    <p className="text-xs text-blue-200">{userDisplay.role}</p>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-blue-200" />
-                </button>
-                <button 
-                  onClick={handleLogout}
-                  className="w-full flex items-center p-2 rounded-lg hover:bg-blue-600 transition-all text-left mt-2"
-                >
-                  <LogOut className="w-5 h-5 mr-3" />
-                  <span className="text-sm font-semibold">Sign Out</span>
-                </button>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="absolute bottom-0 left-0 right-0 p-2 border-t border-blue-500 bg-blue-700 flex flex-col items-center gap-1">
-            {userDisplay.role === 'Sign in to save' ? (
-              <button 
-                onClick={() => { setShowSignInModal(true); setShowProfileModal(false); }}
-                className="p-2 rounded-lg hover:bg-blue-600 transition-all"
-                title="Sign In"
-              >
-                <User className="w-5 h-5" />
-              </button>
-            ) : (
-              <>
-                <button 
-                  onClick={() => setShowProfileModal(true)}
-                  className="p-2 rounded-lg hover:bg-blue-600 transition-all"
-                  title={userDisplay.displayName}
-                >
-                  <div className="w-9 h-9 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-lg">
-                    {userDisplay.initials}
-                  </div>
-                </button>
-                <button 
-                  onClick={handleLogout}
-                  className="p-2 rounded-lg hover:bg-blue-600 transition-all"
-                  title="Sign Out"
-                >
-                  <LogOut className="w-5 h-5" />
-                </button>
-              </>
-            )}
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Main Content */}
@@ -438,7 +407,7 @@ const CoursifyLMS = () => {
               onClick={() => {
                 if (typeof window !== 'undefined') localStorage.setItem(SESSION_MODE_KEY, 'learner');
                 setSessionMode('learner');
-                setCurrentView('learn');
+                setCurrentView('courses');
               }}
               className="w-full py-4 px-6 rounded-xl border-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-gray-200 font-semibold hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center justify-center gap-3"
             >
@@ -470,9 +439,9 @@ const CoursifyLMS = () => {
               <input type="password" value={signInPassword} onChange={(e) => setSignInPassword(e.target.value)} placeholder="••••••••" className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white" required />
             </div>
             <button type="submit" className="w-full py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold">Sign In</button>
-            <button type="button" onClick={handleSignInWithGoogle} className="w-full py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold flex items-center justify-center gap-2 dark:text-gray-200">
+            <button type="button" onClick={handleSignInWithGoogle} disabled={isRedirectingToGoogle} className="w-full py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold flex items-center justify-center gap-2 dark:text-gray-200 disabled:opacity-60 disabled:pointer-events-none">
               <svg className="w-5 h-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-              Sign in with Google
+              {isRedirectingToGoogle ? 'Redirecting…' : 'Sign in with Google'}
             </button>
           </form>
         </div>
@@ -483,9 +452,9 @@ const CoursifyLMS = () => {
   return (
     <AppLayout>
       {currentView === 'dashboard' && (Dashboard != null ? <Dashboard sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} setCurrentView={setCurrentView} /> : fallback)}
-      {currentView === 'courses' && (MyCourses != null ? <MyCourses setCurrentView={setCurrentView} /> : fallback)}
-      {currentView === 'create' && (CreateCourse != null ? <CreateCourse setCurrentView={setCurrentView} /> : fallback)}
-      {currentView === 'learn' && (MyLearning != null ? <MyLearning setCurrentView={setCurrentView} /> : fallback)}
+      {currentView === 'courses' && (MyCourses != null ? <MyCourses setCurrentView={setCurrentView} onEditCourse={(id) => { setEditingCourseId(id); setCurrentView('create'); }} onStartCourse={(id) => { setLearningCourseId(id); setCurrentView('take'); }} sessionMode={sessionMode} learningCourseId={learningCourseId} /> : fallback)}
+      {currentView === 'create' && (CreateCourse != null ? <CreateCourse setCurrentView={setCurrentView} initialCourseId={editingCourseId} onBackToCourses={() => { setEditingCourseId(null); setCurrentView('courses'); }} /> : fallback)}
+      {currentView === 'take' && learningCourseId && (TakeCourse != null ? <TakeCourse courseId={learningCourseId} onBack={() => { setLearningCourseId(null); setCurrentView('courses'); }} sidebarOpen={sidebarOpen} /> : fallback)}
       {currentView === 'learners' && (Learners != null ? <Learners setCurrentView={setCurrentView} /> : fallback)}
       {currentView === 'analytics' && (Analytics != null ? <Analytics /> : fallback)}
       {currentView === 'reports' && (Reports != null ? <Reports /> : fallback)}
@@ -545,10 +514,11 @@ const CoursifyLMS = () => {
                 <button
                   type="button"
                   onClick={handleSignInWithGoogle}
-                  className="w-full py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold transition-all flex items-center justify-center gap-2 dark:text-gray-200"
+                  disabled={isRedirectingToGoogle}
+                  className="w-full py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold transition-all flex items-center justify-center gap-2 dark:text-gray-200 disabled:opacity-60 disabled:pointer-events-none"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                  Sign in with Google
+                  {isRedirectingToGoogle ? 'Redirecting…' : 'Sign in with Google'}
                 </button>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-4 text-center">
@@ -602,7 +572,7 @@ const CoursifyLMS = () => {
                       onClick={() => {
                         if (typeof window !== 'undefined') localStorage.setItem(SESSION_MODE_KEY, 'learner');
                         setSessionMode('learner');
-                        setCurrentView('learn');
+                        setCurrentView('courses');
                         setShowProfileModal(false);
                       }}
                       className="w-full py-2.5 flex items-center justify-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700"

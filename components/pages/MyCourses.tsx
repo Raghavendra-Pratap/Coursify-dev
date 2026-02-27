@@ -10,8 +10,17 @@ import { supabase } from '@/lib/supabase';
 import { getPreferences, getCourseRecommendationScore } from '@/lib/preference-loop';
 import type { LearnerPreferences } from '@/lib/preference-loop';
 
+type SessionMode = 'instructor' | 'learner' | null;
+
 interface MyCoursesProps {
   setCurrentView: (view: string) => void;
+  onEditCourse?: (courseId: string) => void;
+  /** When in learner mode, opening a course goes to take-course view. */
+  onStartCourse?: (courseId: string) => void;
+  /** Drives which view to show: instructor (created courses) vs learner (enrolled courses). */
+  sessionMode?: SessionMode;
+  /** When set, user is in TakeCourse; when null, show course list. Used to refetch enrolled when returning. */
+  learningCourseId?: string | null;
 }
 
 type CourseId = string | number;
@@ -52,7 +61,26 @@ const formatCourseDate = (dateStr: string) => {
   }
 };
 
-const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
+/** Format total seconds as "0m", "45m", "1h 20m", etc. */
+const formatCourseDuration = (totalSeconds: number): string => {
+  if (totalSeconds <= 0 || !Number.isFinite(totalSeconds)) return '0m';
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+};
+
+type EnrolledCourse = {
+  id: string;
+  course_id: string;
+  title: string;
+  progress_percentage: number;
+  completed_at: string | null;
+};
+
+const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onStartCourse, sessionMode = 'instructor', learningCourseId = null }) => {
+  const isLearnerView = sessionMode === 'learner';
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [sortBy, setSortBy] = useState('recent');
@@ -73,11 +101,16 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [courseOwnerId, setCourseOwnerId] = useState<string | null>(null);
   const [courses, setCourses] = useState<CourseRow[]>([]);
+  const [enrolledCourses, setEnrolledCourses] = useState<EnrolledCourse[]>([]);
+  const [enrolledLoading, setEnrolledLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [configMissing, setConfigMissing] = useState(false);
   const [userId, setUserId] = useState<string | undefined>(undefined);
   const [preferences, setPreferences] = useState<LearnerPreferences | null>(null);
   const [contentMixByCourse, setContentMixByCourse] = useState<Record<string, { video: number; reading: number; quiz: number }>>({});
+  const [learnerFilter, setLearnerFilter] = useState<'all' | 'enrolled' | 'in_progress' | 'completed'>('all');
+  const [learnerSearch, setLearnerSearch] = useState('');
+  const [learnerSort, setLearnerSort] = useState<'recent' | 'name' | 'progress'>('recent');
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -127,6 +160,19 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
   }, []);
 
   useEffect(() => {
+    if (!isLearnerView || learningCourseId) return;
+    setEnrolledLoading(true);
+    fetch('/api/learning/enrolled', { credentials: 'include', cache: 'no-store' })
+      .then((res) => res.json().catch(() => ({ courses: [] })))
+      .then((data) => {
+        setEnrolledCourses(Array.isArray(data.courses) ? data.courses : []);
+      })
+      .catch(() => setEnrolledCourses([]))
+      .finally(() => setEnrolledLoading(false));
+  }, [isLearnerView, learningCourseId]);
+
+  useEffect(() => {
+    if (isLearnerView) return;
     const fetchCourses = async () => {
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
       if (!url) {
@@ -141,63 +187,49 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
         if (error) throw error;
         const courseList = data || [];
         const courseIds = courseList.map((c: { id: string }) => c.id);
-        const [modulesRes, enrollmentsRes] = await Promise.all([
+        const [modulesRes, statsRes] = await Promise.all([
           supabase.from('modules').select('id, course_id').in('course_id', courseIds),
-          supabase.from('enrollments').select('course_id, completed_at, progress_percentage').in('course_id', courseIds)
+          fetch('/api/instructor/course-stats', { credentials: 'include', cache: 'no-store' }).then((r) => r.json().catch(() => ({ stats: {} })))
         ]);
         const modules = modulesRes.data ?? [];
-        const enrollments = enrollmentsRes.data ?? [];
+        const courseStats: Record<string, { learners: number; avgCompletion: number }> = statsRes.stats ?? {};
         const moduleIds = modules.map((m: { id: string }) => m.id);
         const { data: lessonsData } = moduleIds.length
-          ? await supabase.from('lessons').select('id, module_id').in('module_id', moduleIds)
+          ? await supabase.from('lessons').select('id, module_id, duration_seconds').in('module_id', moduleIds)
           : { data: [] };
         const lessons = lessonsData ?? [];
         const modulesByCourse: Record<string, number> = {};
         const lessonsByCourse: Record<string, number> = {};
+        const durationSecondsByCourse: Record<string, number> = {};
         modules.forEach((m: { id: string; course_id: string }) => {
           modulesByCourse[m.course_id] = (modulesByCourse[m.course_id] ?? 0) + 1;
         });
-        lessons.forEach((l: { module_id: string }) => {
+        lessons.forEach((l: { module_id: string; duration_seconds?: number | null }) => {
           const mod = modules.find((x: { id: string }) => x.id === l.module_id);
           if (mod) {
             const cid = (mod as { course_id: string }).course_id;
             lessonsByCourse[cid] = (lessonsByCourse[cid] ?? 0) + 1;
+            const sec = Number(l.duration_seconds) || 0;
+            durationSecondsByCourse[cid] = (durationSecondsByCourse[cid] ?? 0) + sec;
           }
         });
-        const enrolledByCourse: Record<string, number> = {};
-        const completedByCourse: Record<string, number> = {};
-        enrollments.forEach((e: { course_id: string; completed_at: string | null }) => {
-          enrolledByCourse[e.course_id] = (enrolledByCourse[e.course_id] ?? 0) + 1;
-          if (e.completed_at) completedByCourse[e.course_id] = (completedByCourse[e.course_id] ?? 0) + 1;
-        });
-        const avgCompletionByCourse: Record<string, number> = {};
-        enrollments.forEach((e: { course_id: string; progress_percentage?: number }) => {
-          if (!avgCompletionByCourse[e.course_id]) avgCompletionByCourse[e.course_id] = 0;
-          avgCompletionByCourse[e.course_id] += e.progress_percentage ?? 0;
-        });
-        const enrollCount: Record<string, number> = {};
-        enrollments.forEach((e: { course_id: string }) => {
-          enrollCount[e.course_id] = (enrollCount[e.course_id] ?? 0) + 1;
-        });
-        Object.keys(avgCompletionByCourse).forEach((cid) => {
-          const n = enrollCount[cid] ?? 1;
-          avgCompletionByCourse[cid] = Math.round(avgCompletionByCourse[cid] / n);
-        });
-        setCourses(courseList.map((c: { id: string; title: string; description: string | null; status: string; created_at: string; updated_at: string }) => ({
+        setCourses(courseList.map((c: { id: string; title: string; description: string | null; status: string; created_at: string; updated_at: string }) => {
+          const st = courseStats[c.id] ?? { learners: 0, avgCompletion: 0 };
+          return {
           id: c.id,
           title: c.title,
           description: c.description || '',
           thumbnail: 'blue',
           modules: modulesByCourse[c.id] ?? 0,
           lessons: lessonsByCourse[c.id] ?? 0,
-          learners: enrolledByCourse[c.id] ?? 0,
-          enrolled: enrolledByCourse[c.id] ?? 0,
-          completion: avgCompletionByCourse[c.id] ?? 0,
+          learners: st.learners,
+          enrolled: st.learners,
+          completion: st.avgCompletion,
           avgRating: 0,
           totalRatings: 0,
           status: c.status as 'draft' | 'published' | 'archived',
           category: 'General',
-          duration: '0m',
+          duration: formatCourseDuration(durationSecondsByCourse[c.id] ?? 0),
           lastUpdated: formatCourseDate(c.updated_at),
           createdDate: formatCourseDate(c.created_at),
           views: 0,
@@ -208,7 +240,8 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
           language: 'English',
           level: 'Beginner',
           tags: []
-        })));
+        };
+        }));
       } catch {
         setCourses([]);
       } finally {
@@ -216,7 +249,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
       }
     };
     fetchCourses();
-  }, []);
+  }, [isLearnerView]);
 
   const thumbnailColors: Record<string, string> = {
     blue: 'from-blue-400 to-blue-500',
@@ -463,13 +496,246 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
     ));
   };
 
+  const totalEnrollments = courses.reduce((acc, c) => acc + c.learners, 0);
+  const totalCompletionSum = courses.reduce((acc, c) => acc + c.completion * c.learners, 0);
   const statsData = {
     total: courses.length,
     published: courses.filter(c => c.status === 'published').length,
     draft: courses.filter(c => c.status === 'draft').length,
-    totalLearners: courses.reduce((acc, c) => acc + c.learners, 0),
-    avgCompletion: courses.length ? Math.round(courses.reduce((acc, c) => acc + c.completion, 0) / courses.length) : 0
+    totalLearners: totalEnrollments,
+    avgCompletion: totalEnrollments > 0 ? Math.round(totalCompletionSum / totalEnrollments) : 0
   };
+
+  type EnrollmentStage = 'enrolled' | 'in_progress' | 'completed';
+  const getEnrollmentStage = (c: EnrolledCourse): EnrollmentStage => {
+    const p = c.progress_percentage ?? 0;
+    if (p >= 100 || !!c.completed_at) return 'completed';
+    if (p > 0) return 'in_progress';
+    return 'enrolled';
+  };
+
+  const learnerStats = {
+    enrolled: enrolledCourses.filter(c => getEnrollmentStage(c) === 'enrolled').length,
+    inProgress: enrolledCourses.filter(c => getEnrollmentStage(c) === 'in_progress').length,
+    completed: enrolledCourses.filter(c => getEnrollmentStage(c) === 'completed').length,
+    avgCompletion: enrolledCourses.length
+      ? Math.round(enrolledCourses.reduce((acc, c) => acc + (c.progress_percentage ?? 0), 0) / enrolledCourses.length)
+      : 0
+  };
+
+  const getStageLabel = (stage: EnrollmentStage) => stage === 'enrolled' ? 'Enrolled' : stage === 'in_progress' ? 'In progress' : 'Completed';
+  const getStageButtonLabel = (stage: EnrollmentStage) => stage === 'enrolled' ? 'Start' : stage === 'in_progress' ? 'Continue' : 'Retake';
+
+  const getFilteredEnrolled = (): EnrolledCourse[] => {
+    let list = enrolledCourses;
+    if (learnerSearch.trim()) {
+      const q = learnerSearch.toLowerCase();
+      list = list.filter(c => c.title.toLowerCase().includes(q));
+    }
+    if (learnerFilter === 'enrolled') {
+      list = list.filter(c => getEnrollmentStage(c) === 'enrolled');
+    } else if (learnerFilter === 'in_progress') {
+      list = list.filter(c => getEnrollmentStage(c) === 'in_progress');
+    } else if (learnerFilter === 'completed') {
+      list = list.filter(c => getEnrollmentStage(c) === 'completed');
+    }
+    const sorted = [...list];
+    if (learnerSort === 'name') sorted.sort((a, b) => a.title.localeCompare(b.title));
+    else if (learnerSort === 'progress') sorted.sort((a, b) => (b.progress_percentage ?? 0) - (a.progress_percentage ?? 0));
+    return sorted;
+  };
+
+  const filteredEnrolled = getFilteredEnrolled();
+
+  if (isLearnerView) {
+    return (
+      <div>
+        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-8 py-6 sticky top-0 z-20">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">My learning</h1>
+              <p className="text-gray-600 dark:text-gray-400 mt-1">Your enrolled courses. Continue where you left off.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 p-4 rounded-xl border border-blue-200 dark:border-blue-800">
+              <p className="text-sm text-blue-600 dark:text-blue-400 font-semibold mb-1">Enrolled</p>
+              <p className="text-3xl font-bold text-blue-700 dark:text-blue-300">{learnerStats.enrolled}</p>
+            </div>
+            <div className="bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-900/20 dark:to-amber-800/20 p-4 rounded-xl border border-amber-200 dark:border-amber-800">
+              <p className="text-sm text-amber-600 dark:text-amber-400 font-semibold mb-1">In progress</p>
+              <p className="text-3xl font-bold text-amber-700 dark:text-amber-300">{learnerStats.inProgress}</p>
+            </div>
+            <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 p-4 rounded-xl border border-green-200 dark:border-green-800">
+              <p className="text-sm text-green-600 dark:text-green-400 font-semibold mb-1">Completed</p>
+              <p className="text-3xl font-bold text-green-700 dark:text-green-300">{learnerStats.completed}</p>
+            </div>
+            <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20 p-4 rounded-xl border border-orange-200 dark:border-orange-800">
+              <p className="text-sm text-orange-600 dark:text-orange-400 font-semibold mb-1">Avg. completion</p>
+              <p className="text-3xl font-bold text-orange-700 dark:text-orange-300">{learnerStats.avgCompletion}%</p>
+            </div>
+          </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => setLearnerFilter('all')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-all ${
+                  learnerFilter === 'all' ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
+              >
+                All ({enrolledCourses.length})
+              </button>
+              <button
+                onClick={() => setLearnerFilter('enrolled')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-all ${
+                  learnerFilter === 'enrolled' ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
+              >
+                Enrolled ({learnerStats.enrolled})
+              </button>
+              <button
+                onClick={() => setLearnerFilter('in_progress')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-all ${
+                  learnerFilter === 'in_progress' ? 'bg-amber-600 text-white shadow-lg' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
+              >
+                In progress ({learnerStats.inProgress})
+              </button>
+              <button
+                onClick={() => setLearnerFilter('completed')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-all ${
+                  learnerFilter === 'completed' ? 'bg-green-600 text-white shadow-lg' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
+              >
+                Completed ({learnerStats.completed})
+              </button>
+            </div>
+            <div className="flex items-center space-x-3">
+              <div className="relative">
+                <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search courses..."
+                  value={learnerSearch}
+                  onChange={(e) => setLearnerSearch(e.target.value)}
+                  className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg w-56 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <select
+                value={learnerSort}
+                onChange={(e) => setLearnerSort(e.target.value as 'recent' | 'name' | 'progress')}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-semibold"
+              >
+                <option value="recent">Most recent</option>
+                <option value="name">Name (A–Z)</option>
+                <option value="progress">Progress</option>
+              </select>
+              <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+                <button onClick={() => setViewMode('grid')} className={`p-2 rounded transition-all ${viewMode === 'grid' ? 'bg-white dark:bg-gray-600 shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+                  <Grid className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                </button>
+                <button onClick={() => setViewMode('list')} className={`p-2 rounded transition-all ${viewMode === 'list' ? 'bg-white dark:bg-gray-600 shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+                  <List className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="p-8">
+          {enrolledLoading ? (
+            <div className="text-center py-16 text-gray-500 dark:text-gray-400">Loading your courses…</div>
+          ) : filteredEnrolled.length === 0 ? (
+            <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-600">
+              <BookOpen className="w-20 h-20 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">No courses found</h3>
+              <p className="text-gray-600 dark:text-gray-400 mb-6">
+                {learnerSearch ? `No courses match "${learnerSearch}"` : 'When you’re invited to a course, it will appear here.'}
+              </p>
+            </div>
+          ) : viewMode === 'grid' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredEnrolled.map((c) => {
+                const stage = getEnrollmentStage(c);
+                return (
+                  <div key={c.id} className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-xl transition-all group">
+                    <div className="bg-gradient-to-br from-blue-400 to-blue-600 h-48 flex items-center justify-center relative">
+                      <Video className="w-20 h-20 text-white opacity-80" />
+                      <span className={`absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-semibold ${
+                        stage === 'completed' ? 'bg-green-500 text-white' : stage === 'in_progress' ? 'bg-amber-500 text-white' : 'bg-blue-500 text-white'
+                      }`}>
+                        {getStageLabel(stage)}
+                      </span>
+                    </div>
+                    <div className="p-6">
+                      <h3 className="font-bold text-lg mb-2 line-clamp-1 text-gray-900 dark:text-white">{c.title}</h3>
+                      <div className="mb-4">
+                        <div className="flex justify-between text-sm mb-2">
+                          <span className="text-gray-600 dark:text-gray-400">My progress</span>
+                          <span className="font-semibold text-gray-900 dark:text-white">{c.progress_percentage ?? 0}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full transition-all ${
+                              stage === 'completed' ? 'bg-green-500' : stage === 'in_progress' ? 'bg-amber-500' : 'bg-blue-500'
+                            }`}
+                            style={{ width: `${Math.min(100, c.progress_percentage ?? 0)}%` }}
+                          />
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => onStartCourse?.(c.course_id)}
+                        className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center justify-center gap-2 transition-all"
+                      >
+                        {getStageButtonLabel(stage)}
+                        <Play className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                    <tr>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Course</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Progress</th>
+                      <th className="px-6 py-4 text-right text-sm font-semibold text-gray-900 dark:text-white">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
+                    {filteredEnrolled.map((c) => (
+                      <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                        <td className="px-6 py-4">
+                          <span className="font-medium text-gray-900 dark:text-white">{c.title}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                              <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min(100, c.progress_percentage ?? 0)}%` }} />
+                            </div>
+                            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{c.progress_percentage ?? 0}%</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button onClick={() => onStartCourse?.(c.course_id)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center gap-2 ml-auto">
+                            {getStageButtonLabel(getEnrollmentStage(c))}
+                            <Play className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -781,7 +1047,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
 
                   <div className="flex space-x-2">
                     <button 
-                      onClick={() => setCurrentView('create')}
+                      onClick={() => { if (typeof course.id === 'string' && onEditCourse) onEditCourse(course.id); else setCurrentView('create'); }}
                       className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center justify-center transition-all"
                     >
                       <Edit className="w-4 h-4 mr-2" />
@@ -911,7 +1177,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView }) => {
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-2">
                           <button 
-                            onClick={() => setCurrentView('create')}
+                            onClick={() => { if (typeof course.id === 'string' && onEditCourse) onEditCourse(course.id); else setCurrentView('create'); }}
                             className="p-2 hover:bg-gray-100 rounded-lg transition-all" 
                             title="Edit"
                           >
