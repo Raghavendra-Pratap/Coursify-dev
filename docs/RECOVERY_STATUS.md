@@ -104,5 +104,7 @@
 
 **User-facing pending checklist:** See **`docs/PENDING_YOUR_ACTION.md`** for what’s still pending or needed from your end (DB, env, deploy, optional items).
 
+**Console 404 on Supabase GET:** If the browser shows GET 404 to your Supabase URL, a table (e.g. `course_collaborators`) may be missing. Run **`database/COURSE_COLLABORATORS.sql`** (and other migrations in `database/`) in the Supabase SQL Editor. The Learners page now tolerates a missing `course_collaborators` table and still loads with owned courses only.
+
 ---
 **Status:** Context recovery complete. Use this file to track achieved work and remaining tasks.

@@ -13,6 +13,7 @@ export default function CoursePage({ params }: { params: { id: string } }) {
   const [signedIn, setSignedIn] = useState(false)
   const [enrolling, setEnrolling] = useState(false)
   const [enrollError, setEnrollError] = useState<string | null>(null)
+  const [autoEnrolled, setAutoEnrolled] = useState<boolean | null>(null)
 
   const id = typeof params.id === 'string' ? params.id : (params as unknown as { id: string }).id
 
@@ -45,6 +46,23 @@ export default function CoursePage({ params }: { params: { id: string } }) {
     }
     load()
   }, [id])
+
+  // Auto-enroll when signed-in user visits course link directly (so they count as "enrolled via link")
+  useEffect(() => {
+    if (!id || !signedIn || !course || course.status !== 'published' || autoEnrolled !== null) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/courses/' + encodeURIComponent(id) + '/enroll', { method: 'POST', credentials: 'include' })
+        if (cancelled) return
+        if (res.ok) setAutoEnrolled(true)
+        else setAutoEnrolled(false)
+      } catch {
+        if (!cancelled) setAutoEnrolled(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [id, signedIn, course, autoEnrolled])
 
   if (loading) {
     return (
@@ -90,9 +108,18 @@ export default function CoursePage({ params }: { params: { id: string } }) {
           )}
           {signedIn ? (
             <>
+              {autoEnrolled === true ? (
+                <div className="rounded-xl bg-green-50 border border-green-200 p-4 mb-4">
+                  <p className="font-semibold text-green-800 mb-2">You&apos;re enrolled</p>
+                  <p className="text-sm text-green-700 mb-3">You can start this course in Coursify.</p>
+                  <Link href="/" className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700">
+                    Open Coursify <ArrowRight className="w-4 h-4" />
+                  </Link>
+                </div>
+              ) : (
               <button
                 type="button"
-                disabled={enrolling}
+                disabled={enrolling || (autoEnrolled === false && !enrollError)}
                 onClick={async () => {
                   setEnrollError(null)
                   setEnrolling(true)
@@ -123,6 +150,7 @@ export default function CoursePage({ params }: { params: { id: string } }) {
                 <ArrowRight className="w-4 h-4" />
               </button>
               {enrollError && <p className="mt-2 text-sm text-red-600">{enrollError}</p>}
+              )}
             </>
           ) : (
             <Link

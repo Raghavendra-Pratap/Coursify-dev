@@ -32,6 +32,9 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   const [learners, setLearners] = useState<any[]>([]);
   const [publishedCourses, setPublishedCourses] = useState<{ id: string; title: string }[]>([]);
   const [configMissing, setConfigMissing] = useState(false);
+  const [learnersError, setLearnersError] = useState<string | null>(null);
+  const [learnersEmptyReason, setLearnersEmptyReason] = useState<'no_courses' | 'no_enrollments' | null>(null);
+  const [pendingInvites, setPendingInvites] = useState<{ id: string; email: string; course_id: string | null; status: string; created_at: string }[]>([]);
 
   const stats = {
     total: learners.length,
@@ -94,18 +97,83 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
           return;
         }
 
+        // API returns enrolled learners only (users in enrollments for your courses). Invited-but-not-enrolled (learner_invites) are not included.
         const res = await fetch('/api/instructor/learners', { credentials: 'include', cache: 'no-store' });
-        const data = await res.json().catch(() => ({ userIds: [], learnerStats: {} }));
-        const userIds = Array.isArray(data.userIds) ? data.userIds : [];
-        const learnerStatsFromApi = (data.learnerStats && typeof data.learnerStats === 'object') ? data.learnerStats : {};
-        const profileIdsToFetch = userIds;
-
-        if (profileIdsToFetch.length === 0) {
+        const data = await res.json().catch(() => ({ error: 'Failed to load learners', learners: [] }));
+        setLearnersError(null);
+        if (!res.ok) {
+          const msg = (data && typeof data.error === 'string') ? data.error : 'Could not load learners';
+          setLearnersError(msg === 'SUPABASE_SERVICE_ROLE_KEY required' ? 'Server config: add SUPABASE_SERVICE_ROLE_KEY to .env.local and restart the dev server.' : msg);
           setLearners([]);
+          setLearnersEmptyReason(null);
+          return;
+        }
+        const apiLearners = Array.isArray(data.learners) ? data.learners : [];
+        const emptyReason = data.emptyReason as 'no_courses' | 'no_enrollments' | undefined;
+        setLearnersEmptyReason(emptyReason ?? null);
+
+        if (apiLearners.length > 0) {
+          setLearnersEmptyReason(null);
+          const fromApi = apiLearners.map((p: { id: string; full_name?: string | null; role?: string; organization?: string | null; enrolledCourses?: number; completedCourses?: number; totalProgress?: number; lastActive?: string; joinedDate?: string; averageScore?: number; totalTimeSpent?: string; lastActivityAt?: string | null }) => {
+            const name = p.full_name || 'Unknown';
+            const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || '?';
+            const enrolledCourses = p.enrolledCourses ?? 0;
+            const completedCourses = p.completedCourses ?? 0;
+            const totalProgress = p.totalProgress ?? 0;
+            const lastActive = p.lastActive ?? '—';
+            const joinedDate = p.joinedDate ?? '—';
+            const averageScore = p.averageScore ?? 0;
+            const totalTimeSpent = p.totalTimeSpent ?? '0h';
+            const lastActivityAt = p.lastActivityAt ?? null;
+            const daysSinceActivity = lastActivityAt
+              ? Math.floor((Date.now() - new Date(lastActivityAt).getTime()) / (24 * 60 * 60 * 1000))
+              : 999;
+            let status: 'active' | 'at-risk' | 'inactive' = 'active';
+            if (enrolledCourses === 0) status = 'inactive';
+            else if (daysSinceActivity > 7) status = 'inactive';
+            else if ((totalProgress < 25 && daysSinceActivity >= 3) || (daysSinceActivity >= 3 && daysSinceActivity <= 7)) status = 'at-risk';
+            else if (totalProgress >= 25 && daysSinceActivity <= 2) status = 'active';
+            else if (totalProgress < 25 && daysSinceActivity <= 2) status = 'active';
+            else status = 'at-risk';
+            return {
+              id: p.id,
+              name,
+              email: (p as { email?: string | null }).email ?? '(signed up)',
+              avatar: initials,
+              avatarColor: 'from-indigo-400 to-indigo-500',
+              status,
+              enrolledCourses,
+              completedCourses,
+              inProgressCourses: Math.max(0, enrolledCourses - completedCourses),
+              totalProgress,
+              averageScore,
+              totalTimeSpent,
+              lastActive,
+              joinedDate,
+              streak: 0,
+              badges: 0,
+              certificates: (p as { certificates?: number }).certificates ?? 0,
+              department: p.organization || '—',
+              role: p.role || '—',
+              manager: '—',
+              courses: [],
+              activityLog: [],
+            };
+          });
+          setLearners(fromApi);
           return;
         }
 
-        const query = supabase.from('user_profiles').select('id, full_name, role, organization').in('id', profileIdsToFetch);
+        const userIds = Array.isArray(data.userIds) ? data.userIds : [];
+        const learnerStatsFromApi = (data.learnerStats && typeof data.learnerStats === 'object') ? data.learnerStats : {};
+        if (userIds.length === 0) {
+          setLearners([]);
+          return;
+        }
+        setLearnersError(null);
+        setLearnersEmptyReason(null);
+
+        const query = supabase.from('user_profiles').select('id, full_name, role, organization').in('id', userIds);
         const { data: profilesData, error } = await query;
         if (error) throw error;
         const raw = profilesData || [];
@@ -141,7 +209,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
           return {
             id: p.id,
             name,
-            email: '(signed up)',
+            email: (p as { email?: string | null }).email ?? '(signed up)',
             avatar: initials,
             avatarColor: 'from-indigo-400 to-indigo-500',
             status,
@@ -155,7 +223,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
             joinedDate,
             streak: 0,
             badges: 0,
-            certificates: completedCourses,
+            certificates: (p as { certificates?: number }).certificates ?? 0,
             department: p.organization || '—',
             role: p.role,
             manager: '—',
@@ -166,10 +234,35 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
         setLearners(fromDb);
       } catch {
         setConfigMissing(true);
+        setLearnersError('Could not load learners.');
+        setLearnersEmptyReason(null);
         setLearners([]);
       }
     };
     fetchProfiles();
+  }, []);
+
+  useEffect(() => {
+    const fetchPendingInvites = async () => {
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id ?? null;
+      if (!currentUserId) {
+        setPendingInvites([]);
+        return;
+      }
+      const { data, error } = await supabase
+        .from('learner_invites')
+        .select('id, email, course_id, status, created_at')
+        .eq('created_by', currentUserId)
+        .order('created_at', { ascending: false });
+      if (error) {
+        setPendingInvites([]);
+        return;
+      }
+      setPendingInvites((data as { id: string; email: string; course_id: string | null; status: string; created_at: string }[]) ?? []);
+    };
+    fetchPendingInvites();
   }, []);
 
   useEffect(() => {
@@ -188,12 +281,16 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
         setPublishedCourses((data as { id: string; title: string }[]) || []);
         return;
       }
-      const [owned, collab] = await Promise.all([
-        supabase.from('courses').select('id').eq('created_by', currentUserId),
-        supabase.from('course_collaborators').select('course_id').eq('user_id', currentUserId)
-      ]);
+      const owned = await supabase.from('courses').select('id').eq('created_by', currentUserId);
       const ownedIds = (owned.data ?? []).map((c: { id: string }) => c.id);
-      const collabIds = (collab.data ?? []).map((c: { course_id: string }) => c.course_id);
+      let collabIds: string[] = [];
+      const collab = await supabase.from('course_collaborators').select('course_id').eq('user_id', currentUserId);
+      if (collab.error) {
+        // Table may not exist (404); treat as no collaborated courses
+        collabIds = [];
+      } else {
+        collabIds = (collab.data ?? []).map((c: { course_id: string }) => c.course_id);
+      }
       const combined = Array.from(new Set([...ownedIds, ...collabIds]));
       if (combined.length === 0) {
         setPublishedCourses([]);
@@ -379,7 +476,10 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Learners</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">Manage and track your students&apos; progress</p>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">Enrolled learners in your courses — manage and track progress</p>
+            {pendingInvites.length > 0 && (
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{learners.length} enrolled · {pendingInvites.length} pending invite{pendingInvites.length !== 1 ? 's' : ''}</p>
+            )}
           </div>
           <div className="flex space-x-3">
             <button className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 font-semibold flex items-center transition-all">
@@ -495,8 +595,34 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
       <div className="p-8">
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           {filteredLearners.length === 0 ? (
-            <div className="p-12 text-center text-gray-500 dark:text-gray-400">
-              {configMissing ? 'Configure Supabase to see learners.' : 'No learners yet. Invite learners to get started.'}
+            <div className="p-12">
+              <div className="text-center text-gray-500 dark:text-gray-400 mb-6">
+                {learnersError ? (
+                  <p className="text-amber-600 dark:text-amber-400 font-medium">{learnersError}</p>
+                ) : configMissing ? (
+                  'Configure Supabase to see learners.'
+                ) : learnersEmptyReason === 'no_courses' ? (
+                  'You have no courses yet. Create a course in My Courses, then share its link so learners can enroll — they will appear here.'
+                ) : learnersEmptyReason === 'no_enrollments' ? (
+                  'No enrolled learners yet. Share your course link or use Invite Learners — once they sign up and enroll, they will appear here.'
+                ) : (
+                  'No enrolled learners yet. This list shows people who have enrolled in your courses. Share your course link or use Invite Learners — once they sign up and enroll, they will appear here.'
+                )}
+              </div>
+              {pendingInvites.length > 0 && (
+                <div className="mt-8 pt-8 border-t border-gray-200 dark:border-gray-600">
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Pending invites ({pendingInvites.length})</h4>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">These people have been invited. They will appear in Enrolled learners once they sign up and enroll.</p>
+                  <ul className="space-y-2">
+                    {pendingInvites.map((inv) => (
+                      <li key={inv.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-sm">
+                        <span className="text-gray-700 dark:text-gray-200">{inv.email}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">{inv.status}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           ) : filteredLearners.map((learner) => (
             <div 

@@ -1473,44 +1473,6 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                   </div>
                 </div>
 
-                <div className="mb-6">
-                  <p className="text-sm font-semibold mb-3 dark:text-gray-200">Share via</p>
-                  <div className="grid grid-cols-4 gap-3">
-                    <button 
-                      type="button"
-                      onClick={handleShareEmail}
-                      className="p-4 border-2 border-gray-200 dark:border-gray-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-center"
-                    >
-                      <Mail className="w-6 h-6 mx-auto mb-2 text-gray-600 dark:text-gray-300" />
-                      <p className="text-xs font-semibold dark:text-gray-200">Email</p>
-                    </button>
-                    <button 
-                      type="button"
-                      onClick={handleCopy}
-                      className="p-4 border-2 border-gray-200 dark:border-gray-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-center"
-                    >
-                      <Link2 className="w-6 h-6 mx-auto mb-2 text-gray-600 dark:text-gray-300" />
-                      <p className="text-xs font-semibold dark:text-gray-200">Link</p>
-                    </button>
-                    <button 
-                      type="button"
-                      onClick={handleShareSlack}
-                      className="p-4 border-2 border-gray-200 dark:border-gray-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-center"
-                    >
-                      <Share2 className="w-6 h-6 mx-auto mb-2 text-gray-600 dark:text-gray-300" />
-                      <p className="text-xs font-semibold dark:text-gray-200">Slack</p>
-                    </button>
-                    <button 
-                      type="button"
-                      onClick={handleCopy}
-                      className="p-4 border-2 border-gray-200 dark:border-gray-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-center"
-                    >
-                      <Globe className="w-6 h-6 mx-auto mb-2 text-gray-600 dark:text-gray-300" />
-                      <p className="text-xs font-semibold dark:text-gray-200">Public</p>
-                    </button>
-                  </div>
-                </div>
-
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
                   <div className="flex items-start">
                     <CheckCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-3 mt-0.5 flex-shrink-0" />
