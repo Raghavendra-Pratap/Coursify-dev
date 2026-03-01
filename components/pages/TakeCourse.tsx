@@ -564,7 +564,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
                             {/* 16:9 player in designated area only; capped so footer stays visible */}
                             <div className="flex-1 min-h-0 flex items-center justify-center p-4 overflow-hidden">
                               <div
-                                className="aspect-video max-w-full rounded-xl overflow-hidden bg-black shrink-0"
+                                className="aspect-video max-w-full rounded-xl overflow-hidden bg-black shrink-0 select-none"
                                 style={{ width: 'min(64rem, min(100%, (100vh - 18rem) * 16 / 9))', maxHeight: 'calc(100vh - 18rem)' }}
                               >
                                 <LessonVideoPlayer
@@ -641,7 +641,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
                             {/* Full area for document (same as video area) */}
                             <div
                               ref={docViewerRef}
-                              className="relative flex-1 min-h-0 flex flex-col overflow-auto bg-white dark:bg-gray-900"
+                              className="relative flex-1 min-h-0 flex flex-col overflow-auto bg-white dark:bg-gray-900 select-none"
                               style={{ zoom: docZoom / 100 }}
                             >
                               {docFullScreen && (

@@ -91,6 +91,9 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
   const [showShareModal, setShowShareModal] = useState(false);
   const [courseToShare, setCourseToShare] = useState<CourseRow | null>(null);
   const [shareCopyFeedback, setShareCopyFeedback] = useState(false);
+  const [shareMagicLink, setShareMagicLink] = useState<string | null>(null);
+  const [shareMagicLinkLoading, setShareMagicLinkLoading] = useState(false);
+  const [shareMagicLinkError, setShareMagicLinkError] = useState<string | null>(null);
   const [activeDropdown, setActiveDropdown] = useState<CourseId | null>(null);
   const [showCollaboratorsModal, setShowCollaboratorsModal] = useState(false);
   const [courseForCollaborators, setCourseForCollaborators] = useState<CourseRow | null>(null);
@@ -341,8 +344,24 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
 
   const handleShareCourse = (course: CourseRow) => {
     setCourseToShare(course);
+    setShareMagicLink(null);
+    setShareMagicLinkError(null);
     setShowShareModal(true);
   };
+
+  useEffect(() => {
+    if (!showShareModal || !courseToShare || typeof courseToShare.id !== 'string') return;
+    setShareMagicLinkLoading(true);
+    setShareMagicLinkError(null);
+    fetch(`/api/courses/${encodeURIComponent(courseToShare.id)}/magic-link`, { credentials: 'include' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.magicLink) setShareMagicLink(data.magicLink);
+        else setShareMagicLinkError(data.error || 'Could not create link');
+      })
+      .catch(() => setShareMagicLinkError('Could not create link'))
+      .finally(() => setShareMagicLinkLoading(false));
+  }, [showShareModal, courseToShare]);
 
   const handleDuplicateCourse = async (course: CourseRow) => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -1403,18 +1422,18 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
       {/* Share Modal */}
       {showShareModal && courseToShare && (() => {
         const baseUrl = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin) : '';
-        const courseUrl = `${baseUrl}/course/${courseToShare.id}`;
+        const fallbackCourseUrl = `${baseUrl}/course/${courseToShare.id}`;
+        const displayUrl = shareMagicLink || fallbackCourseUrl;
         const courseTitle = courseToShare.title || 'Course';
 
         const handleCopy = async () => {
           try {
-            await navigator.clipboard.writeText(courseUrl);
+            await navigator.clipboard.writeText(displayUrl);
             setShareCopyFeedback(true);
             setTimeout(() => setShareCopyFeedback(false), 2000);
           } catch {
-            // fallback for older browsers
             const input = document.createElement('input');
-            input.value = courseUrl;
+            input.value = displayUrl;
             document.body.appendChild(input);
             input.select();
             document.execCommand('copy');
@@ -1422,17 +1441,6 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
             setShareCopyFeedback(true);
             setTimeout(() => setShareCopyFeedback(false), 2000);
           }
-        };
-
-        const handleShareEmail = () => {
-          const subject = encodeURIComponent(`Check out this course: ${courseTitle}`);
-          const body = encodeURIComponent(`I thought you might like this course:\n\n${courseTitle}\n${courseUrl}`);
-          window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
-        };
-
-        const handleShareSlack = () => {
-          const text = encodeURIComponent(`${courseTitle}: ${courseUrl}`);
-          window.open(`https://slack.com/share?text=${text}`, '_blank', 'noopener,noreferrer,width=600,height=400');
         };
 
         return (
@@ -1445,6 +1453,8 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                     setShowShareModal(false);
                     setCourseToShare(null);
                     setShareCopyFeedback(false);
+                    setShareMagicLink(null);
+                    setShareMagicLinkError(null);
                   }}
                   className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
                 >
@@ -1454,18 +1464,22 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
 
               <div className="p-6">
                 <div className="mb-6">
-                  <p className="text-sm font-semibold mb-2 dark:text-gray-200">Course Link</p>
+                  <p className="text-sm font-semibold mb-2 dark:text-gray-200">Share link (magic link)</p>
+                  {shareMagicLinkError && (
+                    <p className="text-sm text-amber-600 dark:text-amber-400 mb-2">{shareMagicLinkError}. Showing course link instead.</p>
+                  )}
                   <div className="flex items-center space-x-2">
                     <input 
                       type="text" 
-                      value={courseUrl}
+                      value={shareMagicLinkLoading ? 'Loading…' : displayUrl}
                       readOnly
                       className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white"
                     />
                     <button 
                       type="button"
                       onClick={handleCopy}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center transition-all shrink-0"
+                      disabled={shareMagicLinkLoading}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center transition-all shrink-0 disabled:opacity-70"
                     >
                       <Copy className="w-4 h-4 mr-2" />
                       {shareCopyFeedback ? 'Copied!' : 'Copy'}

@@ -601,7 +601,7 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
       `${segment.id}-iframe`,
       <div
         ref={containerRef}
-        className="relative w-full rounded-xl overflow-hidden bg-black"
+        className="relative w-full rounded-xl overflow-hidden bg-black select-none"
         style={{ aspectRatio: '16/9' }}
         onContextMenu={(e) => e.preventDefault()}
       >

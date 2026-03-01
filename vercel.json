@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        { "type": "host", "value": "coursify-dev.vercel.app" }
+      ],
+      "destination": "https://coursify.bsoc.space/:path*",
+      "permanent": true
+    }
+  ]
+}
