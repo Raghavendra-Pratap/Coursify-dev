@@ -45,15 +45,15 @@ const CoursifyLMS = () => {
   const [learningCourseId, setLearningCourseId] = useState<string | null>(null);
   const authChecked = !authLoading;
 
-  // Apply saved theme (dark/light) on load so dark mode works before user opens Settings
+  // Apply saved theme (dark/light) on load. Default is dark; users can switch to light in Settings.
   useEffect(() => {
     try {
       const raw = typeof window !== 'undefined' && window.localStorage.getItem('coursify_account_settings');
       const parsed = raw ? JSON.parse(raw) : null;
-      const theme = parsed?.theme === 'dark' ? 'dark' : 'light';
+      const theme = parsed?.theme === 'light' ? 'light' : 'dark';
       document.documentElement.classList.toggle('dark', theme === 'dark');
     } catch {
-      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.add('dark');
     }
   }, []);
 

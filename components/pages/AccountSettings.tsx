@@ -36,7 +36,7 @@ type SettingsState = {
 };
 
 const defaultSettings: SettingsState = {
-  theme: 'light',
+  theme: 'dark',
   language: 'en',
   emailNotifications: true,
   courseReminders: true,
