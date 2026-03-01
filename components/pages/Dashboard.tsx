@@ -29,6 +29,8 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
   });
   const [configMissing, setConfigMissing] = useState(false);
   const [topCourses, setTopCourses] = useState<{ id: number | string; name: string; completion: number; learners: number; trend: string; trendValue: number; avgTime: string; lastUpdated: string; status: string; dropOffPoint: string }[]>([]);
+  const [weeklyData, setWeeklyData] = useState<{ week: string; completions: number; enrollments: number; avgTime: number }[]>([]);
+  const [recentActivity, setRecentActivity] = useState<{ id: number; user: string; action: string; course: string; time: string; avatar: string; score?: number; type: string }[]>([]);
 
   useEffect(() => {
     const load = async () => {
@@ -38,63 +40,22 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
       }
       setConfigMissing(false);
       try {
-        const [coursesRes, profilesRes, coursesListRes, enrollmentsRes] = await Promise.all([
-          supabase.from('courses').select('id', { count: 'exact', head: true }),
-          supabase.from('user_profiles').select('id', { count: 'exact', head: true }),
-          supabase.from('courses').select('id, title, updated_at').order('updated_at', { ascending: false }).limit(4),
-          supabase.from('enrollments').select('id, completed_at')
-        ]);
-        const courseCount = coursesRes.count ?? 0;
-        const learnerCount = profilesRes.count ?? 0;
-        const enrollments = enrollmentsRes.data ?? [];
-        const totalEnrollments = enrollments.length;
-        const completedEnrollments = enrollments.filter((e: { completed_at: string | null }) => e.completed_at).length;
-        const completionRate = totalEnrollments > 0 ? Math.round((completedEnrollments / totalEnrollments) * 100) : 0;
-        const prevCourse = Math.max(0, courseCount - 2);
-        const prevLearner = Math.max(0, learnerCount - 50);
-        setStats({
-          learners: { current: learnerCount, previous: prevLearner, change: prevLearner ? Math.round(((learnerCount - prevLearner) / prevLearner) * 1000) / 10 : 0 },
-          courses: { current: courseCount, previous: prevCourse, change: prevCourse ? Math.round(((courseCount - prevCourse) / prevCourse) * 1000) / 10 : 0 },
-          completion: { current: completionRate, previous: Math.max(0, completionRate - 10), change: 0 },
-          avgTime: { current: 0, previous: 0, change: 0 }
-        });
-        const list = coursesListRes.data || [];
-        const courseIds = list.map((c: { id: string }) => c.id);
-        const { data: perCourseEnrollments } = courseIds.length
-          ? await supabase.from('enrollments').select('course_id, completed_at').in('course_id', courseIds)
-          : { data: [] };
-        const enrollmentsByCourse: Record<string, { total: number; completed: number }> = {};
-        (perCourseEnrollments ?? []).forEach((e: { course_id: string; completed_at: string | null }) => {
-          if (!enrollmentsByCourse[e.course_id]) enrollmentsByCourse[e.course_id] = { total: 0, completed: 0 };
-          enrollmentsByCourse[e.course_id].total++;
-          if (e.completed_at) enrollmentsByCourse[e.course_id].completed++;
-        });
-        setTopCourses(list.map((c: { id: string; title: string; updated_at: string }) => {
-          const ec = enrollmentsByCourse[c.id] ?? { total: 0, completed: 0 };
-          const completion = ec.total ? Math.round((ec.completed / ec.total) * 100) : 0;
-          return {
-            id: c.id,
-            name: c.title,
-            completion,
-            learners: ec.total,
-            trend: 'up',
-            trendValue: 0,
-            avgTime: '—',
-            lastUpdated: new Date(c.updated_at).toLocaleDateString(),
-            status: 'active',
-            dropOffPoint: '—'
-          };
-        }));
+        const res = await fetch('/api/instructor/dashboard', { credentials: 'include', cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setConfigMissing(true);
+          return;
+        }
+        if (data.stats) setStats(data.stats);
+        if (Array.isArray(data.topCourses)) setTopCourses(data.topCourses);
+        if (Array.isArray(data.weeklyData)) setWeeklyData(data.weeklyData);
+        if (Array.isArray(data.recentActivity)) setRecentActivity(data.recentActivity);
       } catch {
         setConfigMissing(true);
       }
     };
     load();
   }, []);
-
-  const weeklyData: { week: string; completions: number; enrollments: number; avgTime: number }[] = [];
-
-  const recentActivity: { id: number; user: string; action: string; course: string; time: string; avatar: string; score?: number; type: string }[] = [];
 
   const calculateChange = (current: number, previous: number) => {
     if (previous === 0) return '0';
@@ -131,31 +92,41 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
   }) => {
     const change = parseFloat(calculateChange(current, previous));
     const isPositive = change > 0;
-    
     const colorClasses = {
       blue: 'from-blue-500 to-blue-600',
       purple: 'from-purple-500 to-purple-600',
       green: 'from-green-500 to-green-600',
       orange: 'from-orange-500 to-orange-600'
     };
-    
+    const darkBorderClasses = {
+      blue: 'dark:border-l-blue-500',
+      purple: 'dark:border-l-purple-500',
+      green: 'dark:border-l-emerald-500',
+      orange: 'dark:border-l-amber-500'
+    };
+    const darkIconClasses = {
+      blue: 'dark:text-blue-400',
+      purple: 'dark:text-purple-400',
+      green: 'dark:text-emerald-400',
+      orange: 'dark:text-amber-400'
+    };
     return (
-      <div className={`bg-gradient-to-br ${colorClasses[color]} text-white p-6 rounded-2xl shadow-lg hover:shadow-xl transition-all cursor-pointer`}>
+      <div className={`bg-gradient-to-br ${colorClasses[color]} text-white p-6 rounded-2xl shadow-lg hover:shadow-xl transition-all cursor-pointer dark:bg-gray-800 dark:border-l-4 ${darkBorderClasses[color]} dark:border-gray-700 dark:shadow-none`}>
         <div className="flex items-center justify-between mb-4">
-          <div className="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center backdrop-blur-sm">
-            <Icon className="w-6 h-6" />
+          <div className="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center backdrop-blur-sm dark:bg-gray-700/50">
+            <Icon className={`w-6 h-6 ${darkIconClasses[color]}`} />
           </div>
-          <div className={`flex items-center space-x-1 text-sm font-semibold bg-white bg-opacity-20 px-3 py-1 rounded-full`}>
+          <div className="flex items-center space-x-1 text-sm font-semibold bg-white bg-opacity-20 px-3 py-1 rounded-full dark:bg-gray-700/50 dark:text-gray-300">
             {isPositive ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
             <span>{Math.abs(change).toFixed(1)}%</span>
           </div>
         </div>
-        <p className="text-sm opacity-90 mb-1">{title}</p>
+        <p className="text-sm opacity-90 mb-1 dark:text-gray-300">{title}</p>
         <div className="flex items-baseline">
-          <p className="text-4xl font-bold">{current.toLocaleString()}</p>
-          {unit && <span className="text-xl ml-1 opacity-90">{unit}</span>}
+          <p className="text-4xl font-bold dark:text-white">{current.toLocaleString()}</p>
+          {unit && <span className="text-xl ml-1 opacity-90 dark:text-gray-300">{unit}</span>}
         </div>
-        <p className="text-xs opacity-75 mt-2">vs {previous.toLocaleString()}{unit} last period</p>
+        <p className="text-xs opacity-75 mt-2 dark:text-gray-300">vs {previous.toLocaleString()}{unit} last period</p>
       </div>
     );
   };
@@ -168,7 +139,7 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
         </div>
       )}
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-8 py-6 sticky top-0 z-10">
+      <div className="bg-white dark:bg-gray-900 dark:border-gray-800 border-b border-gray-200 dark:border-gray-800 px-8 py-6 sticky top-0 z-10">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>

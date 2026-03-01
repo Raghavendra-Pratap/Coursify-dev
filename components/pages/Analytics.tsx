@@ -44,7 +44,7 @@ const StatCard = ({ title, current, previous, change, trend, icon: Icon, color, 
         {suffix && <span className="text-xl ml-1 opacity-90">{suffix}</span>}
       </div>
       {comparisonMode && (
-        <p className="text-xs opacity-75 mt-2">vs {previous}{suffix} last period</p>
+        <p className="text-xs opacity-90 mt-2">vs {previous}{suffix} last period</p>
       )}
     </div>
   );
@@ -121,17 +121,17 @@ const Analytics: React.FC = () => {
   const atRiskLearners: Array<{ name: string; courses: number; completion: number; lastActive: string; status: string }> = [];
 
   const content = (
-    <div>
+    <div className="min-h-full dark:bg-gray-900">
       {configMissing ? (
-        <div className="bg-amber-50 border-b border-amber-200 px-8 py-2 text-sm text-amber-800">
+        <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-8 py-2 text-sm text-amber-800 dark:text-amber-200">
           Configure Supabase to see analytics.
         </div>
       ) : null}
-      <div className="bg-white border-b border-gray-200 px-8 py-6 sticky top-0 z-20">
+      <div className="bg-white dark:bg-gray-900 dark:border-gray-800 border-b border-gray-200 dark:border-gray-800 px-8 py-6 sticky top-0 z-20">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Analytics Dashboard</h1>
-            <div className="flex items-center mt-2 text-sm text-gray-600">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Analytics Dashboard</h1>
+            <div className="flex items-center mt-2 text-sm text-gray-600 dark:text-gray-400">
               <Calendar className="w-4 h-4 mr-2" />
               <span>Last updated: Just now</span>
               <span className="mx-2">•</span>
@@ -142,7 +142,7 @@ const Analytics: React.FC = () => {
             <button 
               onClick={() => setComparisonMode(!comparisonMode)}
               className={`px-4 py-2 rounded-lg font-semibold transition-all flex items-center ${
-                comparisonMode ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                comparisonMode ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               <RefreshCw className="w-4 h-4 mr-2" />
@@ -150,7 +150,7 @@ const Analytics: React.FC = () => {
             </button>
             <button 
               onClick={() => setShowFilters(!showFilters)}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-semibold flex items-center transition-all"
+              className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 font-semibold flex items-center transition-all"
             >
               <Filter className="w-4 h-4 mr-2" />
               Filters
@@ -164,7 +164,7 @@ const Analytics: React.FC = () => {
 
         {/* Filters Panel */}
         {showFilters && (
-          <div className="bg-gray-50 rounded-xl p-4 mb-4 border border-gray-200">
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-4 border border-gray-200 dark:border-gray-700">
             <div className="grid grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-semibold mb-2">Date Range</label>
@@ -304,7 +304,7 @@ const Analytics: React.FC = () => {
             {/* Charts Row 1 */}
             <div className="grid lg:grid-cols-2 gap-6 mb-6">
               {/* Engagement Trend */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <h3 className="text-xl font-bold">Engagement Trend</h3>
@@ -340,7 +340,7 @@ const Analytics: React.FC = () => {
               </div>
 
               {/* Department Breakdown */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <h3 className="text-xl font-bold">Department Performance</h3>
@@ -389,7 +389,7 @@ const Analytics: React.FC = () => {
             {/* Charts Row 2 */}
             <div className="grid lg:grid-cols-3 gap-6 mb-6">
               {/* Completion Funnel */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
                 <h3 className="text-xl font-bold mb-6">Completion Funnel</h3>
                 <div className="space-y-3">
                   {completionFunnel.length === 0 ? (
@@ -412,7 +412,7 @@ const Analytics: React.FC = () => {
               </div>
 
               {/* Device Breakdown */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
                 <h3 className="text-xl font-bold mb-6">Device Usage</h3>
                 <div className="space-y-6">
                   {deviceBreakdown.length === 0 ? (
@@ -445,7 +445,7 @@ const Analytics: React.FC = () => {
               </div>
 
               {/* Top Performers */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-xl font-bold">Top Performers</h3>
                   <Trophy className="w-6 h-6 text-yellow-500" />
@@ -475,44 +475,44 @@ const Analytics: React.FC = () => {
             </div>
 
             {/* Course Performance Table */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="p-6 border-b border-gray-200">
-                <h3 className="text-xl font-bold">Course Performance</h3>
-                <p className="text-sm text-gray-600 mt-1">Detailed metrics for all courses</p>
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="text-xl font-bold dark:text-white">Course Performance</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Detailed metrics for all courses</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-50 dark:bg-gray-700/80 border-b-2 border-gray-200 dark:border-gray-600">
                     <tr>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Course Name</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Enrolled</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Completed</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Completion Rate</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Avg. Score</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Avg. Time</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Drop-off</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Satisfaction</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Trend</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Course Name</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Enrolled</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Completed</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Completion Rate</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Avg. Score</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Avg. Time</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Drop-off</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Satisfaction</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Trend</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200">
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                     {coursePerformance.length === 0 ? (
-                      <tr><td colSpan={9} className="px-6 py-8 text-center text-gray-500 text-sm">No courses yet.</td></tr>
+                      <tr><td colSpan={9} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400 text-sm">No courses yet.</td></tr>
                     ) : coursePerformance.map((course) => (
-                      <tr key={course.id} className="hover:bg-gray-50 transition-all">
+                      <tr key={course.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all">
                         <td className="px-6 py-4">
-                          <p className="font-semibold">{course.name}</p>
+                          <p className="font-semibold dark:text-white">{course.name}</p>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="font-semibold">{course.enrolled}</span>
+                          <span className="font-semibold dark:text-white">{course.enrolled}</span>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="font-semibold text-green-600">{course.completed}</span>
-                          <span className="text-gray-600 text-sm ml-1">({course.inProgress} in progress)</span>
+                          <span className="font-semibold text-green-600 dark:text-green-400">{course.completed}</span>
+                          <span className="text-gray-600 dark:text-gray-400 text-sm ml-1">({course.inProgress} in progress)</span>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center space-x-2">
-                            <div className="w-20 bg-gray-200 rounded-full h-2">
+                            <div className="w-20 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                               <div 
                                 className={`h-2 rounded-full ${
                                   course.completionRate >= 85 ? 'bg-green-500' :
@@ -522,26 +522,26 @@ const Analytics: React.FC = () => {
                                 style={{width: `${course.completionRate}%`}}
                               ></div>
                             </div>
-                            <span className="text-sm font-semibold">{course.completionRate}%</span>
+                            <span className="text-sm font-semibold dark:text-white">{course.completionRate}%</span>
                           </div>
                         </td>
                         <td className="px-6 py-4">
                           <span className={`font-semibold ${
-                            course.avgScore >= 90 ? 'text-green-600' :
-                            course.avgScore >= 75 ? 'text-yellow-600' :
-                            'text-red-600'
+                            course.avgScore >= 90 ? 'text-green-600 dark:text-green-400' :
+                            course.avgScore >= 75 ? 'text-yellow-600 dark:text-yellow-400' :
+                            'text-red-600 dark:text-red-400'
                           }`}>
                             {course.avgScore}%
                           </span>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-gray-700">{course.avgTime}</span>
+                          <span className="text-gray-700 dark:text-gray-300">{course.avgTime}</span>
                         </td>
                         <td className="px-6 py-4">
                           <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            course.dropOffRate < 15 ? 'bg-green-100 text-green-700' :
-                            course.dropOffRate < 25 ? 'bg-yellow-100 text-yellow-700' :
-                            'bg-red-100 text-red-700'
+                            course.dropOffRate < 15 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' :
+                            course.dropOffRate < 25 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300' :
+                            'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
                           }`}>
                             {course.dropOffRate}%
                           </span>
@@ -549,19 +549,19 @@ const Analytics: React.FC = () => {
                         <td className="px-6 py-4">
                           <div className="flex items-center">
                             <Star className="w-4 h-4 text-yellow-500 fill-yellow-500 mr-1" />
-                            <span className="font-semibold">{course.satisfaction}</span>
+                            <span className="font-semibold dark:text-white">{course.satisfaction}</span>
                           </div>
                         </td>
                         <td className="px-6 py-4">
                           <div className={`flex items-center space-x-1 ${
-                            course.trend === 'up' ? 'text-green-600' : 'text-red-600'
+                            course.trend === 'up' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                           }`}>
                             {course.trend === 'up' ? (
                               <TrendingUp className="w-4 h-4" />
                             ) : (
                               <TrendingDown className="w-4 h-4" />
                             )}
-                            <span className="text-sm font-semibold">{course.trendValue}%</span>
+                            <span className="text-sm font-semibold dark:text-white">{course.trendValue}%</span>
                           </div>
                         </td>
                       </tr>
@@ -621,7 +621,7 @@ const Analytics: React.FC = () => {
             </div>
 
             {/* Peak Hours Chart */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 mb-6">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="text-xl font-bold">Peak Usage Hours</h3>
@@ -650,7 +650,7 @@ const Analytics: React.FC = () => {
             </div>
 
             {/* At-Risk Learners */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="text-xl font-bold">At-Risk Learners</h3>
@@ -742,7 +742,7 @@ const Analytics: React.FC = () => {
             </div>
 
             {/* Completion by Course Type */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 mb-6">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
               <h3 className="text-xl font-bold mb-6">Completion Rate by Course Category</h3>
               <div className="grid grid-cols-2 gap-6">
                 {[
@@ -785,7 +785,7 @@ const Analytics: React.FC = () => {
             </div>
 
             {/* Completion Timeline */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
               <h3 className="text-xl font-bold mb-6">Completion Timeline Distribution</h3>
               <div className="space-y-4">
                 {[
@@ -873,7 +873,7 @@ const Analytics: React.FC = () => {
 
             {/* Score Distribution */}
             <div className="grid lg:grid-cols-2 gap-6 mb-6">
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
                 <h3 className="text-xl font-bold mb-6">Score Distribution</h3>
                 <div className="h-64 flex items-end justify-around space-x-2">
                   {[
@@ -906,7 +906,7 @@ const Analytics: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
                 <h3 className="text-xl font-bold mb-6">Performance Insights</h3>
                 <div className="space-y-4">
                   <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
@@ -944,7 +944,7 @@ const Analytics: React.FC = () => {
 
             {/* Top and Bottom Performing Content */}
             <div className="grid lg:grid-cols-2 gap-6">
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
                 <h3 className="text-xl font-bold mb-6 flex items-center">
                   <Trophy className="w-6 h-6 text-yellow-500 mr-2" />
                   Best Performing Content
@@ -967,7 +967,7 @@ const Analytics: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
                 <h3 className="text-xl font-bold mb-6 flex items-center">
                   <AlertCircle className="w-6 h-6 text-orange-500 mr-2" />
                   Content Needing Improvement

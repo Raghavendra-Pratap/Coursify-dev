@@ -7,6 +7,7 @@ import {
   Youtube, HelpCircle, Radio, AlertCircle, BookOpen, Link
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { ReadingContentRenderer } from '@/components/ReadingContentRenderer';
 
 interface CreateCourseProps {
   setCurrentView: (view: string) => void;
@@ -47,14 +48,26 @@ interface Quiz {
   title: string;
   questions: QuizQuestion[];
   passingScore: number;
+  /** Google Form URL; when set, quiz is rendered as embedded form in TakeCourse */
+  formUrl?: string;
+  /** Google Form hidden field entry ID for webhook; when set, token is pre-filled so form submit can POST score to our webhook */
+  formEntryIdWebhook?: string;
 }
 
-// Reading material: link (Google Doc, Microsoft Doc, etc.) or native in-app text
+interface FormContent {
+  id: number;
+  title: string;
+  /** Google Form URL; rendered as embedded form in TakeCourse */
+  formUrl?: string;
+}
+
+// Reading material: link (Google Doc, Microsoft Doc, etc.) or native in-app text (plain, markdown, or html)
 interface ReadingMaterial {
   title: string;
   type: 'url' | 'native';
   url?: string;
   body?: string;
+  format?: 'plain' | 'markdown' | 'html';
 }
 
 interface ContentItem {
@@ -63,7 +76,7 @@ interface ContentItem {
   order: number;
   videoSegment?: VideoSegment;
   quiz?: Quiz;
-  form?: any; // Form structure similar to quiz
+  form?: FormContent;
   reading?: ReadingMaterial;
 }
 
@@ -261,6 +274,73 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [quizModalTitle, setQuizModalTitle] = useState('');
   const [quizModalPassingScore, setQuizModalPassingScore] = useState(70);
+  const [quizModalFormUrl, setQuizModalFormUrl] = useState('');
+  const [quizModalFormEntryIdWebhook, setQuizModalFormEntryIdWebhook] = useState('');
+  const [quizModalScriptCopied, setQuizModalScriptCopied] = useState(false);
+  const [quizModalRecordScoresOpen, setQuizModalRecordScoresOpen] = useState(false);
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [formModalTitle, setFormModalTitle] = useState('');
+
+  /** Build Apps Script code with custom webhook URL. Entry ID can be empty (placeholder used). */
+  const getQuizWebhookScript = (entryId: string, passingScore: number) => {
+    const baseUrl = typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : (process.env.NEXT_PUBLIC_APP_URL || 'https://YOUR-COURSIFY-APP');
+    const webhookUrl = `${baseUrl.replace(/\/$/, '')}/api/webhooks/google-form-quiz`;
+    const safeEntryId = entryId.trim()
+      ? String(entryId).trim().replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      : 'YOUR_ENTRY_ID';
+    return `const WEBHOOK_URL = '${webhookUrl}';
+const PASSING_SCORE = ${Math.min(100, Math.max(0, Number(passingScore) || 70))};
+
+function onFormSubmit(e) {
+  if (!e || !e.response) return;
+  var itemResponses = e.response.getItemResponses();
+  var entryId = "${safeEntryId}";
+  var token = null;
+
+  for (var i = 0; i < itemResponses.length; i++) {
+    var r = itemResponses[i];
+    var id = String(r.getItem().getId());
+    if (id === entryId) {
+      token = r.getResponse();
+      break;
+    }
+  }
+
+  if (!token) return;
+
+  var totalScore = 0;
+  var maxScore = 0;
+  var form = FormApp.getActiveForm();
+  var items = form.getItems();
+  for (var j = 0; j < items.length; j++) {
+    var item = items[j];
+    var gr = e.response.getGradableResponseForItem(item);
+    if (gr) {
+      totalScore += gr.getScore();
+      try { maxScore += item.asQuizItem().getPoints(); } catch (err) {}
+    }
+  }
+  var score = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
+  var passed = score >= PASSING_SCORE;
+
+  var payload = JSON.stringify({
+    token: token,
+    score: Math.round(Number(score)),
+    passed: !!passed
+  });
+
+  UrlFetchApp.fetch(WEBHOOK_URL, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: payload,
+    muteHttpExceptions: true
+  });
+}
+`;
+  };
+  const [formModalFormUrl, setFormModalFormUrl] = useState('');
   const [showStreamSettings, setShowStreamSettings] = useState(false);
   const [savedCourseId, setSavedCourseId] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -270,6 +350,91 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
   const [readingType, setReadingType] = useState<'url' | 'native'>('url');
   const [readingUrl, setReadingUrl] = useState('');
   const [readingBody, setReadingBody] = useState('');
+  const [readingFormat, setReadingFormat] = useState<'plain' | 'markdown' | 'html'>('plain');
+  const linkPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const ytPreviewPlayerRef = useRef<{ getCurrentTime?: () => number; getDuration?: () => number } | null>(null);
+  const [ytPreviewReady, setYtPreviewReady] = useState(false);
+  const [externalPreviewReady, setExternalPreviewReady] = useState(false);
+
+  // Reset external preview ready when URL changes or modal closes
+  useEffect(() => {
+    if (!showUploadModal || uploadType !== 'link' || detectVideoLinkType(unifiedVideoUrl?.trim() || '') !== 'external_url') {
+      setExternalPreviewReady(false);
+    }
+  }, [showUploadModal, uploadType, unifiedVideoUrl]);
+
+  // YouTube preview player in Add Content modal when creator pastes a link
+  useEffect(() => {
+    if (!showUploadModal || uploadType !== 'link') {
+      setYtPreviewReady(false);
+      const p = ytPreviewPlayerRef.current as { destroy?: () => void } | null;
+      if (p?.destroy) {
+        try { p.destroy(); } catch { /* ignore */ }
+      }
+      ytPreviewPlayerRef.current = null;
+      return;
+    }
+    const url = unifiedVideoUrl?.trim() || '';
+    const videoId = detectVideoLinkType(url) === 'youtube' ? getYouTubeVideoId(url) : null;
+    if (!videoId) return;
+
+    setYtPreviewReady(false);
+    const containerId = 'create-course-yt-preview';
+
+    const initYouTube = () => {
+      const YT = (typeof window !== 'undefined' ? (window as unknown as { YT?: { Player: new (el: string, opts: unknown) => { getCurrentTime?: () => number; destroy?: () => void } } }).YT : undefined);
+      if (!YT?.Player) return;
+      const el = document.getElementById(containerId);
+      if (!el) return;
+      const player = new YT.Player(containerId, {
+        videoId,
+        width: '100%',
+        height: '100%',
+        playerVars: {
+          start: 0,
+          rel: 0,
+          modestbranding: 1,
+          controls: 1,
+          autoplay: 0,
+        },
+        events: {
+          onReady: () => {
+            ytPreviewPlayerRef.current = player as unknown as { getCurrentTime?: () => number; getDuration?: () => number };
+            setYtPreviewReady(true);
+          },
+        },
+      });
+      ytPreviewPlayerRef.current = player as unknown as { getCurrentTime?: () => number; getDuration?: () => number };
+    };
+
+    if (typeof window !== 'undefined' && (window as unknown as { YT?: { Player: unknown } }).YT?.Player) {
+      initYouTube();
+      return () => {
+        const p = ytPreviewPlayerRef.current as { destroy?: () => void } | null;
+        if (p?.destroy) try { p.destroy(); } catch { /* ignore */ }
+        ytPreviewPlayerRef.current = null;
+        setYtPreviewReady(false);
+      };
+    }
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.async = true;
+    const win = typeof window !== 'undefined' ? (window as unknown as { onYouTubeIframeAPIReady?: () => void }) : undefined;
+    const prev = win?.onYouTubeIframeAPIReady;
+    if (win) {
+      win.onYouTubeIframeAPIReady = () => {
+        prev?.();
+        initYouTube();
+      };
+    }
+    document.head.appendChild(script);
+    return () => {
+      const p = ytPreviewPlayerRef.current as { destroy?: () => void } | null;
+      if (p?.destroy) try { p.destroy(); } catch { /* ignore */ }
+      ytPreviewPlayerRef.current = null;
+      setYtPreviewReady(false);
+    };
+  }, [showUploadModal, uploadType, unifiedVideoUrl]);
 
   const showSaveMessage = (msg: string) => {
     setSaveMessage(msg);
@@ -343,14 +508,19 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                 contentItem.videoSegment = vs ? { id: ci, name: vs.name, duration: formatSecondsToHHMMSS(vs.duration_seconds || 0), startTime: formatSecondsToHHMMSS(vs.start_time_seconds || 0), endTime: formatSecondsToHHMMSS(vs.end_time_seconds || 0), status: 'active', size: '', lastEdited: '', source: (vs.source as VideoSource) || 'upload', sourceUrl: vs.source_url || undefined } : undefined;
               }
               if (type === 'reading') {
-                const { data: rmRows } = await db.from('reading_materials').select('title, type, url, body').eq('content_item_id', item.id).maybeSingle();
-                const rm = rmRows as { title: string; type: string; url: string | null; body: string | null } | undefined;
-                contentItem.reading = rm ? { title: rm.title, type: (rm.type as 'url' | 'native'), url: rm.url || undefined, body: rm.body || undefined } : undefined;
+                const { data: rmRows } = await db.from('reading_materials').select('title, type, url, body, format').eq('content_item_id', item.id).maybeSingle();
+                const rm = rmRows as { title: string; type: string; url: string | null; body: string | null; format?: string | null } | undefined;
+                contentItem.reading = rm ? { title: rm.title, type: (rm.type as 'url' | 'native'), url: rm.url || undefined, body: rm.body || undefined, format: (rm.format as 'plain' | 'markdown' | 'html') || 'plain' } : undefined;
               }
               if (type === 'quiz') {
-                const { data: qRows } = await db.from('quizzes').select('title, passing_score').eq('content_item_id', item.id).maybeSingle();
-                const q = qRows as { title: string; passing_score: number } | undefined;
-                contentItem.quiz = q ? { id: ci, title: q.title, questions: [], passingScore: q.passing_score ?? 70 } : undefined;
+                const { data: qRows } = await db.from('quizzes').select('title, passing_score, form_url, form_entry_id_webhook').eq('content_item_id', item.id).maybeSingle();
+                const q = qRows as { title: string; passing_score: number; form_url?: string | null; form_entry_id_webhook?: string | null } | undefined;
+                contentItem.quiz = q ? { id: ci, title: q.title, questions: [], passingScore: q.passing_score ?? 70, formUrl: q.form_url || undefined, formEntryIdWebhook: q.form_entry_id_webhook || undefined } : undefined;
+              }
+              if (type === 'form') {
+                const { data: formRows } = await db.from('forms').select('title, form_url').eq('content_item_id', item.id).maybeSingle();
+                const f = formRows as { title: string; form_url?: string | null } | undefined;
+                contentItem.form = f ? { id: ci, title: f.title, formUrl: f.form_url || undefined } : undefined;
               }
               content.push(contentItem);
             }
@@ -417,9 +587,9 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
     } else if (draggedItem.type === 'lesson' && targetType === 'lesson' && draggedItem.moduleId === targetModuleId) {
       // Reorder lessons within same module
       const modules = [...courseData.modules];
-      const module = modules.find(m => m.id === draggedItem.moduleId);
-      if (module) {
-        const lessons = [...module.lessons];
+      const moduleItem = modules.find(m => m.id === draggedItem.moduleId);
+      if (moduleItem) {
+        const lessons = [...moduleItem.lessons];
         const draggedIndex = lessons.findIndex(l => l.id === draggedItem.id);
         const targetIndex = lessons.findIndex(l => l.id === targetId);
         
@@ -427,7 +597,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
           const [removed] = lessons.splice(draggedIndex, 1);
           lessons.splice(targetIndex, 0, removed);
           lessons.forEach((l, idx) => { l.order = idx; });
-          module.lessons = lessons;
+          moduleItem.lessons = lessons;
           setCourseData({ ...courseData, modules });
         }
       }
@@ -479,18 +649,18 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
 
   const handleAddLesson = (moduleId: number) => {
     const modules = [...courseData.modules];
-    const module = modules.find(m => m.id === moduleId);
-    if (module) {
+    const moduleItem = modules.find(m => m.id === moduleId);
+    if (moduleItem) {
       const newLesson: Lesson = {
         id: Date.now(),
-        title: `Lesson ${module.lessons.length + 1}`,
-        order: module.lessons.length,
+        title: `Lesson ${moduleItem.lessons.length + 1}`,
+        order: moduleItem.lessons.length,
         duration: '0 min',
         content: []
       };
-      module.lessons.push(newLesson);
+      moduleItem.lessons.push(newLesson);
       setCourseData({ ...courseData, modules });
-      setCurrentLesson(module.lessons.length - 1);
+      setCurrentLesson(moduleItem.lessons.length - 1);
     }
   };
 
@@ -500,10 +670,19 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
       setSegmentName('');
       setStartTime('');
       setDuration('');
-      setUploadType('file');
+      setUploadType('link');
       setShowUploadModal(true);
     } else if (type === 'quiz') {
+      setQuizModalTitle('');
+      setQuizModalFormUrl('');
+      setQuizModalPassingScore(70);
+      setQuizModalFormEntryIdWebhook('');
+      setQuizModalRecordScoresOpen(false);
       setShowQuizModal(true);
+    } else if (type === 'form') {
+      setFormModalTitle('');
+      setFormModalFormUrl('');
+      setShowFormModal(true);
     } else if (type === 'reading') {
       setReadingTitle('');
       setReadingType('url');
@@ -516,11 +695,11 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
   const handleAddReading = () => {
     const title = readingTitle.trim() || 'Reading';
     const modules = [...courseData.modules];
-    const module = modules[currentModule];
-    const lesson = module.lessons[currentLesson];
+    const moduleItem = modules[currentModule];
+    const lesson = moduleItem.lessons[currentLesson];
     const newReading: ReadingMaterial = readingType === 'url'
       ? { title, type: 'url', url: readingUrl.trim() || undefined }
-      : { title, type: 'native', body: readingBody.trim() || undefined };
+      : { title, type: 'native', body: readingBody.trim() || undefined, format: readingFormat };
     const newContent: ContentItem = {
       id: Date.now(),
       type: 'reading',
@@ -534,6 +713,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
     setReadingTitle('');
     setReadingUrl('');
     setReadingBody('');
+    setReadingFormat('plain');
   };
 
   const handleContentUpload = () => {
@@ -546,8 +726,8 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
         clearInterval(interval);
         setTimeout(() => {
           const modules = [...courseData.modules];
-          const module = modules[currentModule];
-          const lesson = module.lessons[currentLesson];
+          const moduleItem = modules[currentModule];
+          const lesson = moduleItem.lessons[currentLesson];
 
           const startSec = parseHHMMSSToSeconds(startTime.trim());
           const endSec = parseHHMMSSToSeconds(duration.trim());
@@ -665,8 +845,8 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
 
   const handleDeleteContent = (lessonId: number, contentId: number) => {
     const modules = [...courseData.modules];
-    const module = modules[currentModule];
-    const lesson = module.lessons.find(l => l.id === lessonId);
+    const moduleItem = modules[currentModule];
+    const lesson = moduleItem.lessons.find(l => l.id === lessonId);
     if (lesson) {
       lesson.content = lesson.content.filter(c => c.id !== contentId);
       lesson.content.forEach((c, idx) => { c.order = idx; });
@@ -830,7 +1010,8 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                 title: item.reading.title || 'Reading',
                 type: item.reading.type,
                 url: item.reading.type === 'url' ? (item.reading.url || null) : null,
-                body: item.reading.type === 'native' ? (item.reading.body || null) : null
+                body: item.reading.type === 'native' ? (item.reading.body || null) : null,
+                format: item.reading.type === 'native' ? (item.reading.format || 'plain') : null
               });
             }
             if (item.type === 'video' && item.videoSegment) {
@@ -860,7 +1041,16 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
               await db.from('quizzes').insert({
                 content_item_id: contentItemId,
                 title: item.quiz.title,
-                passing_score: item.quiz.passingScore ?? 70
+                passing_score: item.quiz.passingScore ?? 70,
+                form_url: item.quiz.formUrl || null,
+                form_entry_id_webhook: item.quiz.formEntryIdWebhook?.trim() || null
+              });
+            }
+            if (item.type === 'form' && item.form) {
+              await db.from('forms').insert({
+                content_item_id: contentItemId,
+                title: item.form.title || 'Form',
+                form_url: item.form.formUrl || null
               });
             }
           }
@@ -952,7 +1142,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
         <p className="text-gray-700 font-medium">Could not load course.</p>
         <button
           onClick={() => onBackToCourses?.()}
-          className="text-blue-600 hover:underline font-semibold"
+          className="text-blue-600 dark:text-blue-400 hover:underline font-semibold"
         >
           ← Back to Courses
         </button>
@@ -969,17 +1159,17 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
       )}
       <div className="flex flex-1 min-h-0">
       {/* Course Structure Sidebar */}
-      <div className="w-80 bg-white border-r border-gray-200 overflow-auto flex-shrink-0">
-        <div className="p-6 border-b border-gray-200">
+      <div className="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 overflow-auto flex-shrink-0">
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
           <button 
             onClick={() => { onBackToCourses ? onBackToCourses() : setCurrentView('courses'); }} 
-            className="flex items-center text-blue-600 hover:text-blue-700 mb-4 transition-all"
+            className="flex items-center text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 mb-4 transition-all"
           >
             <ChevronRight className="w-5 h-5 rotate-180" />
             <span className="ml-2 font-semibold">Back to Courses</span>
           </button>
-          <h3 className="text-lg font-bold mb-2">Course Structure</h3>
-          <p className="text-sm text-gray-600">Drag to reorder modules, lessons, and content</p>
+          <h3 className="text-lg font-bold mb-2 dark:text-white">Course Structure</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Drag to reorder modules, lessons, and content</p>
         </div>
 
         <div className="p-6">
@@ -993,8 +1183,8 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                 onDrop={(e) => handleDrop(e, 'module', module.id)}
                 className={`p-4 rounded-xl border-2 transition-all ${
                   currentModule === moduleIdx 
-                    ? 'bg-blue-50 border-blue-500 shadow-md' 
-                    : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                    ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 dark:border-blue-500 shadow-md' 
+                    : 'border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500 hover:bg-gray-50 dark:hover:bg-gray-700'
                 } ${draggedItem?.type === 'module' && draggedItem.id === module.id ? 'opacity-50' : ''}`}
               >
                 <div className="flex items-start justify-between mb-2">
@@ -1015,12 +1205,12 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                           if (e.key === 'Enter') setEditingModuleId(null);
                         }}
                         onClick={(e) => e.stopPropagation()}
-                        className="font-semibold text-sm flex-1 border border-blue-500 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-0"
+                        className="font-semibold text-sm flex-1 border border-blue-500 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-0 bg-white dark:bg-gray-700 dark:text-white dark:border-blue-400"
                         autoFocus
                       />
                     ) : (
                       <p
-                        className="font-semibold text-sm flex-1 cursor-pointer truncate"
+                        className="font-semibold text-sm flex-1 cursor-pointer truncate dark:text-white"
                         onClick={(e) => {
                           e.stopPropagation();
                           setEditingModuleId(module.id);
@@ -1039,7 +1229,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                     <button
                       type="button"
                       onClick={(e) => handleDeleteModule(module.id, e)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/40 transition-colors"
                       title="Delete module"
                       aria-label="Delete module"
                     >
@@ -1047,14 +1237,14 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
+                <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400 mb-2">
                   <span>{module.lessons.length} lessons</span>
                   <span>{module.duration}</span>
                 </div>
                 
                 {/* Lessons within module */}
                 {module.lessons.length > 0 && (
-                  <div className="mt-3 space-y-2 pl-4 border-l-2 border-gray-200">
+                  <div className="mt-3 space-y-2 pl-4 border-l-2 border-gray-200 dark:border-gray-600">
                     {module.lessons.map((lesson, lessonIdx) => (
                       <div
                         key={lesson.id}
@@ -1069,15 +1259,15 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                         }}
                         className={`p-3 rounded-lg border transition-all cursor-pointer ${
                           currentModule === moduleIdx && currentLesson === lessonIdx
-                            ? 'bg-blue-100 border-blue-400'
-                            : 'bg-gray-50 border-gray-200 hover:border-blue-300'
+                            ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-400 dark:border-blue-500'
+                            : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500'
                         } ${draggedItem?.type === 'lesson' && draggedItem.id === lesson.id ? 'opacity-50' : ''}`}
                       >
                         <div className="flex items-center w-full">
                           <Menu className="w-3 h-3 text-gray-400 mr-2 cursor-move flex-shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold truncate">{lesson.order + 1}. {lesson.title}</p>
-                            <div className="flex items-center justify-between mt-1 text-xs text-gray-500">
+                            <p className="text-xs font-semibold truncate dark:text-white">{lesson.order + 1}. {lesson.title}</p>
+                            <div className="flex items-center justify-between mt-1 text-xs text-gray-500 dark:text-gray-400">
                               <span>{lesson.content.length} items</span>
                               <span>{lesson.duration}</span>
                             </div>
@@ -1085,7 +1275,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                           <button
                             type="button"
                             onClick={(e) => handleDeleteLesson(moduleIdx, lesson.id, e)}
-                            className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+                            className="p-1 rounded text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/40 transition-colors flex-shrink-0"
                             title="Delete lesson"
                             aria-label="Delete lesson"
                           >
@@ -1099,7 +1289,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                 
                 <button
                   onClick={() => handleAddLesson(module.id)}
-                  className="mt-2 w-full text-xs px-3 py-1.5 border border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center"
+                  className="mt-2 w-full text-xs px-3 py-1.5 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:border-blue-500 hover:text-blue-600 dark:hover:border-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-gray-700 transition-all flex items-center justify-center"
                 >
                   <Plus className="w-3 h-3 mr-1" />
                   Add Lesson
@@ -1109,7 +1299,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
             
             <button 
               onClick={handleAddModule}
-              className="w-full p-4 border-2 border-dashed border-gray-300 rounded-xl text-gray-600 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center font-semibold"
+              className="w-full p-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl text-gray-600 dark:text-gray-300 hover:border-blue-500 hover:text-blue-600 dark:hover:border-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-gray-700 transition-all flex items-center justify-center font-semibold"
             >
               <Plus className="w-5 h-5 mr-2" />
               Add Module
@@ -1119,23 +1309,23 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
       </div>
 
       {/* Main Editor Area */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto dark:bg-gray-900">
         {/* Header */}
-        <div className="bg-white border-b border-gray-200 p-6 sticky top-0 z-10">
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 p-6 sticky top-0 z-10">
           <div className="flex items-center justify-between mb-4">
             <div className="flex-1">
               <input 
                 type="text" 
                 value={courseData.title}
                 onChange={(e) => setCourseData({ ...courseData, title: e.target.value })}
-                className="text-3xl font-bold border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 w-full"
+                className="text-3xl font-bold border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 w-full bg-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
               />
-              <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600">
+              <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600 dark:text-gray-400">
                 <span>Last edited {courseData.lastEdited}</span>
                 <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
                   courseData.status === 'published' 
-                    ? 'bg-green-100 text-green-700' 
-                    : 'bg-yellow-100 text-yellow-700'
+                    ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' 
+                    : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300'
                 }`}>
                   {courseData.status}
                 </span>
@@ -1144,7 +1334,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
             <div className="flex space-x-3">
               <button 
                 onClick={() => setPreviewMode(!previewMode)}
-                className="px-6 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 font-semibold flex items-center transition-all"
+                className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-200 font-semibold flex items-center transition-all"
               >
                 <Eye className="w-5 h-5 mr-2" />
                 Preview
@@ -1180,9 +1370,9 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                     modules[currentModule].lessons[currentLesson].title = e.target.value;
                     setCourseData({ ...courseData, modules });
                   }}
-                  className="text-2xl font-bold border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2"
+                  className="text-2xl font-bold border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 bg-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                 />
-                <p className="text-sm text-gray-600 mt-1">{currentLessonData.duration} • {currentLessonData.content.length} content items</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{currentLessonData.duration} • {currentLessonData.content.length} content items</p>
               </div>
 
               {/* Content Items */}
@@ -1197,27 +1387,27 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                     onClick={() => setSelectedContent(idx)}
                     className={`p-6 rounded-xl border-2 transition-all cursor-pointer ${
                       idx === selectedContent
-                        ? 'bg-blue-50 border-blue-500 shadow-lg'
-                        : 'bg-white border-gray-200 hover:border-blue-300'
+                        ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500 dark:border-blue-500 shadow-lg'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500'
                     } ${draggedItem?.type === 'content' && draggedItem.id === content.id ? 'opacity-50' : ''}`}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex items-start flex-1">
-                        <Menu className="w-5 h-5 text-gray-400 mr-3 mt-1 cursor-move" />
+                        <Menu className="w-5 h-5 text-gray-400 dark:text-gray-500 mr-3 mt-1 cursor-move" />
                         <div className="flex-1">
                           {content.type === 'video' && content.videoSegment && (
                             <>
                               <div className="flex items-center mb-2">
-                                <Video className="w-5 h-5 text-blue-600 mr-2" />
-                                <span className="font-semibold">{content.videoSegment.name}</span>
+                                <Video className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-2" />
+                                <span className="font-semibold text-gray-900 dark:text-white">{content.videoSegment.name}</span>
                                 {content.videoSegment.source === 'youtube' && (
-                                  <Youtube className="w-4 h-4 text-red-600 ml-2" />
+                                  <Youtube className="w-4 h-4 text-red-600 dark:text-red-400 ml-2" />
                                 )}
                                 {content.videoSegment.source === 'google_drive' && (
-                                  <Folder className="w-4 h-4 text-green-600 ml-2" />
+                                  <Folder className="w-4 h-4 text-green-600 dark:text-green-400 ml-2" />
                                 )}
                                 {content.videoSegment.source === 'external_url' && (
-                                  <Video className="w-4 h-4 text-violet-600 ml-2" />
+                                  <Video className="w-4 h-4 text-violet-600 dark:text-violet-400 ml-2" />
                                 )}
                                 {content.videoSegment.startTimestamp !== undefined && (
                                   <button
@@ -1225,14 +1415,14 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                                       e.stopPropagation();
                                       setShowStreamSettings(true);
                                     }}
-                                    className="ml-2 px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded flex items-center"
+                                    className="ml-2 px-2 py-1 text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded flex items-center"
                                   >
                                     <Radio className="w-3 h-3 mr-1" />
                                     Streaming
                                   </button>
                                 )}
                               </div>
-                              <div className="flex items-center space-x-4 text-sm text-gray-600">
+                              <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
                                 <span className="flex items-center">
                                   <Clock className="w-4 h-4 mr-1" />
                                   {content.videoSegment.duration}
@@ -1242,7 +1432,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                                   {content.videoSegment.size}
                                 </span>
                                 {content.videoSegment.startTimestamp !== undefined && (
-                                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                                  <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded">
                                     {formatSecondsToTime(content.videoSegment.startTimestamp)} - {formatSecondsToTime(content.videoSegment.endTimestamp || 0)}
                                   </span>
                                 )}
@@ -1252,32 +1442,55 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                           {content.type === 'quiz' && content.quiz && (
                             <>
                               <div className="flex items-center mb-2">
-                                <HelpCircle className="w-5 h-5 text-purple-600 mr-2" />
-                                <span className="font-semibold">{content.quiz.title}</span>
+                                <HelpCircle className="w-5 h-5 text-purple-600 dark:text-purple-400 mr-2" />
+                                <span className="font-semibold text-gray-900 dark:text-white">{content.quiz.title}</span>
+                                {content.quiz.formUrl && (
+                                  <span className="ml-2 text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded flex items-center">
+                                    <Link className="w-3 h-3 mr-1" />
+                                    Google Form
+                                  </span>
+                                )}
                               </div>
-                              <div className="text-sm text-gray-600">
-                                {content.quiz.questions.length} questions • Passing score: {content.quiz.passingScore}%
+                              <div className="text-sm text-gray-600 dark:text-gray-400">
+                                {content.quiz.formUrl ? 'Embedded Google Form' : `${content.quiz.questions.length} questions`} • Passing score: {content.quiz.passingScore}%
+                              </div>
+                            </>
+                          )}
+                          {content.type === 'form' && content.form && (
+                            <>
+                              <div className="flex items-center mb-2">
+                                <FileText className="w-5 h-5 text-green-600 dark:text-green-400 mr-2" />
+                                <span className="font-semibold text-gray-900 dark:text-white">{content.form.title}</span>
+                                {content.form.formUrl && (
+                                  <span className="ml-2 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded flex items-center">
+                                    <Link className="w-3 h-3 mr-1" />
+                                    Google Form
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-sm text-gray-600 dark:text-gray-400">
+                                {content.form.formUrl ? 'Embedded Google Form' : 'Form'}
                               </div>
                             </>
                           )}
                           {content.type === 'reading' && content.reading && (
                             <>
                               <div className="flex items-center mb-2">
-                                <BookOpen className="w-5 h-5 text-amber-600 mr-2" />
-                                <span className="font-semibold">{content.reading.title}</span>
+                                <BookOpen className="w-5 h-5 text-amber-600 dark:text-amber-400 mr-2" />
+                                <span className="font-semibold text-gray-900 dark:text-white">{content.reading.title}</span>
                                 {content.reading.type === 'url' && (
-                                  <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded flex items-center">
+                                  <span className="ml-2 text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded flex items-center">
                                     <Link className="w-3 h-3 mr-1" />
                                     Link
                                   </span>
                                 )}
                                 {content.reading.type === 'native' && (
-                                  <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">Native text</span>
+                                  <span className="ml-2 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded">Native text</span>
                                 )}
                               </div>
-                              <div className="text-sm text-gray-600">
+                              <div className="text-sm text-gray-600 dark:text-gray-400">
                                 {content.reading.type === 'url' && content.reading.url && (
-                                  <a href={content.reading.url} target="_blank" rel="noopener noreferrer" className="text-amber-600 hover:underline truncate block max-w-md">{content.reading.url}</a>
+                                  <a href={content.reading.url} target="_blank" rel="noopener noreferrer" className="text-amber-600 dark:text-amber-400 hover:underline truncate block max-w-md">{content.reading.url}</a>
                                 )}
                                 {content.reading.type === 'native' && (content.reading.body ? `${content.reading.body.slice(0, 80)}${content.reading.body.length > 80 ? '…' : ''}` : 'No content')}
                               </div>
@@ -1314,18 +1527,18 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                               setShowUploadModal(true);
                             }
                           }}
-                          className="p-2 bg-white rounded-lg hover:bg-blue-50 shadow transition-all"
+                          className="p-2 bg-white dark:bg-gray-700 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/40 shadow transition-all"
                         >
-                          <Edit className="w-4 h-4 text-blue-600" />
+                          <Edit className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                         </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handleDeleteContent(currentLessonData.id, content.id);
                           }}
-                          className="p-2 bg-white rounded-lg hover:bg-red-50 shadow transition-all"
+                          className="p-2 bg-white dark:bg-gray-700 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/40 shadow transition-all"
                         >
-                          <Trash2 className="w-4 h-4 text-red-600" />
+                          <Trash2 className="w-4 h-4 text-red-600 dark:text-red-400" />
                         </button>
                       </div>
                     </div>
@@ -1341,13 +1554,6 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                 >
                   <Video className="w-5 h-5 mr-2" />
                   Add Video
-                </button>
-                <button
-                  onClick={() => handleAddContent('quiz')}
-                  className="px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-semibold flex items-center transition-all shadow-lg"
-                >
-                  <HelpCircle className="w-5 h-5 mr-2" />
-                  Add Quiz
                 </button>
                 <button
                   onClick={() => handleAddContent('form')}
@@ -1379,7 +1585,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                     ? getGoogleDriveEmbedUrl(driveId, seg.startTimestamp ?? undefined)
                     : externalUrl;
                 return (
-                <div className="bg-white p-8 rounded-2xl shadow-sm border-2 border-blue-200 mb-6">
+                <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-sm border-2 border-blue-200 dark:border-blue-900/50 mb-6">
                   <div className="rounded-2xl mb-6 aspect-video overflow-hidden shadow-xl relative bg-gray-900">
                     {useYtSegmentPlayer ? (
                       <>
@@ -1458,47 +1664,51 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                     )}
                   </div>
 
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
                     <div className="flex items-start">
-                      <Info className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
-                      <div className="text-sm text-blue-900">
+                      <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-3 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-blue-900 dark:text-blue-200">
                         <p className="font-semibold mb-1">Video Streaming</p>
-                        <p>This video will only load and stream the segment between the specified timestamps, reducing bandwidth and improving performance. The video won't be fully downloaded before playback starts.</p>
+                        <p>This video will only load and stream the segment between the specified timestamps, reducing bandwidth and improving performance. The video won&apos;t be fully downloaded before playback starts.</p>
                       </div>
                     </div>
                   </div>
                 </div>
               ); })()}
               {currentContent?.type === 'reading' && currentContent.reading && (
-                <div className="bg-white p-8 rounded-2xl shadow-sm border-2 border-amber-200 mb-6">
+                <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-sm border-2 border-amber-200 dark:border-amber-900/50 mb-6">
                   <div className="flex items-center mb-4">
-                    <BookOpen className="w-6 h-6 text-amber-600 mr-2" />
-                    <h3 className="text-xl font-bold">{currentContent.reading.title}</h3>
+                    <BookOpen className="w-6 h-6 text-amber-600 dark:text-amber-400 mr-2" />
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white">{currentContent.reading.title}</h3>
                   </div>
                   {currentContent.reading.type === 'url' && currentContent.reading.url ? (
-                    <div className="rounded-xl overflow-hidden border border-gray-200 bg-gray-50" style={{ minHeight: '60vh' }}>
+                    <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50" style={{ minHeight: '60vh' }}>
                       <iframe
                         title={currentContent.reading.title}
                         src={currentContent.reading.url.startsWith('http') ? currentContent.reading.url : `https://${currentContent.reading.url}`}
                         className="w-full h-full min-h-[60vh]"
                       />
-                      <p className="text-xs text-gray-500 p-2">
-                        Link: <a href={currentContent.reading.url} target="_blank" rel="noopener noreferrer" className="text-amber-600 hover:underline">{currentContent.reading.url}</a>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 p-2">
+                        Link: <a href={currentContent.reading.url} target="_blank" rel="noopener noreferrer" className="text-amber-600 dark:text-amber-400 hover:underline">{currentContent.reading.url}</a>
                       </p>
                     </div>
                   ) : currentContent.reading.type === 'native' ? (
-                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-6 min-h-[200px]">
-                      <div className="prose prose-sm max-w-none whitespace-pre-wrap text-gray-800">
-                        {currentContent.reading.body || 'No content yet.'}
+                    <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 p-6 min-h-[200px]">
+                      <div className="text-gray-800 dark:text-gray-200">
+                        <ReadingContentRenderer
+                          body={currentContent.reading.body || ''}
+                          format={currentContent.reading.format ?? 'plain'}
+                          className="text-gray-800 dark:text-gray-200"
+                        />
                       </div>
                     </div>
                   ) : (
-                    <p className="text-gray-500">Add a link or native text.</p>
+                    <p className="text-gray-500 dark:text-gray-400">Add a link or native text.</p>
                   )}
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mt-4">
+                  <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 mt-4">
                     <div className="flex items-start">
-                      <Info className="w-5 h-5 text-amber-600 mr-3 mt-0.5 flex-shrink-0" />
-                      <div className="text-sm text-amber-900">
+                      <Info className="w-5 h-5 text-amber-600 dark:text-amber-400 mr-3 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-amber-900 dark:text-amber-200">
                         <p className="font-semibold mb-1">Reading material</p>
                         <p>Use a link (Google Docs, Microsoft Office, etc.) or write content with the native text editor when adding reading.</p>
                       </div>
@@ -1509,24 +1719,24 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
             </>
           ) : (
             <div className="text-center py-12">
-              <Video className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <h4 className="font-bold text-lg mb-2">{courseData.modules.length === 0 ? 'No modules yet' : 'No lesson selected'}</h4>
-              <p className="text-sm text-gray-600">
+              <Video className="w-16 h-16 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+              <h4 className="font-bold text-lg mb-2 text-gray-900 dark:text-white">{courseData.modules.length === 0 ? 'No modules yet' : 'No lesson selected'}</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
                 {courseData.modules.length === 0 ? 'Add your first module in the sidebar to get started.' : 'Select a lesson from the sidebar or create a new one.'}
               </p>
             </div>
           )}
 
           {/* Version History */}
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 mt-6">
+          <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 mt-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center">
-                <RotateCcw className="w-5 h-5 text-gray-600 mr-2" />
-                <p className="font-bold text-lg">Version History</p>
+                <RotateCcw className="w-5 h-5 text-gray-600 dark:text-gray-400 mr-2" />
+                <p className="font-bold text-lg dark:text-white">Version History</p>
               </div>
               <button 
                 onClick={() => setShowVersions(!showVersions)}
-                className="text-sm text-blue-600 hover:text-blue-700 font-semibold flex items-center"
+                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold flex items-center"
               >
                 {showVersions ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
                 {showVersions ? 'Hide' : 'Show'} All Versions
@@ -1535,27 +1745,27 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
 
             <div className="space-y-3">
               {versions.length === 0 ? (
-                <p className="text-sm text-gray-500 py-2">No version history yet. Save the course to create versions.</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-2">No version history yet. Save the course to create versions.</p>
               ) : versions.slice(0, showVersions ? versions.length : 2).map((version) => (
                 <div 
                   key={version.id}
                   className={`flex items-center justify-between p-4 rounded-xl transition-all ${
                     version.isCurrent 
-                      ? 'bg-blue-50 border-2 border-blue-500' 
-                      : 'bg-gray-50 border-2 border-gray-200 hover:border-blue-300'
+                      ? 'bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-500 dark:border-blue-600' 
+                      : 'bg-gray-50 dark:bg-gray-700/50 border-2 border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500'
                   }`}
                 >
                   <div className="flex-1">
                     <div className="flex items-center space-x-3 mb-1">
-                      <p className="font-semibold">{version.name}</p>
+                      <p className="font-semibold dark:text-white">{version.name}</p>
                       {version.isCurrent && (
                         <span className="bg-blue-500 text-white px-2 py-0.5 rounded-full text-xs font-semibold">
                           Current
                         </span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-600 mb-1">{version.changes}</p>
-                    <div className="flex items-center space-x-3 text-xs text-gray-500">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">{version.changes}</p>
+                    <div className="flex items-center space-x-3 text-xs text-gray-500 dark:text-gray-400">
                       <span>{version.timestamp}</span>
                       <span>•</span>
                       <span>by {version.author}</span>
@@ -1565,13 +1775,13 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                     {!version.isCurrent && (
                       <button 
                         onClick={() => handleRestoreVersion(version.id)}
-                        className="px-4 py-2 text-blue-600 hover:bg-blue-50 border border-blue-600 rounded-lg font-semibold transition-all"
+                        className="px-4 py-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 border border-blue-600 dark:border-blue-500 rounded-lg font-semibold transition-all"
                       >
                         Restore
                       </button>
                     )}
-                    <button className="p-2 hover:bg-gray-100 rounded-lg transition-all">
-                      <Download className="w-5 h-5 text-gray-600" />
+                    <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg transition-all">
+                      <Download className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                     </button>
                   </div>
                 </div>
@@ -1674,9 +1884,9 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
       {/* Upload Modal with Multiple Options */}
       {showUploadModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white">
-              <h3 className="text-2xl font-bold">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto border border-gray-200 dark:border-gray-700">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between sticky top-0 bg-white dark:bg-gray-800">
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
                 {contentToReplace ? 'Replace Content' : 'Add New Content'}
               </h3>
               <button 
@@ -1692,65 +1902,28 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                   setEndTimeError(null);
                   setYoutubeUrl('');
                 }}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
               >
-                <X className="w-6 h-6" />
+                <X className="w-6 h-6 dark:text-gray-200" />
               </button>
             </div>
 
             <div className="p-6">
               {uploadProgress === 0 ? (
                 <>
-                  {/* Source: Upload file or Video link */}
+                  {/* Video link only (Upload file section hidden for this release) */}
                   <div className="mb-6">
-                    <label className="block text-sm font-semibold mb-3">Select Source</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        onClick={() => setUploadType('file')}
-                        className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center ${
-                          uploadType === 'file'
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-blue-300'
-                        }`}
-                      >
-                        <Upload className={`w-8 h-8 mb-2 ${uploadType === 'file' ? 'text-blue-600' : 'text-gray-600'}`} />
-                        <span className="text-sm font-semibold">Upload File</span>
-                      </button>
-                      <button
-                        onClick={() => setUploadType('link')}
-                        className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center ${
-                          uploadType === 'link'
-                            ? 'border-violet-500 bg-violet-50'
-                            : 'border-gray-200 hover:border-violet-300'
-                        }`}
-                      >
-                        <Video className={`w-8 h-8 mb-2 ${uploadType === 'link' ? 'text-violet-600' : 'text-gray-600'}`} />
-                        <span className="text-sm font-semibold">Video Link</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {uploadType === 'file' && (
-                    <div className="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center mb-6 hover:border-blue-500 transition-all cursor-pointer">
-                      <Upload className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                      <h4 className="font-bold text-lg mb-2">Drop your video here</h4>
-                      <p className="text-sm text-gray-600 mb-4">or click to browse</p>
-                      <p className="text-xs text-gray-500">Supports MP4, MOV, AVI up to 500MB</p>
-                    </div>
-                  )}
-
-                  {uploadType === 'link' && (
-                    <div className="border-2 border-dashed border-violet-200 rounded-xl p-6 mb-6 bg-violet-50/50">
-                      <label className="block text-sm font-semibold mb-2">Paste video link</label>
+                    <div className="border-2 border-dashed border-violet-200 dark:border-violet-800 rounded-xl p-6 mb-6 bg-violet-50/50 dark:bg-violet-900/10">
+                      <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Paste video link</label>
                       <input
                         type="url"
                         placeholder="YouTube, Google Drive, or any public video URL..."
                         value={unifiedVideoUrl}
                         onChange={(e) => setUnifiedVideoUrl(e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent bg-white"
+                        className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
                       />
                       {unifiedVideoUrl.trim() && (
-                        <p className="text-xs text-gray-600 mt-2">
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
                           Detected: {detectVideoLinkType(unifiedVideoUrl) === 'youtube'
                             ? 'YouTube'
                             : detectVideoLinkType(unifiedVideoUrl) === 'google_drive'
@@ -1758,27 +1931,138 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                               : 'Video link (public streaming)'}
                         </p>
                       )}
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                         Works with YouTube, Google Drive (share as &quot;Anyone with the link can view&quot;), or other public streaming URLs.
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Video preview and set start/end from current position (when link is valid) */}
+                  {unifiedVideoUrl.trim() && detectVideoLinkType(unifiedVideoUrl) && (
+                    <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 p-4 mb-6">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Preview — play the video and set start/end from current position</p>
+                      <div className="aspect-video w-full max-w-2xl mx-auto rounded-lg overflow-hidden bg-black mb-3">
+                        {detectVideoLinkType(unifiedVideoUrl) === 'youtube' && getYouTubeVideoId(unifiedVideoUrl) && (
+                          <div id="create-course-yt-preview" className="w-full h-full" />
+                        )}
+                        {detectVideoLinkType(unifiedVideoUrl) === 'google_drive' && getGoogleDriveFileId(unifiedVideoUrl) && (
+                          <iframe
+                            title="Video preview"
+                            src={getGoogleDriveEmbedUrl(getGoogleDriveFileId(unifiedVideoUrl)!, parseHHMMSSToSeconds(startTime.trim()) ?? 0)}
+                            className="w-full h-full"
+                            allow="autoplay"
+                            allowFullScreen
+                          />
+                        )}
+                        {detectVideoLinkType(unifiedVideoUrl) === 'external_url' && (
+                          <video
+                            ref={linkPreviewVideoRef}
+                            src={unifiedVideoUrl}
+                            controls
+                            className="w-full h-full"
+                            crossOrigin="anonymous"
+                            onCanPlay={() => setExternalPreviewReady(true)}
+                          />
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const linkType = detectVideoLinkType(unifiedVideoUrl);
+                            let sec: number | null = null;
+                            if (linkType === 'youtube' && ytPreviewReady) {
+                              const t = ytPreviewPlayerRef.current?.getCurrentTime?.();
+                              if (typeof t === 'number' && t >= 0) sec = t;
+                            } else if (linkType === 'external_url' && linkPreviewVideoRef.current) {
+                              sec = linkPreviewVideoRef.current.currentTime;
+                            }
+                            if (sec != null) {
+                              setStartTime(formatSecondsToHHMMSS(sec));
+                              setStartTimeError(null);
+                              const e = parseHHMMSSToSeconds(duration.trim());
+                              if (e !== null && e <= sec) setEndTimeError('Must be after start');
+                              else setEndTimeError(null);
+                            }
+                          }}
+                          disabled={detectVideoLinkType(unifiedVideoUrl) === 'youtube' ? !ytPreviewReady : detectVideoLinkType(unifiedVideoUrl) === 'external_url' ? !externalPreviewReady : true}
+                          className="px-3 py-1.5 text-sm font-medium rounded-lg border border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-600 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Set start from current position
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const linkType = detectVideoLinkType(unifiedVideoUrl);
+                            let sec: number | null = null;
+                            if (linkType === 'youtube' && ytPreviewReady) {
+                              const t = ytPreviewPlayerRef.current?.getCurrentTime?.();
+                              if (typeof t === 'number' && t >= 0) sec = t;
+                            } else if (linkType === 'external_url' && linkPreviewVideoRef.current) {
+                              sec = linkPreviewVideoRef.current.currentTime;
+                            }
+                            if (sec != null) {
+                              setDuration(formatSecondsToHHMMSS(sec));
+                              setEndTimeError(null);
+                              const s = parseHHMMSSToSeconds(startTime.trim());
+                              if (s !== null && sec <= s) setStartTimeError('Start must be before end');
+                              else setStartTimeError(null);
+                            }
+                          }}
+                          disabled={detectVideoLinkType(unifiedVideoUrl) === 'youtube' ? !ytPreviewReady : detectVideoLinkType(unifiedVideoUrl) === 'external_url' ? !externalPreviewReady : true}
+                          className="px-3 py-1.5 text-sm font-medium rounded-lg border border-violet-500 bg-violet-50 dark:bg-violet-900/20 dark:border-violet-600 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Set end from current position
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStartTime('00:00:00');
+                            setStartTimeError(null);
+                            setEndTimeError(null);
+                            const linkType = detectVideoLinkType(unifiedVideoUrl);
+                            let endSec: number | null = null;
+                            if (linkType === 'youtube' && ytPreviewReady && ytPreviewPlayerRef.current?.getDuration) {
+                              const d = ytPreviewPlayerRef.current.getDuration();
+                              if (typeof d === 'number' && d > 0) endSec = d;
+                            } else if (linkType === 'external_url' && linkPreviewVideoRef.current && linkPreviewVideoRef.current.duration) {
+                              endSec = linkPreviewVideoRef.current.duration;
+                            }
+                            if (endSec != null) {
+                              setDuration(formatSecondsToHHMMSS(endSec));
+                            } else if (detectVideoLinkType(unifiedVideoUrl) === 'google_drive') {
+                              setDuration('23:59:59');
+                            } else {
+                              setDuration('');
+                            }
+                          }}
+                          disabled={detectVideoLinkType(unifiedVideoUrl) === 'youtube' ? !ytPreviewReady : detectVideoLinkType(unifiedVideoUrl) === 'external_url' ? !externalPreviewReady : false}
+                          className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Full video
+                        </button>
+                        {(detectVideoLinkType(unifiedVideoUrl) === 'google_drive') && (
+                          <span className="text-xs text-gray-500 dark:text-gray-400">Set start/end manually below for Google Drive.</span>
+                        )}
+                      </div>
                     </div>
                   )}
 
                   {/* Common Fields */}
                   <div className="space-y-4 mb-6">
                     <div>
-                      <label className="block text-sm font-semibold mb-2">Content Name</label>
+                      <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Content Name</label>
                       <input 
                         type="text" 
                         placeholder="e.g., Welcome & Overview"
                         value={segmentName}
                         onChange={(e) => setSegmentName(e.target.value)}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-semibold mb-2">Start Time</label>
+                        <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Start Time</label>
                         <input
                           type="text"
                           placeholder="00:00:00"
@@ -1808,13 +2092,13 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                               } else setEndTimeError(null);
                             } else setEndTimeError(null);
                           }}
-                          className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${startTimeError ? 'border-red-500' : 'border-gray-300'}`}
+                          className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500 ${startTimeError ? 'border-red-500 dark:border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
                         />
-                        <p className="text-xs text-gray-500 mt-1">Format: HH:MM:SS. Min: 00:00:00</p>
-                        {startTimeError && <p className="text-xs text-red-600 mt-1">{startTimeError}</p>}
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Format: HH:MM:SS. Min: 00:00:00</p>
+                        {startTimeError && <p className="text-xs text-red-600 dark:text-red-400 mt-1">{startTimeError}</p>}
                       </div>
                       <div>
-                        <label className="block text-sm font-semibold mb-2">End Time</label>
+                        <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">End Time</label>
                         <input
                           type="text"
                           placeholder="00:05:00"
@@ -1846,14 +2130,14 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                               else setEndTimeError(null);
                             } else setEndTimeError(null);
                           }}
-                          className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${endTimeError ? 'border-red-500' : 'border-gray-300'}`}
+                          className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500 ${endTimeError ? 'border-red-500 dark:border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
                         />
-                        <p className="text-xs text-gray-500 mt-1">Format: HH:MM:SS. Must be after start; max video length if set below.</p>
-                        {endTimeError && <p className="text-xs text-red-600 mt-1">{endTimeError}</p>}
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Format: HH:MM:SS. Must be after start; max video length if set below.</p>
+                        {endTimeError && <p className="text-xs text-red-600 dark:text-red-400 mt-1">{endTimeError}</p>}
                       </div>
                     </div>
                     <div className="mt-4">
-                      <label className="block text-sm font-semibold mb-2">Video max duration (optional)</label>
+                      <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Video max duration (optional)</label>
                       <input
                         type="text"
                         placeholder="00:10:00"
@@ -1867,18 +2151,18 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                             else setEndTimeError(null);
                           }
                         }}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent max-w-xs"
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent max-w-xs bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
                       />
-                      <p className="text-xs text-gray-500 mt-1">HH:MM:SS. If set, end time cannot exceed this.</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">HH:MM:SS. If set, end time cannot exceed this.</p>
                     </div>
                   </div>
 
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 mb-6">
                     <div className="flex items-start">
-                      <Info className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
-                      <div className="text-sm text-blue-900">
+                      <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-3 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-blue-900 dark:text-blue-200">
                         <p className="font-semibold mb-1">Video Streaming</p>
-                        <p>Videos will stream only the specified segment (between start and end times), reducing bandwidth usage. The video won't be fully downloaded before playback starts.</p>
+                        <p>Videos will stream only the specified segment (between start and end times), reducing bandwidth usage. The video won&apos;t be fully downloaded before playback starts.</p>
                       </div>
                     </div>
                   </div>
@@ -1896,7 +2180,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                         setEndTimeError(null);
                         setYoutubeUrl('');
                       }}
-                      className="flex-1 px-6 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 font-semibold transition-all"
+                      className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold transition-all text-gray-900 dark:text-white"
                     >
                       Cancel
                     </button>
@@ -1920,7 +2204,7 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                           return false;
                         })()
                       }
-                      className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex-1 px-6 py-3 bg-blue-600 dark:bg-blue-600 text-white rounded-xl hover:bg-blue-700 dark:hover:bg-blue-700 font-semibold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {contentToReplace ? 'Replace Content' : 'Add Content'}
                     </button>
@@ -1929,19 +2213,19 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
               ) : (
                 <div className="py-8">
                   <div className="text-center mb-6">
-                    <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <Upload className="w-10 h-10 text-blue-600" />
+                    <div className="w-20 h-20 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Upload className="w-10 h-10 text-blue-600 dark:text-blue-400" />
                     </div>
-                    <h4 className="font-bold text-xl mb-2">Processing...</h4>
-                    <p className="text-gray-600">Setting up your content</p>
+                    <h4 className="font-bold text-xl mb-2 text-gray-900 dark:text-white">Processing...</h4>
+                    <p className="text-gray-600 dark:text-gray-400">Setting up your content</p>
                   </div>
 
                   <div className="mb-4">
                     <div className="flex justify-between text-sm mb-2">
-                      <span className="font-semibold">Progress</span>
-                      <span className="font-semibold text-blue-600">{uploadProgress}%</span>
+                      <span className="font-semibold text-gray-900 dark:text-white">Progress</span>
+                      <span className="font-semibold text-blue-600 dark:text-blue-400">{uploadProgress}%</span>
                     </div>
-                    <div className="w-full bg-gray-200 rounded-full h-3">
+                    <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-3">
                       <div 
                         className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-300"
                         style={{width: `${uploadProgress}%`}}
@@ -1950,23 +2234,23 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                   </div>
 
                   <div className="space-y-2 text-sm">
-                    <div className="flex items-center text-gray-600">
-                      <CheckCircle className="w-5 h-5 text-green-600 mr-2" />
+                    <div className="flex items-center text-gray-600 dark:text-gray-400">
+                      <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 mr-2" />
                       <span>Content processed successfully</span>
                     </div>
-                    <div className="flex items-center text-gray-600">
+                    <div className="flex items-center text-gray-600 dark:text-gray-400">
                       <div className="w-5 h-5 mr-2">
                         {uploadProgress >= 50 ? (
-                          <CheckCircle className="w-5 h-5 text-green-600" />
+                          <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
                         ) : (
-                          <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                          <div className="w-5 h-5 border-2 border-blue-600 dark:border-blue-400 border-t-transparent rounded-full animate-spin"></div>
                         )}
                       </div>
                       <span>Configuring streaming settings...</span>
                     </div>
-                    <div className="flex items-center text-gray-400">
+                    <div className="flex items-center text-gray-400 dark:text-gray-500">
                       <div className="w-5 h-5 mr-2">
-                        <div className="w-5 h-5 border-2 border-gray-300 rounded-full"></div>
+                        <div className="w-5 h-5 border-2 border-gray-300 dark:border-gray-600 rounded-full"></div>
                       </div>
                       <span>Ready for playback</span>
                     </div>
@@ -1981,21 +2265,21 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
       {/* Reading Material Modal */}
       {showReadingModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-              <h3 className="text-2xl font-bold">Add Reading Material</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto border border-gray-200 dark:border-gray-700">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Add Reading Material</h3>
               <button
-                onClick={() => { setShowReadingModal(false); setReadingTitle(''); setReadingUrl(''); setReadingBody(''); }}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+                onClick={() => { setShowReadingModal(false); setReadingTitle(''); setReadingUrl(''); setReadingBody(''); setReadingFormat('plain'); }}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
               >
-                <X className="w-6 h-6" />
+                <X className="w-6 h-6 dark:text-gray-200" />
               </button>
             </div>
             <div className="p-6">
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 mb-6">
                 <div className="flex items-start">
-                  <Info className="w-5 h-5 text-amber-600 mr-3 mt-0.5 flex-shrink-0" />
-                  <div className="text-sm text-amber-900">
+                  <Info className="w-5 h-5 text-amber-600 dark:text-amber-400 mr-3 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-amber-900 dark:text-amber-200">
                     <p className="font-semibold mb-1">Reading options</p>
                     <p>Link to a Google Doc, Microsoft Office doc, or any public URL, or write content using the native text editor below.</p>
                   </div>
@@ -2003,19 +2287,19 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold mb-2">Title</label>
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Title</label>
                   <input
                     type="text"
                     value={readingTitle}
                     onChange={(e) => setReadingTitle(e.target.value)}
                     placeholder="e.g., Chapter 1 – Introduction"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2">Type</label>
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Type</label>
                   <div className="flex gap-4">
-                    <label className="flex items-center cursor-pointer">
+                    <label className="flex items-center cursor-pointer text-gray-900 dark:text-gray-200">
                       <input
                         type="radio"
                         name="readingType"
@@ -2023,10 +2307,10 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                         onChange={() => setReadingType('url')}
                         className="mr-2"
                       />
-                      <Link className="w-4 h-4 mr-1 text-amber-600" />
+                      <Link className="w-4 h-4 mr-1 text-amber-600 dark:text-amber-400" />
                       Link (Google Doc, Microsoft Doc, etc.)
                     </label>
-                    <label className="flex items-center cursor-pointer">
+                    <label className="flex items-center cursor-pointer text-gray-900 dark:text-gray-200">
                       <input
                         type="radio"
                         name="readingType"
@@ -2034,46 +2318,82 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                         onChange={() => setReadingType('native')}
                         className="mr-2"
                       />
-                      <FileText className="w-4 h-4 mr-1 text-gray-600" />
+                      <FileText className="w-4 h-4 mr-1 text-gray-600 dark:text-gray-400" />
                       Native text editor
                     </label>
                   </div>
                 </div>
                 {readingType === 'url' && (
                   <div>
-                    <label className="block text-sm font-semibold mb-2">URL</label>
+                    <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">URL</label>
                     <input
                       type="url"
                       value={readingUrl}
                       onChange={(e) => setReadingUrl(e.target.value)}
                       placeholder="https://docs.google.com/... or https://... "
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
                     />
                   </div>
                 )}
                 {readingType === 'native' && (
-                  <div>
-                    <label className="block text-sm font-semibold mb-2">Content</label>
-                    <textarea
-                      value={readingBody}
-                      onChange={(e) => setReadingBody(e.target.value)}
-                      placeholder="Write or paste your reading content here..."
-                      rows={10}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Content format</label>
+                      <div className="flex gap-4 mb-2">
+                        <label className="flex items-center cursor-pointer text-gray-900 dark:text-gray-200">
+                          <input type="radio" name="readingFormat" checked={readingFormat === 'plain'} onChange={() => setReadingFormat('plain')} className="mr-2" />
+                          Plain text
+                        </label>
+                        <label className="flex items-center cursor-pointer text-gray-900 dark:text-gray-200">
+                          <input type="radio" name="readingFormat" checked={readingFormat === 'markdown'} onChange={() => setReadingFormat('markdown')} className="mr-2" />
+                          Markdown
+                        </label>
+                        <label className="flex items-center cursor-pointer text-gray-900 dark:text-gray-200">
+                          <input type="radio" name="readingFormat" checked={readingFormat === 'html'} onChange={() => setReadingFormat('html')} className="mr-2" />
+                          HTML
+                        </label>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Plain text is shown as-is. Markdown uses Obsidian/Notion-style: **bold**, *italic*, ~~strikethrough~~, ==highlight==, [links](url), &gt; blockquotes, - [ ] task lists, tables, and code. HTML is sanitized and rendered (e.g. &lt;p&gt;, &lt;strong&gt;, &lt;a href&gt;, &lt;ul&gt;/&lt;li&gt;, &lt;table&gt;, &lt;blockquote&gt;). Inline CSS via the style attribute is supported.</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Content</label>
+                      <textarea
+                        value={readingBody}
+                        onChange={(e) => setReadingBody(e.target.value)}
+                        placeholder={readingFormat === 'markdown' ? '## Heading\n\n**Bold**, *italic*, ~~strikethrough~~, ==highlight==\n\n- [ ] Task\n- [x] Done\n\n> Blockquote\n\n| Col A | Col B |' : readingFormat === 'html' ? '<p>Paragraph</p>\n<ul><li>List item</li></ul>\n<blockquote>Quote</blockquote>\n<p><strong>Bold</strong> and <em>italic</em></p>\n<a href="https://...">Link</a>' : 'Write or paste your reading content here...'}
+                        rows={10}
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500 font-mono text-sm"
+                      />
+                    </div>
+                    {(readingFormat === 'markdown' || readingFormat === 'html') && (
+                      <div className="mt-4 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 p-4">
+                        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Live preview — how learners will see it</p>
+                        <div className="min-h-[120px] max-h-[280px] overflow-auto rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 p-4 text-gray-800 dark:text-gray-200">
+                          {readingBody.trim() ? (
+                            <ReadingContentRenderer
+                              body={readingBody}
+                              format={readingFormat}
+                              className="text-gray-800 dark:text-gray-200"
+                            />
+                          ) : (
+                            <span className="text-gray-400 dark:text-gray-500 italic">Enter content above to see the preview.</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
               <div className="flex justify-end gap-3 mt-6">
                 <button
-                  onClick={() => { setShowReadingModal(false); setReadingTitle(''); setReadingUrl(''); setReadingBody(''); }}
-                  className="px-6 py-2 border border-gray-300 rounded-xl hover:bg-gray-50 font-semibold"
+                  onClick={() => { setShowReadingModal(false); setReadingTitle(''); setReadingUrl(''); setReadingBody(''); setReadingFormat('plain'); }}
+                  className="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold text-gray-900 dark:text-white"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleAddReading}
-                  className="px-6 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-semibold"
+                  className="px-6 py-2 bg-amber-600 dark:bg-amber-600 text-white rounded-xl hover:bg-amber-700 dark:hover:bg-amber-700 font-semibold"
                 >
                   Add Reading
                 </button>
@@ -2083,42 +2403,52 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
         </div>
       )}
 
-      {/* Quiz Modal */}
+      {/* Quiz Modal — Google Form based */}
       {showQuizModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4">
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-              <h3 className="text-2xl font-bold">Add Quiz</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 border border-gray-200 dark:border-gray-700">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Add Quiz (Google Form)</h3>
               <button 
-                onClick={() => { setShowQuizModal(false); setQuizModalTitle(''); setQuizModalPassingScore(70); }}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+                onClick={() => { setShowQuizModal(false); setQuizModalTitle(''); setQuizModalFormUrl(''); setQuizModalPassingScore(70); setQuizModalFormEntryIdWebhook(''); setQuizModalScriptCopied(false); setQuizModalRecordScoresOpen(false); }}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
               >
-                <X className="w-6 h-6" />
+                <X className="w-6 h-6 dark:text-gray-200" />
               </button>
             </div>
             <div className="p-6">
-              <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-6">
+              <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-4 mb-6">
                 <div className="flex items-start">
-                  <Info className="w-5 h-5 text-purple-600 mr-3 mt-0.5 flex-shrink-0" />
-                  <div className="text-sm text-purple-900">
-                    <p className="font-semibold mb-1">Quiz Requirement</p>
-                    <p>Learners must complete this quiz before they can continue to the next video segment. Set a passing score to control progression.</p>
+                  <Info className="w-5 h-5 text-purple-600 dark:text-purple-400 mr-3 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-purple-900 dark:text-purple-200">
+                    <p className="font-semibold mb-1">Add a quiz in 3 steps</p>
+                    <p>Enter a title, paste your Google Form link, and set a passing score. Learners will see the form in the lesson and click <strong>Continue</strong> when done. That’s it — no extra setup required.</p>
                   </div>
                 </div>
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold mb-2">Quiz Title</label>
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Quiz Title</label>
                   <input 
                     type="text" 
                     value={quizModalTitle}
                     onChange={(e) => setQuizModalTitle(e.target.value)}
                     placeholder="e.g., Introduction Quiz"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2">Passing Score (%)</label>
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Google Form URL</label>
+                  <input 
+                    type="url" 
+                    value={quizModalFormUrl}
+                    onChange={(e) => setQuizModalFormUrl(e.target.value)}
+                    placeholder="https://docs.google.com/forms/d/e/.../viewform"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Passing Score (%)</label>
                   <input 
                     type="number" 
                     value={quizModalPassingScore}
@@ -2126,48 +2456,194 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
                     placeholder="70"
                     min={0}
                     max={100}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
                   />
                 </div>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-3">Add questions in the lesson editor after creating the quiz.</p>
-                  <button className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-semibold text-sm">
-                    Add Question
+                <div className="border border-gray-200 dark:border-gray-600 rounded-xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setQuizModalRecordScoresOpen((o) => !o)}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">Record scores in Coursify (optional)</span>
+                    {quizModalRecordScoresOpen ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
                   </button>
+                  {quizModalRecordScoresOpen && (
+                    <div className="p-4 pt-0 border-t border-gray-200 dark:border-gray-600 bg-purple-50/30 dark:bg-purple-900/10 space-y-3">
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        To save each learner’s score and pass/fail in Coursify: add a hidden field in your form, paste its entry ID below, then copy the script into your form’s <strong>Extensions → Apps Script</strong> and add an <strong>On form submit</strong> trigger.
+                      </p>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Hidden field entry ID</label>
+                        <input 
+                          type="text" 
+                          value={quizModalFormEntryIdWebhook}
+                          onChange={(e) => setQuizModalFormEntryIdWebhook(e.target.value)}
+                          placeholder="From form pre-filled link: entry.XXXXX"
+                          className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const script = getQuizWebhookScript(quizModalFormEntryIdWebhook.trim(), quizModalPassingScore);
+                          try {
+                            if (navigator.clipboard?.writeText) {
+                              await navigator.clipboard.writeText(script);
+                            } else {
+                              const ta = document.createElement('textarea');
+                              ta.value = script;
+                              ta.style.position = 'fixed';
+                              ta.style.opacity = '0';
+                              document.body.appendChild(ta);
+                              ta.select();
+                              document.execCommand('copy');
+                              document.body.removeChild(ta);
+                            }
+                            setQuizModalScriptCopied(true);
+                            setTimeout(() => setQuizModalScriptCopied(false), 2500);
+                          } catch {
+                            setQuizModalScriptCopied(false);
+                          }
+                        }}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 transition-colors"
+                      >
+                        <Copy className="w-4 h-4" />
+                        {quizModalScriptCopied ? 'Copied!' : 'Copy Apps Script'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex space-x-3 mt-6">
                 <button 
-                  onClick={() => { setShowQuizModal(false); setQuizModalTitle(''); setQuizModalPassingScore(70); }}
-                  className="flex-1 px-6 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 font-semibold transition-all"
+                  onClick={() => { setShowQuizModal(false); setQuizModalTitle(''); setQuizModalFormUrl(''); setQuizModalPassingScore(70); setQuizModalFormEntryIdWebhook(''); setQuizModalScriptCopied(false); setQuizModalRecordScoresOpen(false); }}
+                  className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold transition-all text-gray-900 dark:text-white"
                 >
                   Cancel
                 </button>
                 <button 
                   onClick={() => {
+                    const url = quizModalFormUrl.trim();
+                    if (!url) return;
                     const modules = [...courseData.modules];
-                    const module = modules[currentModule];
-                    const lesson = module.lessons[currentLesson];
+                    const moduleItem = modules[currentModule];
+                    const lesson = moduleItem.lessons[currentLesson];
                     const newQuiz: ContentItem = {
                       id: Date.now(),
                       type: 'quiz',
                       order: lesson.content.length,
                       quiz: {
                         id: Date.now(),
-                        title: quizModalTitle.trim() || 'New Quiz',
+                        title: quizModalTitle.trim() || 'Quiz',
                         passingScore: Math.min(100, Math.max(0, Number(quizModalPassingScore) || 70)),
-                        questions: []
+                        questions: [],
+                        formUrl: url,
+                        formEntryIdWebhook: quizModalFormEntryIdWebhook.trim() || undefined
                       }
                     };
                     lesson.content.push(newQuiz);
                     setCourseData({ ...courseData, modules });
+                    setSelectedContent(lesson.content.length - 1);
                     setShowQuizModal(false);
                     setQuizModalTitle('');
+                    setQuizModalFormUrl('');
                     setQuizModalPassingScore(70);
+                    setQuizModalFormEntryIdWebhook('');
+                    setQuizModalScriptCopied(false);
+                    setQuizModalRecordScoresOpen(false);
                   }}
-                  className="flex-1 px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-semibold transition-all shadow-lg"
+                  disabled={!quizModalFormUrl.trim()}
+                  className="flex-1 px-6 py-3 bg-purple-600 dark:bg-purple-600 text-white rounded-xl hover:bg-purple-700 dark:hover:bg-purple-700 font-semibold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Create Quiz
+                  Add Quiz
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Form Modal — Google Form based */}
+      {showFormModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 border border-gray-200 dark:border-gray-700">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Add Form (Google Form)</h3>
+              <button 
+                onClick={() => { setShowFormModal(false); setFormModalTitle(''); setFormModalFormUrl(''); }}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
+              >
+                <X className="w-6 h-6 dark:text-gray-200" />
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4 mb-6">
+                <div className="flex items-start">
+                  <Info className="w-5 h-5 text-green-600 dark:text-green-400 mr-3 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-green-900 dark:text-green-200">
+                    <p className="font-semibold mb-1">Google Form</p>
+                    <p>Paste the link to your Google Form. Learners will see it embedded in the lesson, just like documents.</p>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Form Title</label>
+                  <input 
+                    type="text" 
+                    value={formModalTitle}
+                    onChange={(e) => setFormModalTitle(e.target.value)}
+                    placeholder="e.g., Feedback Form"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Google Form URL</label>
+                  <input 
+                    type="url" 
+                    value={formModalFormUrl}
+                    onChange={(e) => setFormModalFormUrl(e.target.value)}
+                    placeholder="https://docs.google.com/forms/d/e/.../viewform"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
+                  />
+                </div>
+              </div>
+              <div className="flex space-x-3 mt-6">
+                <button 
+                  onClick={() => { setShowFormModal(false); setFormModalTitle(''); setFormModalFormUrl(''); }}
+                  className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold transition-all text-gray-900 dark:text-white"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => {
+                    const url = formModalFormUrl.trim();
+                    if (!url) return;
+                    const modules = [...courseData.modules];
+                    const moduleItem = modules[currentModule];
+                    const lesson = moduleItem.lessons[currentLesson];
+                    const newForm: ContentItem = {
+                      id: Date.now(),
+                      type: 'form',
+                      order: lesson.content.length,
+                      form: {
+                        id: Date.now(),
+                        title: formModalTitle.trim() || 'Form',
+                        formUrl: url
+                      }
+                    };
+                    lesson.content.push(newForm);
+                    setCourseData({ ...courseData, modules });
+                    setSelectedContent(lesson.content.length - 1);
+                    setShowFormModal(false);
+                    setFormModalTitle('');
+                    setFormModalFormUrl('');
+                  }}
+                  disabled={!formModalFormUrl.trim()}
+                  className="flex-1 px-6 py-3 bg-green-600 dark:bg-green-600 text-white rounded-xl hover:bg-green-700 dark:hover:bg-green-700 font-semibold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Add Form
                 </button>
               </div>
             </div>

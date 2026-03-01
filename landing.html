@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coursify — Micro-video LMS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #fafafa;
+      --surface: #ffffff;
+      --text: #1a1a1a;
+      --text-muted: #6b6b6b;
+      --accent: #2563eb;
+      --accent-soft: #eff6ff;
+      --border: #e5e5e5;
+      --radius: 12px;
+      --font: 'DM Sans', system-ui, sans-serif;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Header */
+    header {
+      padding: 24px 0;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .header-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      font-weight: 700;
+      font-size: 1.35rem;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    .logo span {
+      color: var(--accent);
+    }
+
+    nav a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 500;
+      margin-left: 28px;
+      transition: color 0.2s;
+    }
+
+    nav a:hover {
+      color: var(--accent);
+    }
+
+    /* Hero */
+    .hero {
+      padding: 80px 0 100px;
+      text-align: center;
+    }
+
+    .hero h1 {
+      font-size: clamp(2.25rem, 5vw, 3.25rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.2;
+      max-width: 640px;
+      margin: 0 auto 20px;
+    }
+
+    .hero p {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      max-width: 480px;
+      margin: 0 auto 36px;
+    }
+
+    .cta-row {
+      display: flex;
+      gap: 14px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px 28px;
+      font-family: var(--font);
+      font-size: 0.95rem;
+      font-weight: 600;
+      border-radius: var(--radius);
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+    }
+
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Features */
+    .section {
+      padding: 72px 0;
+    }
+
+    .section-title {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      text-align: center;
+      margin-bottom: 48px;
+      color: var(--text);
+    }
+
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 28px;
+    }
+
+    .feature {
+      background: var(--surface);
+      padding: 28px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .feature:hover {
+      border-color: var(--accent-soft);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    }
+
+    .feature-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      margin-bottom: 16px;
+    }
+
+    .feature h3 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .feature p {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    /* Roles */
+    .roles {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .roles-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 32px;
+      align-items: start;
+    }
+
+    .role-card {
+      padding: 32px 0 0;
+    }
+
+    .role-card h3 {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .role-card p {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+    }
+
+    /* Footer CTA */
+    .footer-cta {
+      padding: 80px 0;
+      text-align: center;
+    }
+
+    .footer-cta h2 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+
+    .footer-cta p {
+      color: var(--text-muted);
+      margin-bottom: 28px;
+    }
+
+    footer {
+      padding: 28px 0;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+
+    footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container header-inner">
+      <a href="#" class="logo">Cour<span>sify</span></a>
+      <nav>
+        <a href="#features">Features</a>
+        <a href="#for">For teams</a>
+        <a href="#app">Open app</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container">
+        <h1>Micro-video learning, structured and simple</h1>
+        <p>Create courses with short video segments, quizzes, and reading. One place for instructors and learners.</p>
+        <div class="cta-row">
+          <a href="#app" class="btn btn-primary">Get started</a>
+          <a href="#features" class="btn btn-secondary">See how it works</a>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="section">
+      <div class="container">
+        <h2 class="section-title">Built for micro-learning</h2>
+        <div class="features">
+          <div class="feature">
+            <div class="feature-icon">▶</div>
+            <h3>Video segments</h3>
+            <p>Use YouTube, Google Drive, or any URL. Set start and end timestamps so learners see only the part that matters.</p>
+          </div>
+          <div class="feature">
+            <div class="feature-icon">📚</div>
+            <h3>Courses → Modules → Lessons</h3>
+            <p>Organize content in a clear hierarchy. Drag to reorder. Add quizzes, forms, and reading alongside video.</p>
+          </div>
+          <div class="feature">
+            <div class="feature-icon">🎯</div>
+            <h3>Smart recommendations</h3>
+            <p>Preferences adapt from what learners complete and skip. “Recommended for you” gets better over time.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="for" class="section roles">
+      <div class="container">
+        <h2 class="section-title">One product, two experiences</h2>
+        <div class="roles-grid">
+          <div class="role-card">
+            <h3>For creators</h3>
+            <p>Dashboard, course authoring, learners list, analytics, and reports. Create and manage without clutter.</p>
+          </div>
+          <div class="role-card">
+            <h3>For learners</h3>
+            <p>My learning, progress, and continue where you left off. A focused view with no creator tools.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="app" class="footer-cta">
+      <div class="container">
+        <h2>Ready to try Coursify?</h2>
+        <p>Sign in to create courses or continue learning.</p>
+        <a href="/" class="btn btn-primary">Open app</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      Coursify LMS — micro-video learning management. <a href="/">Open app</a>
+    </div>
+  </footer>
+</body>
+</html>

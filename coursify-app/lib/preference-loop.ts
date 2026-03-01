@@ -66,7 +66,7 @@ export async function updatePreferencesFromActivity(userId: string): Promise<voi
 
   for (const r of rows as { content_type: ContentType; action: string; time_spent_seconds?: number }[]) {
     const t = r.content_type as ContentType;
-    if (!completedByType[t]) continue;
+    if (!(t in completedByType)) continue;
     if (r.action === 'completed' || r.action === 'viewed') {
       completedByType[t]++;
       totalTime += r.time_spent_seconds ?? 0;

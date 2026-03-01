@@ -192,19 +192,19 @@ const Reports: React.FC = () => {
   const root = (
     <div>
       {reportMessage && (
-        <div className="bg-green-50 border-b border-green-200 px-8 py-2 text-sm text-green-800">
+        <div className="bg-green-50 dark:bg-green-900/30 border-b border-green-200 dark:border-green-800 px-8 py-2 text-sm text-green-800 dark:text-green-200">
           {reportMessage}
         </div>
       )}
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-8 py-6 sticky top-0 z-20">
+      <div className="bg-white dark:bg-gray-900 dark:border-gray-800 border-b border-gray-200 dark:border-gray-800 px-8 py-6 sticky top-0 z-20">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
-            <p className="text-gray-600 mt-1">Generate and schedule automated learning reports</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Reports</h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">Generate and schedule automated learning reports</p>
           </div>
           <div className="flex space-x-3">
-            <button className="px-6 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 font-semibold flex items-center transition-all">
+            <button className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 font-semibold flex items-center transition-all">
               <Upload className="w-5 h-5 mr-2" />
               Import Template
             </button>
@@ -220,33 +220,33 @@ const Reports: React.FC = () => {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-4 gap-4 mb-4">
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl border border-blue-200">
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 p-4 rounded-xl border border-blue-200 dark:border-blue-800">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-blue-600 font-semibold">Total Reports</p>
-              <FileText className="w-5 h-5 text-blue-600" />
+              <p className="text-sm text-blue-600 dark:text-blue-400 font-semibold">Total Reports</p>
+              <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             </div>
-            <p className="text-3xl font-bold text-blue-700">{stats.totalReports}</p>
+            <p className="text-3xl font-bold text-blue-700 dark:text-blue-300">{stats.totalReports}</p>
           </div>
-          <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl border border-green-200">
+          <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 p-4 rounded-xl border border-green-200 dark:border-green-800">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-green-600 font-semibold">Scheduled</p>
-              <Calendar className="w-5 h-5 text-green-600" />
+              <p className="text-sm text-green-600 dark:text-green-400 font-semibold">Scheduled</p>
+              <Calendar className="w-5 h-5 text-green-600 dark:text-green-400" />
             </div>
-            <p className="text-3xl font-bold text-green-700">{stats.scheduledReports}</p>
+            <p className="text-3xl font-bold text-green-700 dark:text-green-300">{stats.scheduledReports}</p>
           </div>
-          <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-xl border border-purple-200">
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 p-4 rounded-xl border border-purple-200 dark:border-purple-800">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-purple-600 font-semibold">Active</p>
-              <Activity className="w-5 h-5 text-purple-600" />
+              <p className="text-sm text-purple-600 dark:text-purple-400 font-semibold">Active</p>
+              <Activity className="w-5 h-5 text-purple-600 dark:text-purple-400" />
             </div>
-            <p className="text-3xl font-bold text-purple-700">{stats.activeSchedules}</p>
+            <p className="text-3xl font-bold text-purple-700 dark:text-purple-300">{stats.activeSchedules}</p>
           </div>
-          <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-xl border border-orange-200">
+          <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20 p-4 rounded-xl border border-orange-200 dark:border-orange-800">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-orange-600 font-semibold">Generated</p>
-              <CheckCircle className="w-5 h-5 text-orange-600" />
+              <p className="text-sm text-orange-600 dark:text-orange-400 font-semibold">Generated</p>
+              <CheckCircle className="w-5 h-5 text-orange-600 dark:text-orange-400" />
             </div>
-            <p className="text-3xl font-bold text-orange-700">{stats.recentlyGenerated}</p>
+            <p className="text-3xl font-bold text-orange-700 dark:text-orange-300">{stats.recentlyGenerated}</p>
           </div>
         </div>
 
@@ -256,7 +256,7 @@ const Reports: React.FC = () => {
             <button 
               onClick={() => setSelectedCategory('all')}
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                selectedCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               All Reports
@@ -264,7 +264,7 @@ const Reports: React.FC = () => {
             <button 
               onClick={() => setSelectedCategory('summary')}
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedCategory === 'summary' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                selectedCategory === 'summary' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               Summary
@@ -272,7 +272,7 @@ const Reports: React.FC = () => {
             <button 
               onClick={() => setSelectedCategory('completion')}
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedCategory === 'completion' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                selectedCategory === 'completion' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               Completion
@@ -280,7 +280,7 @@ const Reports: React.FC = () => {
             <button 
               onClick={() => setSelectedCategory('compliance')}
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedCategory === 'compliance' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                selectedCategory === 'compliance' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               Compliance
@@ -288,7 +288,7 @@ const Reports: React.FC = () => {
             <button 
               onClick={() => setSelectedCategory('performance')}
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedCategory === 'performance' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                selectedCategory === 'performance' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               Performance
@@ -296,13 +296,13 @@ const Reports: React.FC = () => {
           </div>
 
           <div className="relative">
-            <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+            <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-400" />
             <input 
               type="text" 
               placeholder="Search reports..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg w-64 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:placeholder-gray-400 rounded-lg w-64 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
         </div>
@@ -320,9 +320,9 @@ const Reports: React.FC = () => {
           </div>
           <div className="grid grid-cols-4 gap-4">
             {recentReports.length === 0 ? (
-              <div className="col-span-full py-8 text-center text-gray-500 text-sm border border-dashed border-gray-200 rounded-xl">No reports generated yet.</div>
+              <div className="col-span-full py-8 text-center text-gray-500 dark:text-gray-300 text-sm border border-dashed border-gray-200 dark:border-gray-600 rounded-xl">No reports generated yet.</div>
             ) : recentReports.map((report, i) => (
-              <div key={i} className="bg-white p-4 rounded-xl border border-gray-200 hover:shadow-lg transition-all cursor-pointer">
+              <div key={i} className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-all cursor-pointer">
                 <div className="flex items-start justify-between mb-3">
                   <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
                     <FileText className="w-5 h-5 text-blue-600" />
@@ -350,10 +350,10 @@ const Reports: React.FC = () => {
           <h2 className="text-xl font-bold mb-4">Report Templates</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredReports.length === 0 ? (
-              <div className="col-span-full py-12 text-center text-gray-500 border border-dashed border-gray-200 rounded-2xl">
-                <FileText className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-                <p className="font-semibold mb-1">No report templates yet</p>
-                <p className="text-sm">Create a custom report above to get started.</p>
+              <div className="col-span-full py-12 text-center text-gray-500 dark:text-gray-300 border border-dashed border-gray-200 dark:border-gray-600 rounded-2xl dark:bg-gray-800/50">
+                <FileText className="w-12 h-12 mx-auto mb-3 text-gray-400 dark:text-gray-400" />
+                <p className="font-semibold mb-1 dark:text-gray-200">No report templates yet</p>
+                <p className="text-sm dark:text-gray-400">Create a custom report above to get started.</p>
               </div>
             ) : filteredReports.map((report) => {
               const Icon = report.icon;

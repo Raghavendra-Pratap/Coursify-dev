@@ -48,7 +48,7 @@ export async function POST(
   let body: { title?: string; description?: string; modules: Array<{
     title: string; order: number; lessons: Array<{
       title: string; order: number; duration?: string; content: Array<{
-        type: string; order: number; videoSegment?: { name?: string; source?: string; sourceUrl?: string; startTime?: string; endTime?: string; duration?: string; startTimestamp?: number; endTimestamp?: number }; reading?: { title?: string; type?: string; url?: string; body?: string }; quiz?: { title?: string; passingScore?: number }
+        type: string; order: number; videoSegment?: { name?: string; source?: string; sourceUrl?: string; startTime?: string; endTime?: string; duration?: string; startTimestamp?: number; endTimestamp?: number }; reading?: { title?: string; type?: string; url?: string; body?: string; format?: string }; quiz?: { title?: string; passingScore?: number; formUrl?: string; formEntryIdWebhook?: string }; form?: { title?: string; formUrl?: string }
       }>
     }>
   }> }
@@ -110,6 +110,7 @@ export async function POST(
             type: item.reading.type ?? 'native',
             url: item.reading.type === 'url' ? (item.reading.url ?? null) : null,
             body: item.reading.type === 'native' ? (item.reading.body ?? null) : null,
+            format: item.reading.type === 'native' ? (item.reading.format ?? 'plain') : null,
           })
         }
         if (item.type === 'video' && item.videoSegment) {
@@ -140,6 +141,15 @@ export async function POST(
             content_item_id: contentItemId,
             title: item.quiz.title ?? 'Quiz',
             passing_score: item.quiz.passingScore ?? 70,
+            form_url: item.quiz.formUrl ?? null,
+            form_entry_id_webhook: item.quiz.formEntryIdWebhook?.trim() ?? null,
+          })
+        }
+        if (item.type === 'form' && item.form) {
+          await db.from('forms').insert({
+            content_item_id: contentItemId,
+            title: item.form.title ?? 'Form',
+            form_url: item.form.formUrl ?? null,
           })
         }
       }

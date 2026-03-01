@@ -1,0 +1,72 @@
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse } from 'next/server'
+import { createServerClient as createServiceClient } from '@/lib/supabase'
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+/** GET: user IDs of all learners enrolled in courses owned or collaborated by current user. */
+export async function GET(request: Request) {
+  const cookieHeader = request.headers.get('cookie') ?? ''
+  const supabaseAuth = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      get(name: string) {
+        const match = cookieHeader.match(new RegExp(`(?:^|; )${name}=([^;]*)`))
+        return match ? decodeURIComponent(match[1]) : undefined
+      },
+      set() {},
+      remove() {},
+    },
+  })
+  const { data: { user } } = await supabaseAuth.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const db = createServiceClient()
+  const { data: owned } = await db.from('courses').select('id').eq('created_by', user.id)
+  const { data: collab } = await db.from('course_collaborators').select('course_id').eq('user_id', user.id)
+  const ownedIds = (owned ?? []).map((c: { id: string }) => c.id)
+  const collabIds = (collab ?? []).map((c: { course_id: string }) => c.course_id)
+  const courseIds = Array.from(new Set([...ownedIds, ...collabIds]))
+  if (courseIds.length === 0) return NextResponse.json({ userIds: [], learnerStats: {} })
+
+  const { data: enrollments } = await db
+    .from('enrollments')
+    .select('user_id, course_id, progress_percentage, completed_at, last_accessed_at, enrolled_at')
+    .in('course_id', courseIds)
+
+  const list = enrollments ?? []
+  const userIds = Array.from(new Set(list.map((e: { user_id: string }) => e.user_id)))
+
+  type Enr = { user_id: string; course_id: string; progress_percentage?: number; completed_at: string | null; last_accessed_at?: string; enrolled_at?: string }
+  const statsByUser: Record<string, { enrolledCourses: number; completedCourses: number; totalProgress: number; lastActive: string; joinedDate: string }> = {}
+  for (const u of userIds) {
+    const userEnrollments = list.filter((e: Enr) => e.user_id === u)
+    const completed = userEnrollments.filter((e: Enr) => e.completed_at != null).length
+    const totalProgress = userEnrollments.length
+      ? Math.round(
+          userEnrollments.reduce((sum: number, e: Enr) => sum + (e.progress_percentage ?? 0), 0) / userEnrollments.length
+        )
+      : 0
+    const lastDates = userEnrollments
+      .map((e: Enr) => e.last_accessed_at)
+      .filter(Boolean) as string[]
+    const enrolledDates = userEnrollments
+      .map((e: Enr) => e.enrolled_at)
+      .filter(Boolean) as string[]
+    const lastActive = lastDates.length
+      ? new Date(Math.max(...lastDates.map((d) => new Date(d).getTime()))).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : '—'
+    const joinedDate = enrolledDates.length
+      ? new Date(Math.min(...enrolledDates.map((d) => new Date(d).getTime()))).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : '—'
+    statsByUser[u] = {
+      enrolledCourses: userEnrollments.length,
+      completedCourses: completed,
+      totalProgress,
+      lastActive,
+      joinedDate,
+    }
+  }
+
+  return NextResponse.json({ userIds, learnerStats: statsByUser })
+}

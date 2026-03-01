@@ -1,30 +1,30 @@
 'use client'
 
 import React, { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { Play, Upload, Edit, Users, BarChart3, Settings, Plus, Check, X, Clock, FileText, Video, Folder, ChevronRight, Menu, Search, Bell, Award, TrendingUp, Home, BookOpen, Zap, Eye, Share2, Download, Target, Mail, User, LogOut } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import Dashboard from './pages/Dashboard';
-import CreateCourse from './pages/CreateCourse';
-import MyCourses from './pages/MyCourses';
-import Learners from './pages/Learners';
-import Analytics from './pages/Analytics';
-import Reports from './pages/Reports';
 import Profile from './pages/Profile';
 import AccountSettings from './pages/AccountSettings';
 import MyLearning from './pages/MyLearning';
-import TakeCourse from './pages/TakeCourse';
 
 const SESSION_MODE_KEY = 'coursify_session_mode';
 type SessionMode = 'instructor' | 'learner' | null;
 
-// Guard: detect undefined page (wrong export or circular dep)
-const pageNames = ['Dashboard', 'CreateCourse', 'MyCourses', 'Learners', 'Analytics', 'Reports', 'Profile', 'AccountSettings', 'MyLearning', 'TakeCourse'] as const;
-const pageComponents = [Dashboard, CreateCourse, MyCourses, Learners, Analytics, Reports, Profile, AccountSettings, MyLearning, TakeCourse];
-const undefinedPages = pageNames.filter((_, i) => pageComponents[i] == null);
-if (undefinedPages.length > 0) {
-  console.error('CoursifyLMS: undefined page component(s):', undefinedPages);
-}
+const pageLoading = () => (
+  <div className="flex min-h-[60vh] items-center justify-center p-8">
+    <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading…</div>
+  </div>
+);
+
+const CreateCourse = dynamic(() => import('./pages/CreateCourse'), { loading: pageLoading, ssr: false });
+const MyCourses = dynamic(() => import('./pages/MyCourses'), { loading: pageLoading, ssr: false });
+const Learners = dynamic(() => import('./pages/Learners'), { loading: pageLoading, ssr: false });
+const Analytics = dynamic(() => import('./pages/Analytics'), { loading: pageLoading, ssr: false });
+const Reports = dynamic(() => import('./pages/Reports'), { loading: pageLoading, ssr: false });
+const TakeCourse = dynamic(() => import('./pages/TakeCourse'), { loading: pageLoading, ssr: false });
 
 type UserDisplay = { displayName: string; email?: string; initials: string; role?: string };
 
@@ -229,7 +229,9 @@ const CoursifyLMS = () => {
     <button 
       onClick={() => setCurrentView(view)} 
       className={`w-full flex items-center p-3 rounded-lg transition-all ${
-        currentView === view ? 'bg-white text-blue-600 shadow-lg' : 'hover:bg-blue-500'
+        currentView === view
+          ? 'bg-white text-blue-600 shadow-lg dark:bg-gray-700 dark:text-white dark:shadow-none'
+          : 'hover:bg-blue-500 dark:hover:bg-gray-700/80'
       }`}
     >
       <Icon className="w-5 h-5" />
@@ -264,20 +266,26 @@ const CoursifyLMS = () => {
   const AppLayout = ({ children }: { children: React.ReactNode }) => (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       {/* Sidebar: flex column so avatar/sign-out stay at bottom of sidebar in all states */}
-      <div className={`relative flex flex-col h-screen bg-gradient-to-b from-blue-600 to-blue-700 text-white transition-all flex-shrink-0 ${sidebarOpen ? 'w-64' : 'w-20'}`}>
-        <div className="flex-shrink-0 p-4 border-b border-blue-500 flex items-center justify-between">
-          {sidebarOpen && (
-            <div className="flex items-center">
-              <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-                <Video className="w-6 h-6 text-blue-600" />
-              </div>
-              <div className="ml-3">
-                <span className="font-bold text-lg">Coursify</span>
-                <p className="text-xs text-blue-200">LMS Platform</p>
-              </div>
+      <div className={`relative flex flex-col h-screen bg-gradient-to-b from-blue-600 to-blue-700 text-white transition-all flex-shrink-0 dark:from-gray-900 dark:to-gray-800 dark:border-r dark:border-gray-800 ${sidebarOpen ? 'w-64' : 'w-20'}`}>
+        {/* Logo and title: always visible; full when expanded, compact when collapsed */}
+        <div className={`flex-shrink-0 border-b border-blue-500 dark:border-gray-700 flex items-center ${sidebarOpen ? 'p-4 justify-between' : 'p-2 flex-col gap-2'}`}>
+          <div className={`flex items-center ${sidebarOpen ? 'min-w-0 flex-1' : 'flex-col gap-1 w-full items-center'}`}>
+            <div className="w-10 h-10 flex-shrink-0 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center" title="Coursify LMS Platform">
+              <Video className="w-6 h-6 text-blue-600 dark:text-blue-400" />
             </div>
-          )}
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 hover:bg-blue-500 rounded-lg">
+            {sidebarOpen ? (
+              <div className="ml-3 min-w-0">
+                <span className="font-bold text-lg block truncate">Coursify</span>
+                <p className="text-xs text-blue-200 dark:text-gray-400 truncate">LMS Platform</p>
+              </div>
+            ) : (
+              <div className="text-center w-full">
+                <span className="text-[10px] font-bold leading-tight block truncate text-white" title="Coursify LMS Platform">Coursify</span>
+                <span className="text-[9px] text-blue-200 dark:text-gray-400 block truncate" title="LMS Platform">LMS</span>
+              </div>
+            )}
+          </div>
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className={`flex-shrink-0 p-2 hover:bg-blue-500 dark:hover:bg-gray-700 rounded-lg ${!sidebarOpen ? 'self-center' : ''}`} title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}>
             <Menu className="w-5 h-5" />
           </button>
         </div>
@@ -301,11 +309,11 @@ const CoursifyLMS = () => {
         )}
         
         {/* User area: always in sidebar at bottom (expanded vs collapsed) */}
-        <div className={`flex-shrink-0 border-t border-blue-500 bg-blue-700 ${sidebarOpen ? 'p-4' : 'p-2 flex flex-col items-center gap-1'}`}>
+        <div className={`flex-shrink-0 border-t border-blue-500 dark:border-gray-700 bg-blue-700 dark:bg-gray-800/80 ${sidebarOpen ? 'p-4' : 'p-2 flex flex-col items-center gap-1'}`}>
           {userDisplay.role === 'Sign in to save' ? (
             <button 
               onClick={() => { setShowSignInModal(true); setShowProfileModal(false); }}
-              className={sidebarOpen ? 'w-full flex items-center justify-center p-3 rounded-lg bg-white text-blue-600 hover:bg-blue-50 font-semibold transition-all' : 'p-2 rounded-lg hover:bg-blue-600 transition-all'}
+              className={sidebarOpen ? 'w-full flex items-center justify-center p-3 rounded-lg bg-white text-blue-600 hover:bg-blue-50 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600 font-semibold transition-all' : 'p-2 rounded-lg hover:bg-blue-600 dark:hover:bg-gray-700 transition-all'}
               title={sidebarOpen ? undefined : 'Sign In'}
             >
               {sidebarOpen ? 'Sign In' : <User className="w-5 h-5" />}
@@ -314,7 +322,7 @@ const CoursifyLMS = () => {
             <>
               <button 
                 onClick={() => setShowProfileModal(true)}
-                className={sidebarOpen ? 'w-full flex items-center p-2 rounded-lg hover:bg-blue-600 transition-all text-left' : 'p-2 rounded-lg hover:bg-blue-600 transition-all'}
+                className={sidebarOpen ? 'w-full flex items-center p-2 rounded-lg hover:bg-blue-600 dark:hover:bg-gray-700 transition-all text-left' : 'p-2 rounded-lg hover:bg-blue-600 dark:hover:bg-gray-700 transition-all'}
                 title={sidebarOpen ? undefined : userDisplay.displayName}
               >
                 <div className={`bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-bold shadow-lg ${sidebarOpen ? 'w-10 h-10 text-sm' : 'w-9 h-9 text-xs'}`}>
@@ -324,15 +332,15 @@ const CoursifyLMS = () => {
                   <>
                     <div className="ml-3 flex-1">
                       <p className="text-sm font-semibold">{userDisplay.displayName}</p>
-                      <p className="text-xs text-blue-200">{userDisplay.role}</p>
+                      <p className="text-xs text-blue-200 dark:text-gray-400">{userDisplay.role}</p>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-blue-200" />
+                    <ChevronRight className="w-4 h-4 text-blue-200 dark:text-gray-400" />
                   </>
                 )}
               </button>
               <button 
                 onClick={handleLogout}
-                className={sidebarOpen ? 'w-full flex items-center p-2 rounded-lg hover:bg-blue-600 transition-all text-left mt-2' : 'p-2 rounded-lg hover:bg-blue-600 transition-all mt-1'}
+                className={sidebarOpen ? 'w-full flex items-center p-2 rounded-lg hover:bg-blue-600 dark:hover:bg-gray-700 transition-all text-left mt-2' : 'p-2 rounded-lg hover:bg-blue-600 dark:hover:bg-gray-700 transition-all mt-1'}
                 title={sidebarOpen ? undefined : 'Sign Out'}
               >
                 <LogOut className={sidebarOpen ? 'w-5 h-5 mr-3' : 'w-5 h-5'} />
@@ -352,12 +360,7 @@ const CoursifyLMS = () => {
 
 
 
-  // Render current view (never render undefined component)
-  const fallback = undefinedPages.length > 0 ? (
-    <div className="p-8 text-center text-gray-600 dark:text-gray-400">
-      <p className="text-red-600 dark:text-red-400">Missing component(s): {undefinedPages.join(', ')}. Check exports in components/pages.</p>
-    </div>
-  ) : null;
+  const fallback = null;
 
   const supabaseConfigured = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
   const isGuest = userDisplay.role === 'Sign in to save';

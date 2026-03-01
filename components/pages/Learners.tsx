@@ -89,51 +89,73 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const currentUserId = session?.user?.id ?? null;
-        let profileIdsToFetch: string[] | null = null;
-
-        if (currentUserId) {
-          const { data: myProfile } = await supabase.from('user_profiles').select('role').eq('id', currentUserId).maybeSingle();
-          const role = (myProfile as { role?: string } | null)?.role;
-          if (role !== 'admin') {
-            const res = await fetch('/api/instructor/learners', { credentials: 'include', cache: 'no-store' });
-            const data = await res.json().catch(() => ({ userIds: [] }));
-            const userIds = Array.isArray(data.userIds) ? data.userIds : [];
-            if (userIds.length === 0) {
-              setLearners([]);
-              return;
-            }
-            profileIdsToFetch = userIds;
-          }
+        if (!currentUserId) {
+          setLearners([]);
+          return;
         }
 
-        const query = supabase.from('user_profiles').select('id, full_name, role, organization');
-        if (profileIdsToFetch != null) {
-          query.in('id', profileIdsToFetch);
+        const res = await fetch('/api/instructor/learners', { credentials: 'include', cache: 'no-store' });
+        const data = await res.json().catch(() => ({ userIds: [], learnerStats: {} }));
+        const userIds = Array.isArray(data.userIds) ? data.userIds : [];
+        const learnerStatsFromApi = (data.learnerStats && typeof data.learnerStats === 'object') ? data.learnerStats : {};
+        const profileIdsToFetch = userIds;
+
+        if (profileIdsToFetch.length === 0) {
+          setLearners([]);
+          return;
         }
-        const { data, error } = await query;
+
+        const query = supabase.from('user_profiles').select('id, full_name, role, organization').in('id', profileIdsToFetch);
+        const { data: profilesData, error } = await query;
         if (error) throw error;
-        const raw = data || [];
+        const raw = profilesData || [];
         const fromDb = raw.map((p: { id: string; full_name: string | null; role: string; organization: string | null }) => {
           const name = p.full_name || 'Unknown';
           const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || '?';
+          const stats = learnerStatsFromApi[p.id];
+          const enrolledCourses = stats?.enrolledCourses ?? 0;
+          const completedCourses = stats?.completedCourses ?? 0;
+          const totalProgress = stats?.totalProgress ?? 0;
+          const lastActive = stats?.lastActive ?? '—';
+          const joinedDate = stats?.joinedDate ?? '—';
+          const averageScore = stats?.averageScore ?? 0;
+          const totalTimeSpent = stats?.totalTimeSpent ?? '0h';
+          const lastActivityAt = stats?.lastActivityAt ?? null;
+          const daysSinceActivity = lastActivityAt
+            ? Math.floor((Date.now() - new Date(lastActivityAt).getTime()) / (24 * 60 * 60 * 1000))
+            : 999;
+          let status: 'active' | 'at-risk' | 'inactive' = 'active';
+          if (enrolledCourses === 0) {
+            status = 'inactive';
+          } else if (daysSinceActivity > 7) {
+            status = 'inactive';
+          } else if ((totalProgress < 25 && daysSinceActivity >= 3) || (daysSinceActivity >= 3 && daysSinceActivity <= 7)) {
+            status = 'at-risk';
+          } else if (totalProgress >= 25 && daysSinceActivity <= 2) {
+            status = 'active';
+          } else if (totalProgress < 25 && daysSinceActivity <= 2) {
+            status = 'active';
+          } else {
+            status = 'at-risk';
+          }
           return {
             id: p.id,
             name,
             email: '(signed up)',
             avatar: initials,
             avatarColor: 'from-indigo-400 to-indigo-500',
-            status: 'active',
-            enrolledCourses: 0,
-            completedCourses: 0,
-            inProgressCourses: 0,
-            totalProgress: 0,
-            averageScore: 0,
-            totalTimeSpent: '0h',
-            lastActive: '—',
-            joinedDate: '—',
+            status,
+            enrolledCourses,
+            completedCourses,
+            inProgressCourses: Math.max(0, enrolledCourses - completedCourses),
+            totalProgress,
+            averageScore,
+            totalTimeSpent,
+            lastActive,
+            joinedDate,
             streak: 0,
             badges: 0,
-            certificates: 0,
+            certificates: completedCourses,
             department: p.organization || '—',
             role: p.role,
             manager: '—',
@@ -321,10 +343,10 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
 
   const getStatusColor = (status: string) => {
     switch(status) {
-      case 'active': return 'bg-green-100 text-green-700';
-      case 'at-risk': return 'bg-orange-100 text-orange-700';
-      case 'inactive': return 'bg-red-100 text-red-700';
-      default: return 'bg-gray-100 text-gray-700';
+      case 'active': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
+      case 'at-risk': return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300';
+      case 'inactive': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
+      default: return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200';
     }
   };
 
@@ -338,29 +360,29 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   };
 
   return (
-    <div>
+    <div className="min-h-full dark:bg-gray-900">
       {configMissing && (
-        <div className="bg-amber-50 border-b border-amber-200 px-8 py-2 text-sm text-amber-800">
+        <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-8 py-2 text-sm text-amber-800 dark:text-amber-200">
           Configure Supabase to load learners.
         </div>
       )}
       {actionMessage && (
-        <div className="bg-green-50 border-b border-green-200 px-8 py-2 text-sm text-green-800 flex items-center justify-between">
+        <div className="bg-green-50 dark:bg-green-900/30 border-b border-green-200 dark:border-green-800 px-8 py-2 text-sm text-green-800 dark:text-green-200 flex items-center justify-between">
           <span>{actionMessage}</span>
-          <button onClick={() => setActionMessage(null)} className="text-green-600 hover:text-green-800">
+          <button onClick={() => setActionMessage(null)} className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300">
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-8 py-6 sticky top-0 z-20">
+      <div className="bg-white dark:bg-gray-900 dark:border-gray-800 border-b border-gray-200 dark:border-gray-800 px-8 py-6 sticky top-0 z-20">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Learners</h1>
-            <p className="text-gray-600 mt-1">Manage and track your students' progress</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Learners</h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">Manage and track your students&apos; progress</p>
           </div>
           <div className="flex space-x-3">
-            <button className="px-6 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 font-semibold flex items-center transition-all">
+            <button className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 font-semibold flex items-center transition-all">
               <Download className="w-5 h-5 mr-2" />
               Export Data
             </button>
@@ -376,33 +398,33 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-4 gap-4 mb-4">
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl border border-blue-200">
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 p-4 rounded-xl border border-blue-200 dark:border-blue-800">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-blue-600 font-semibold">Total Learners</p>
-              <Users className="w-5 h-5 text-blue-600" />
+              <p className="text-sm text-blue-600 dark:text-blue-400 font-semibold">Total Learners</p>
+              <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             </div>
-            <p className="text-3xl font-bold text-blue-700">{stats.total}</p>
+            <p className="text-3xl font-bold text-blue-700 dark:text-blue-300">{stats.total}</p>
           </div>
-          <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl border border-green-200">
+          <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 p-4 rounded-xl border border-green-200 dark:border-green-800">
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm text-green-600 font-semibold">Active</p>
               <Activity className="w-5 h-5 text-green-600" />
             </div>
             <p className="text-3xl font-bold text-green-700">{stats.active}</p>
           </div>
-          <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-xl border border-orange-200">
+          <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20 p-4 rounded-xl border border-orange-200 dark:border-orange-800">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-orange-600 font-semibold">At Risk</p>
-              <AlertCircle className="w-5 h-5 text-orange-600" />
+              <p className="text-sm text-orange-600 dark:text-orange-400 font-semibold">At Risk</p>
+              <AlertCircle className="w-5 h-5 text-orange-600 dark:text-orange-400" />
             </div>
-            <p className="text-3xl font-bold text-orange-700">{stats.atRisk}</p>
+            <p className="text-3xl font-bold text-orange-700 dark:text-white">{stats.atRisk}</p>
           </div>
-          <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-xl border border-purple-200">
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 p-4 rounded-xl border border-purple-200 dark:border-purple-800">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-purple-600 font-semibold">Avg. Completion</p>
-              <Target className="w-5 h-5 text-purple-600" />
+              <p className="text-sm text-purple-600 dark:text-purple-400 font-semibold">Avg. Completion</p>
+              <Target className="w-5 h-5 text-purple-600 dark:text-purple-400" />
             </div>
-            <p className="text-3xl font-bold text-purple-700">{stats.avgCompletion}%</p>
+            <p className="text-3xl font-bold text-purple-700 dark:text-white">{stats.avgCompletion}%</p>
           </div>
         </div>
 
@@ -412,7 +434,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
             <button 
               onClick={() => setSelectedTab('all')}
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedTab === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                selectedTab === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               All ({stats.total})
@@ -420,7 +442,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
             <button 
               onClick={() => setSelectedTab('active')}
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedTab === 'active' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                selectedTab === 'active' ? 'bg-green-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               Active ({stats.active})
@@ -428,7 +450,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
             <button 
               onClick={() => setSelectedTab('at-risk')}
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedTab === 'at-risk' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                selectedTab === 'at-risk' ? 'bg-orange-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               At Risk ({stats.atRisk})
@@ -436,7 +458,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
             <button 
               onClick={() => setSelectedTab('inactive')}
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedTab === 'inactive' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                selectedTab === 'inactive' ? 'bg-red-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               Inactive ({stats.inactive})
@@ -451,14 +473,14 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                 placeholder="Search learners..." 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg w-64 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-lg w-64 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
 
             <select 
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-semibold"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-semibold"
             >
               <option value="recent">Recently Active</option>
               <option value="name">Name (A-Z)</option>
@@ -471,15 +493,15 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
 
       {/* Learners List */}
       <div className="p-8">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           {filteredLearners.length === 0 ? (
-            <div className="p-12 text-center text-gray-500">
+            <div className="p-12 text-center text-gray-500 dark:text-gray-400">
               {configMissing ? 'Configure Supabase to see learners.' : 'No learners yet. Invite learners to get started.'}
             </div>
           ) : filteredLearners.map((learner) => (
             <div 
               key={learner.id}
-              className="p-6 border-b border-gray-200 last:border-b-0 hover:bg-gray-50 transition-all"
+              className="p-6 border-b border-gray-200 dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all"
             >
               <div className="flex items-center justify-between">
                 {/* Learner Info */}
@@ -490,7 +512,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                   
                   <div className="ml-4 flex-1">
                     <div className="flex items-center space-x-3 mb-1">
-                      <h3 className="font-bold text-lg">{learner.name}</h3>
+                      <h3 className="font-bold text-lg dark:text-white">{learner.name}</h3>
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center space-x-1 ${getStatusColor(learner.status)}`}>
                         {getStatusIcon(learner.status)}
                         <span className="capitalize">{learner.status.replace('-', ' ')}</span>
@@ -503,7 +525,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                       )}
                     </div>
                     
-                    <div className="flex items-center space-x-4 text-sm text-gray-600">
+                    <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-300">
                       <span className="flex items-center">
                         <Mail className="w-4 h-4 mr-1" />
                         {learner.email}
@@ -524,16 +546,16 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                 {/* Stats */}
                 <div className="flex items-center space-x-8 mr-6">
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-gray-900">{learner.enrolledCourses}</p>
-                    <p className="text-xs text-gray-600">Enrolled</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{learner.enrolledCourses}</p>
+                    <p className="text-xs text-gray-600 dark:text-gray-300">Enrolled</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-green-600">{learner.completedCourses}</p>
-                    <p className="text-xs text-gray-600">Completed</p>
+                    <p className="text-2xl font-bold text-green-600 dark:text-green-400">{learner.completedCourses}</p>
+                    <p className="text-xs text-gray-600 dark:text-gray-300">Completed</p>
                   </div>
                   <div className="text-center">
                     <div className="flex items-center justify-center space-x-1">
-                      <p className="text-2xl font-bold text-blue-600">{learner.totalProgress}%</p>
+                      <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{learner.totalProgress}%</p>
                       {learner.totalProgress >= 80 ? (
                         <ArrowUpRight className="w-5 h-5 text-green-600" />
                       ) : learner.totalProgress >= 50 ? (
@@ -542,11 +564,11 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                         <ArrowDownRight className="w-5 h-5 text-red-600" />
                       )}
                     </div>
-                    <p className="text-xs text-gray-600">Avg. Progress</p>
+                    <p className="text-xs text-gray-600 dark:text-gray-300">Avg. Progress</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-purple-600">{learner.averageScore}%</p>
-                    <p className="text-xs text-gray-600">Avg. Score</p>
+                    <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{learner.averageScore}%</p>
+                    <p className="text-xs text-gray-600 dark:text-gray-300">Avg. Score</p>
                   </div>
                 </div>
 
@@ -563,14 +585,14 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                   <div className="relative">
                     <button 
                       onClick={() => setActiveDropdown(activeDropdown === learner.id ? null : learner.id)}
-                      className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+                      className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
                     >
-                      <MoreVertical className="w-5 h-5 text-gray-600" />
+                      <MoreVertical className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                     </button>
 
                     {activeDropdown === learner.id && (
-                      <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-2xl border border-gray-200 py-2 z-30">
-                        <button className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm">
+                      <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-2 z-30">
+                        <button className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200">
                           <Mail className="w-4 h-4 mr-3" />
                           Send Message
                         </button>
@@ -579,16 +601,16 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                             handleSendReminder(learner.id, learner.email !== '(signed up)' ? learner.email : undefined, learner.name);
                             setActiveDropdown(null);
                           }}
-                          className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                          className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
                         >
                           <Bell className="w-4 h-4 mr-3" />
                           Send Reminder
                         </button>
-                        <button className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm">
+                        <button className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200">
                           <BookOpen className="w-4 h-4 mr-3" />
                           Enroll in Course
                         </button>
-                        <button className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm">
+                        <button className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200">
                           <FileDown className="w-4 h-4 mr-3" />
                           Export Progress
                         </button>
@@ -612,10 +634,10 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
               {/* Progress Bar */}
               <div className="mt-4">
                 <div className="flex justify-between text-sm mb-2">
-                  <span className="font-semibold">Overall Progress</span>
-                  <span className="text-gray-600">{learner.completedCourses} of {learner.enrolledCourses} courses completed</span>
+                  <span className="font-semibold dark:text-white">Overall Progress</span>
+                  <span className="text-gray-600 dark:text-gray-300">{learner.completedCourses} of {learner.enrolledCourses} courses completed</span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-3">
+                <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-3">
                   <div 
                     className={`h-3 rounded-full transition-all ${
                       learner.totalProgress >= 80 ? 'bg-green-500' :
@@ -630,23 +652,23 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
               {/* Badges and Certificates */}
               <div className="mt-4 flex items-center space-x-6 text-sm">
                 <div className="flex items-center">
-                  <Trophy className="w-4 h-4 text-yellow-600 mr-2" />
-                  <span className="font-semibold">{learner.badges}</span>
-                  <span className="text-gray-600 ml-1">badges</span>
+                  <Trophy className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mr-2" />
+                  <span className="font-semibold dark:text-white">{learner.badges}</span>
+                  <span className="text-gray-600 dark:text-gray-300 ml-1">badges</span>
                 </div>
                 <div className="flex items-center">
-                  <Award className="w-4 h-4 text-purple-600 mr-2" />
-                  <span className="font-semibold">{learner.certificates}</span>
-                  <span className="text-gray-600 ml-1">certificates</span>
+                  <Award className="w-4 h-4 text-purple-600 dark:text-purple-400 mr-2" />
+                  <span className="font-semibold dark:text-white">{learner.certificates}</span>
+                  <span className="text-gray-600 dark:text-gray-300 ml-1">certificates</span>
                 </div>
                 <div className="flex items-center">
-                  <Clock className="w-4 h-4 text-blue-600 mr-2" />
-                  <span className="font-semibold">{learner.totalTimeSpent}</span>
-                  <span className="text-gray-600 ml-1">learning time</span>
+                  <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400 mr-2" />
+                  <span className="font-semibold dark:text-white">{learner.totalTimeSpent}</span>
+                  <span className="text-gray-600 dark:text-gray-300 ml-1">learning time</span>
                 </div>
                 <div className="flex items-center">
-                  <Calendar className="w-4 h-4 text-gray-600 mr-2" />
-                  <span className="text-gray-600">Joined {learner.joinedDate}</span>
+                  <Calendar className="w-4 h-4 text-gray-600 dark:text-gray-400 mr-2" />
+                  <span className="text-gray-600 dark:text-gray-300">Joined {learner.joinedDate}</span>
                 </div>
               </div>
             </div>
@@ -657,9 +679,9 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
       {/* Invite Learners Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4">
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-              <h3 className="text-2xl font-bold">Invite Learners</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 border border-gray-200 dark:border-gray-700">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h3 className="text-2xl font-bold dark:text-white">Invite Learners</h3>
               <button 
                 onClick={() => {
                   setShowInviteModal(false);
@@ -675,30 +697,30 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
             <div className="p-6">
               {/* Email Input */}
               <div className="mb-6">
-                <label className="block text-sm font-semibold mb-2">Email Addresses</label>
+                <label className="block text-sm font-semibold mb-2 dark:text-gray-200">Email Addresses</label>
                 <textarea 
                   value={inviteEmails}
                   onChange={(e) => setInviteEmails(e.target.value)}
                   placeholder="Enter email addresses separated by commas or new lines&#10;e.g., john@company.com, jane@company.com"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-32 resize-none"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-32 resize-none"
                 />
-                <p className="text-xs text-gray-600 mt-2">Separate multiple emails with commas or line breaks</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">Separate multiple emails with commas or line breaks</p>
               </div>
 
               {/* Divider */}
               <div className="flex items-center my-6">
-                <div className="flex-1 border-t border-gray-300"></div>
-                <span className="px-4 text-sm text-gray-600 font-semibold">OR</span>
-                <div className="flex-1 border-t border-gray-300"></div>
+                <div className="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
+                <span className="px-4 text-sm text-gray-600 dark:text-gray-400 font-semibold">OR</span>
+                <div className="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
               </div>
 
               {/* Bulk Upload */}
               <div className="mb-6">
-                <label className="block text-sm font-semibold mb-2">Bulk Upload CSV</label>
-                <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-blue-500 transition-all cursor-pointer">
-                  <Upload className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="font-semibold mb-1">Drop CSV file here or click to browse</p>
-                  <p className="text-sm text-gray-600 mb-3">Upload a CSV with columns: name, email, department</p>
+                <label className="block text-sm font-semibold mb-2 dark:text-gray-200">Bulk Upload CSV</label>
+                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center hover:border-blue-500 transition-all cursor-pointer dark:bg-gray-800/50">
+                  <Upload className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-3" />
+                  <p className="font-semibold mb-1 dark:text-white">Drop CSV file here or click to browse</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Upload a CSV with columns: name, email, department</p>
                   <input
                     type="file"
                     accept=".csv"
@@ -714,10 +736,10 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                   </label>
                 </div>
                 {bulkUploadFile && (
-                  <div className="mt-3 flex items-center justify-between bg-blue-50 p-3 rounded-lg">
+                  <div className="mt-3 flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
                     <div className="flex items-center">
-                      <FileText className="w-5 h-5 text-blue-600 mr-2" />
-                      <span className="text-sm font-semibold">{bulkUploadFile.name}</span>
+                      <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-2" />
+                      <span className="text-sm font-semibold dark:text-white">{bulkUploadFile.name}</span>
                     </div>
                     <button onClick={() => setBulkUploadFile(null)} className="text-red-600 hover:text-red-700">
                       <X className="w-5 h-5" />
@@ -742,7 +764,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
               </div>
 
               {/* Info Box */}
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 mb-6">
                 <div className="flex items-start">
                   <CheckCircle className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
                   <div className="text-sm text-blue-900">
@@ -750,7 +772,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                     <ul className="space-y-1 text-blue-800">
                       <li>• Learners will receive an email invitation</li>
                       <li>• They can create an account and access assigned courses</li>
-                      <li>• You'll be able to track their progress immediately</li>
+                      <li>• You&apos;ll be able to track their progress immediately</li>
                     </ul>
                   </div>
                 </div>
@@ -764,7 +786,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                     setInviteEmails('');
                     setBulkUploadFile(null);
                   }}
-                  className="flex-1 px-6 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 font-semibold transition-all"
+                  className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold transition-all"
                 >
                   Cancel
                 </button>
@@ -784,15 +806,15 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
       {/* Learner Detail Modal */}
       {showLearnerDetail && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full my-8">
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-4xl w-full my-8 border border-gray-200 dark:border-gray-700">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
               <div className="flex items-center">
                 <div className={`w-16 h-16 bg-gradient-to-br ${showLearnerDetail.avatarColor} rounded-full flex items-center justify-center text-white font-bold text-2xl shadow-lg`}>
                   {showLearnerDetail.avatar}
                 </div>
                 <div className="ml-4">
-                  <h3 className="text-2xl font-bold">{showLearnerDetail.name}</h3>
-                  <p className="text-gray-600">{showLearnerDetail.email}</p>
+                  <h3 className="text-2xl font-bold dark:text-white">{showLearnerDetail.name}</h3>
+                  <p className="text-gray-600 dark:text-gray-400">{showLearnerDetail.email}</p>
                 </div>
               </div>
               <button 
@@ -806,57 +828,57 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
             <div className="p-6">
               {/* Quick Stats */}
               <div className="grid grid-cols-4 gap-4 mb-6">
-                <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl border border-blue-200">
-                  <p className="text-sm text-blue-600 font-semibold mb-1">Total Progress</p>
-                  <p className="text-3xl font-bold text-blue-700">{showLearnerDetail.totalProgress}%</p>
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 p-4 rounded-xl border border-blue-200 dark:border-blue-800">
+                  <p className="text-sm text-blue-600 dark:text-blue-400 font-semibold mb-1">Total Progress</p>
+                  <p className="text-3xl font-bold text-blue-700 dark:text-white">{showLearnerDetail.totalProgress}%</p>
                 </div>
-                <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl border border-green-200">
-                  <p className="text-sm text-green-600 font-semibold mb-1">Avg. Score</p>
-                  <p className="text-3xl font-bold text-green-700">{showLearnerDetail.averageScore}%</p>
+                <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 p-4 rounded-xl border border-green-200 dark:border-green-800">
+                  <p className="text-sm text-green-600 dark:text-green-400 font-semibold mb-1">Avg. Score</p>
+                  <p className="text-3xl font-bold text-green-700 dark:text-white">{showLearnerDetail.averageScore}%</p>
                 </div>
-                <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-xl border border-purple-200">
-                  <p className="text-sm text-purple-600 font-semibold mb-1">Certificates</p>
-                  <p className="text-3xl font-bold text-purple-700">{showLearnerDetail.certificates}</p>
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 p-4 rounded-xl border border-purple-200 dark:border-purple-800">
+                  <p className="text-sm text-purple-600 dark:text-purple-400 font-semibold mb-1">Certificates</p>
+                  <p className="text-3xl font-bold text-purple-700 dark:text-white">{showLearnerDetail.certificates}</p>
                 </div>
-                <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-xl border border-orange-200">
-                  <p className="text-sm text-orange-600 font-semibold mb-1">Time Spent</p>
-                  <p className="text-2xl font-bold text-orange-700">{showLearnerDetail.totalTimeSpent}</p>
+                <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20 p-4 rounded-xl border border-orange-200 dark:border-orange-800">
+                  <p className="text-sm text-orange-600 dark:text-orange-400 font-semibold mb-1">Time Spent</p>
+                  <p className="text-2xl font-bold text-orange-700 dark:text-white">{showLearnerDetail.totalTimeSpent}</p>
                 </div>
               </div>
 
               {/* Profile Info */}
-              <div className="mb-6 bg-gray-50 rounded-xl p-4">
-                <h4 className="font-bold mb-3">Profile Information</h4>
+              <div className="mb-6 bg-gray-50 dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+                <h4 className="font-bold mb-3 dark:text-white">Profile Information</h4>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <p className="text-gray-600 mb-1">Department</p>
-                    <p className="font-semibold">{showLearnerDetail.department}</p>
+                    <p className="text-gray-600 dark:text-gray-400 mb-1">Department</p>
+                    <p className="font-semibold dark:text-white">{showLearnerDetail.department}</p>
                   </div>
                   <div>
-                    <p className="text-gray-600 mb-1">Role</p>
-                    <p className="font-semibold">{showLearnerDetail.role}</p>
+                    <p className="text-gray-600 dark:text-gray-400 mb-1">Role</p>
+                    <p className="font-semibold dark:text-white">{showLearnerDetail.role}</p>
                   </div>
                   <div>
-                    <p className="text-gray-600 mb-1">Manager</p>
-                    <p className="font-semibold">{showLearnerDetail.manager}</p>
+                    <p className="text-gray-600 dark:text-gray-400 mb-1">Manager</p>
+                    <p className="font-semibold dark:text-white">{showLearnerDetail.manager}</p>
                   </div>
                   <div>
-                    <p className="text-gray-600 mb-1">Joined Date</p>
-                    <p className="font-semibold">{showLearnerDetail.joinedDate}</p>
+                    <p className="text-gray-600 dark:text-gray-400 mb-1">Joined Date</p>
+                    <p className="font-semibold dark:text-white">{showLearnerDetail.joinedDate}</p>
                   </div>
                 </div>
               </div>
 
               {/* Enrolled Courses */}
               <div className="mb-6">
-                <h4 className="font-bold mb-3">Enrolled Courses ({showLearnerDetail.enrolledCourses})</h4>
+                <h4 className="font-bold mb-3 dark:text-white">Enrolled Courses ({showLearnerDetail.enrolledCourses})</h4>
                 <div className="space-y-3">
                   {showLearnerDetail.courses.map((course: any) => (
-                    <div key={course.id} className="bg-gray-50 rounded-xl p-4">
+                    <div key={course.id} className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 border border-gray-200 dark:border-gray-600">
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex-1">
-                          <h5 className="font-semibold">{course.name}</h5>
-                          <div className="flex items-center space-x-4 mt-1 text-sm text-gray-600">
+                          <h5 className="font-semibold dark:text-white">{course.name}</h5>
+                          <div className="flex items-center space-x-4 mt-1 text-sm text-gray-600 dark:text-gray-400">
                             <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
                               course.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
                             }`}>
@@ -870,12 +892,12 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-blue-600">{course.score}%</p>
-                          <p className="text-xs text-gray-600">Score</p>
+                          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{course.score}%</p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400">Score</p>
                         </div>
                       </div>
                       <div className="flex items-center">
-                        <div className="flex-1 bg-gray-200 rounded-full h-2 mr-3">
+                        <div className="flex-1 bg-gray-200 dark:bg-gray-600 rounded-full h-2 mr-3">
                           <div 
                             className={`h-2 rounded-full ${
                               course.progress === 100 ? 'bg-green-500' : 'bg-blue-500'
@@ -883,7 +905,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                             style={{width: `${course.progress}%`}}
                           ></div>
                         </div>
-                        <span className="text-sm font-semibold">{course.progress}%</span>
+                        <span className="text-sm font-semibold dark:text-white">{course.progress}%</span>
                       </div>
                     </div>
                   ))}
@@ -892,24 +914,24 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
 
               {/* Recent Activity */}
               <div className="mb-6">
-                <h4 className="font-bold mb-3">Recent Activity</h4>
+                <h4 className="font-bold mb-3 dark:text-white">Recent Activity</h4>
                 <div className="space-y-3">
                   {showLearnerDetail.activityLog.map((activity: any, idx: number) => (
-                    <div key={idx} className="flex items-center bg-gray-50 rounded-lg p-3">
+                    <div key={idx} className="flex items-center bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
                       {activity.type === 'completed' && <CheckCircle className="w-5 h-5 text-green-600 mr-3" />}
                       {activity.type === 'started' && <Play className="w-5 h-5 text-blue-600 mr-3" />}
                       {activity.type === 'quiz-passed' && <Trophy className="w-5 h-5 text-yellow-600 mr-3" />}
                       {activity.type === 'missed-deadline' && <AlertCircle className="w-5 h-5 text-red-600 mr-3" />}
                       {activity.type === 'inactive' && <Clock className="w-5 h-5 text-gray-600 mr-3" />}
                       <div className="flex-1">
-                        <p className="text-sm font-semibold">
+                        <p className="text-sm font-semibold dark:text-white">
                           {activity.type === 'completed' && `Completed ${activity.course}`}
                           {activity.type === 'started' && `Started ${activity.course}`}
                           {activity.type === 'quiz-passed' && `Passed quiz in ${activity.course} with ${activity.score}%`}
                           {activity.type === 'missed-deadline' && `Missed deadline for ${activity.course}`}
                           {activity.type === 'inactive' && 'No activity'}
                         </p>
-                        <p className="text-xs text-gray-600">{activity.time}</p>
+                        <p className="text-xs text-gray-600 dark:text-gray-400">{activity.time}</p>
                       </div>
                     </div>
                   ))}
@@ -922,11 +944,11 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                   <Mail className="w-5 h-5 mr-2" />
                   Send Message
                 </button>
-                <button className="flex-1 px-4 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 font-semibold flex items-center justify-center transition-all">
+                <button className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold flex items-center justify-center transition-all">
                   <BookOpen className="w-5 h-5 mr-2" />
                   Enroll in Course
                 </button>
-                <button className="flex-1 px-4 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 font-semibold flex items-center justify-center transition-all">
+                <button className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold flex items-center justify-center transition-all">
                   <Download className="w-5 h-5 mr-2" />
                   Export Data
                 </button>

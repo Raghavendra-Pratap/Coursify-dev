@@ -6,7 +6,7 @@
 CREATE TABLE IF NOT EXISTS content_items (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   lesson_id UUID NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
-  content_type TEXT NOT NULL CHECK (content_type IN ('video', 'quiz', 'form')),
+  content_type TEXT NOT NULL CHECK (content_type IN ('video', 'reading', 'quiz', 'form')),
   order_index INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),

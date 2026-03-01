@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft,
@@ -22,6 +22,7 @@ import {
   Minimize,
 } from 'lucide-react';
 import { LessonVideoPlayer, type VideoSegment } from '../LessonVideoPlayer';
+import { ReadingContentRenderer } from '@/components/ReadingContentRenderer';
 
 type Lesson = { id: string; title: string; description?: string | null; order_index: number };
 type Module = { id: string; title: string; order_index: number; lessons: Lesson[] };
@@ -30,8 +31,9 @@ type ContentItem = {
   content_type: string;
   order_index: number;
   videoSegments?: (VideoSegment & { source?: string; duration_seconds?: number })[];
-  readingMaterial?: { title: string; body?: string | null; url?: string | null } | null;
-  quiz?: { title: string; description?: string | null } | null;
+  readingMaterial?: { title: string; body?: string | null; url?: string | null; format?: string | null } | null;
+  quiz?: { title: string; description?: string | null; form_url?: string | null; form_entry_id_webhook?: string | null } | null;
+  form?: { title: string; description?: string | null; form_url?: string | null } | null;
 };
 
 type LessonStep =
@@ -46,9 +48,17 @@ interface TakeCourseProps {
   sidebarOpen?: boolean;
 }
 
-/** Convert document URLs to embed-friendly format (Google Docs /preview, etc.) */
+/** Convert document/form URLs to embed-friendly format (Google Docs /preview, Google Forms embedded, etc.) */
 function getEmbedUrl(url: string): string {
   const u = url.trim().startsWith('http') ? url.trim() : `https://${url.trim()}`;
+  // Google Forms: use viewform?embedded=true for iframe
+  const gformMatch = u.match(/docs\.google\.com\/forms\/d\/(?:e\/)?([a-zA-Z0-9_-]+)(?:\/.*)?/);
+  if (gformMatch) {
+    const formId = gformMatch[1];
+    const isLongId = formId.length > 20; // /d/e/XXX has long hash
+    const base = isLongId ? `https://docs.google.com/forms/d/e/${formId}/viewform` : `https://docs.google.com/forms/d/${formId}/viewform`;
+    return base.includes('?') ? `${base}&embedded=true` : `${base}?embedded=true`;
+  }
   // Google Docs: use /preview for embedding (works better than /edit)
   const gdocMatch = u.match(/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)(?:\/edit|\/view)?/);
   if (gdocMatch) return `https://docs.google.com/document/d/${gdocMatch[1]}/preview`;
@@ -62,12 +72,73 @@ function getEmbedUrl(url: string): string {
   return u;
 }
 
+/** Renders quiz iframe; when entryId is set, fetches a one-time token and pre-fills the form hidden field for webhook scoring. */
+function QuizEmbedWithWebhookToken({
+  enrollmentId,
+  contentItemId,
+  formUrl,
+  entryId,
+  title,
+}: {
+  enrollmentId: string | null;
+  contentItemId: string;
+  formUrl: string;
+  entryId?: string | null;
+  title: string;
+}) {
+  const [embedUrl, setEmbedUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!entryId || !enrollmentId) {
+      setEmbedUrl(getEmbedUrl(formUrl));
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/learning/quiz-submit-token?enrollmentId=${encodeURIComponent(enrollmentId)}&contentItemId=${encodeURIComponent(contentItemId)}`,
+          { credentials: 'include', cache: 'no-store' }
+        );
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled || !data?.token) return;
+        const base = getEmbedUrl(formUrl);
+        const sep = base.includes('?') ? '&' : '?';
+        setEmbedUrl(`${base}${sep}entry.${entryId}=${encodeURIComponent(data.token)}`);
+      } catch {
+        if (!cancelled) setEmbedUrl(getEmbedUrl(formUrl));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enrollmentId, contentItemId, formUrl, entryId]);
+  if (!embedUrl) {
+    return (
+      <div className="flex items-center justify-center p-8 text-gray-500 dark:text-gray-400">
+        Loading quiz…
+      </div>
+    );
+  }
+  return (
+    <iframe
+      title={title}
+      src={embedUrl}
+      className="w-full h-full min-h-[60vh] border-0"
+      allow="fullscreen"
+      sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-popups-to-escape-sandbox"
+    />
+  );
+}
+
 export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: TakeCourseProps) {
   const [course, setCourse] = useState<{ id: string; title: string; description?: string | null } | null>(null);
   const [modules, setModules] = useState<Module[]>([]);
   const [completedLessonIds, setCompletedLessonIds] = useState<Set<string>>(new Set());
   const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null);
   const [lessonContent, setLessonContent] = useState<{ lesson: Lesson; contentItems: ContentItem[] } | null>(null);
+  const [enrollmentIdForLesson, setEnrollmentIdForLesson] = useState<string | null>(null);
+  const [quizStepEmbedUrl, setQuizStepEmbedUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [contentLoading, setContentLoading] = useState(false);
   const [completedSegments, setCompletedSegments] = useState<Set<string>>(new Set());
@@ -97,22 +168,24 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
   const loadCourse = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/learning/courses/${courseId}/content`, { credentials: 'include', cache: 'no-store' });
-      if (!res.ok) {
+      const opts = { credentials: 'include' as RequestCredentials, cache: 'no-store' as RequestCache };
+      const [contentRes] = await Promise.all([
+        fetch(`/api/learning/courses/${courseId}/content`, opts),
+        fetch(`/api/learning/courses/${courseId}/progress`, opts).catch(() => null),
+      ]);
+      if (!contentRes.ok) {
         setCourse(null);
         setModules([]);
         setCompletedLessonIds(new Set());
         return;
       }
-      const data = await res.json();
+      const data = await contentRes.json();
       setCourse(data.course ?? null);
       setModules(Array.isArray(data.modules) ? data.modules : []);
       setCompletedLessonIds(new Set(Array.isArray(data.completedLessonIds) ? data.completedLessonIds : []));
       const firstLesson = data.modules?.[0]?.lessons?.[0];
       if (firstLesson?.id) setSelectedLessonId(firstLesson.id);
       setExpandedModules(new Set((data.modules ?? []).map((m: { id: string }) => m.id)));
-      // Recalculate enrollment progress so My learning page shows correct percentage (fixes stale 0%)
-      fetch(`/api/learning/courses/${courseId}/progress`, { credentials: 'include', cache: 'no-store' }).catch(() => {});
     } catch {
       setCourse(null);
       setModules([]);
@@ -155,6 +228,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
         }
         const data = await res.json();
         setLessonContent({ lesson: data.lesson, contentItems: data.contentItems ?? [] });
+        setEnrollmentIdForLesson(typeof data.enrollmentId === 'string' ? data.enrollmentId : null);
       } catch {
         setLessonContent(null);
       } finally {
@@ -168,10 +242,13 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
     setCurrentStepIndex(0);
   }, [selectedLessonId, lessonContent?.contentItems?.length]);
 
-  const totalLessons = modules.reduce((acc, m) => acc + (m.lessons?.length ?? 0), 0);
+  const totalLessons = useMemo(
+    () => modules.reduce((acc, m) => acc + (m.lessons?.length ?? 0), 0),
+    [modules]
+  );
   const completedCount = completedLessonIds.size;
 
-  const allVideoSegmentIds = (): string[] => {
+  const requiredSegmentIds = useMemo(() => {
     if (!lessonContent) return [];
     const items = lessonContent.contentItems ?? [];
     const ids: string[] = [];
@@ -183,9 +260,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
       }
     }
     return ids;
-  };
-
-  const requiredSegmentIds = allVideoSegmentIds();
+  }, [lessonContent]);
   const hasVideoSegments = requiredSegmentIds.length > 0;
   const allSegmentsWatched = requiredSegmentIds.length > 0 && requiredSegmentIds.every((id) => completedSegments.has(id));
   const canCompleteLesson =
@@ -454,9 +529,9 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
                     } else if (item.content_type === 'quiz' && item.quiz) {
                       stepNum += 1;
                       steps.push({ type: 'quiz', item, stepLabel: `Quiz: ${item.quiz?.title ?? 'Quiz'}` });
-                    } else if (item.content_type === 'form') {
+                    } else if (item.content_type === 'form' && item.form) {
                       stepNum += 1;
-                      steps.push({ type: 'form', item, stepLabel: 'Form' });
+                      steps.push({ type: 'form', item, stepLabel: `Form: ${item.form?.title ?? 'Form'}` });
                     }
                   }
                   const totalSteps = steps.length;
@@ -596,43 +671,82 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
                                 <div
                                   className={`flex-1 p-6 min-h-0 overflow-auto ${docDarkMode ? 'bg-gray-900 text-gray-100' : ''}`}
                                 >
-                                  <div className={`prose text-sm max-w-none whitespace-pre-wrap ${docDarkMode ? 'prose-invert text-gray-100' : 'dark:prose-invert text-gray-700 dark:text-gray-300'}`}>
-                                    {step.item.readingMaterial.body}
-                                  </div>
+                                  <ReadingContentRenderer
+                                    body={step.item.readingMaterial.body}
+                                    format={(step.item.readingMaterial.format as 'plain' | 'markdown' | 'html') ?? 'plain'}
+                                    className={docDarkMode ? 'text-gray-100 prose-invert' : 'text-gray-700 dark:text-gray-300 dark:prose-invert'}
+                                  />
                                 </div>
                               ) : null}
                             </div>
                           </div>
                         ) : step.type === 'quiz' ? (
-                          <div className="flex flex-col flex-1 p-6 overflow-y-auto">
-                            <div className="flex items-center gap-2 mb-4">
-                              <HelpCircle className="w-5 h-5 text-purple-600 flex-shrink-0" />
-                              <h3 className="font-semibold text-gray-900 dark:text-white">{step.item.quiz?.title ?? 'Quiz'}</h3>
+                          (step.item.quiz?.form_url) ? (
+                            <div className="flex flex-col flex-1 min-h-0">
+                              <div className="flex-shrink-0 flex items-center justify-between gap-3 px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                                  <HelpCircle className="w-4 h-4 text-purple-600 flex-shrink-0" />
+                                  {step.item.quiz?.title ?? 'Quiz'}
+                                </span>
+                                <button type="button" onClick={handleContinue} className="ml-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Continue</button>
+                              </div>
+                              <div className="flex-1 min-h-0 overflow-auto bg-white dark:bg-gray-900">
+                                {step.item.quiz.form_entry_id_webhook ? (
+                                  <QuizEmbedWithWebhookToken
+                                    enrollmentId={enrollmentIdForLesson}
+                                    contentItemId={step.item.id}
+                                    formUrl={step.item.quiz.form_url}
+                                    entryId={step.item.quiz.form_entry_id_webhook}
+                                    title={step.item.quiz?.title ?? 'Quiz'}
+                                  />
+                                ) : (
+                                  <iframe
+                                    title={step.item.quiz?.title ?? 'Quiz'}
+                                    src={getEmbedUrl(step.item.quiz.form_url)}
+                                    className="w-full h-full min-h-[60vh] border-0"
+                                    allow="fullscreen"
+                                    sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-popups-to-escape-sandbox"
+                                  />
+                                )}
+                              </div>
                             </div>
-                            {step.item.quiz?.description && (
-                              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{step.item.quiz.description}</p>
-                            )}
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Quiz interaction coming soon.</p>
-                            <button
-                              type="button"
-                              onClick={handleContinue}
-                              className="self-start px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
-                            >
-                              Continue
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col flex-1 p-6 overflow-y-auto">
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Form content coming soon.</p>
-                            <button
-                              type="button"
-                              onClick={handleContinue}
-                              className="self-start px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
-                            >
-                              Continue
-                            </button>
-                          </div>
-                        )}
+                          ) : (
+                            <div className="flex flex-col flex-1 p-6 overflow-y-auto">
+                              <div className="flex items-center gap-2 mb-4">
+                                <HelpCircle className="w-5 h-5 text-purple-600 flex-shrink-0" />
+                                <h3 className="font-semibold text-gray-900 dark:text-white">{step.item.quiz?.title ?? 'Quiz'}</h3>
+                              </div>
+                              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">No quiz link configured.</p>
+                              <button type="button" onClick={handleContinue} className="self-start px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Continue</button>
+                            </div>
+                          )
+                        ) : step.type === 'form' ? (
+                          (step.item.form?.form_url) ? (
+                            <div className="flex flex-col flex-1 min-h-0">
+                              <div className="flex-shrink-0 flex items-center justify-between gap-3 px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                                  <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
+                                  {step.item.form?.title ?? 'Form'}
+                                </span>
+                                <button type="button" onClick={handleContinue} className="ml-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Continue</button>
+                              </div>
+                              <div className="flex-1 min-h-0 overflow-auto bg-white dark:bg-gray-900">
+                                <iframe
+                                  title={step.item.form?.title ?? 'Form'}
+                                  src={getEmbedUrl(step.item.form.form_url)}
+                                  className="w-full h-full min-h-[60vh] border-0"
+                                  allow="fullscreen"
+                                  sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-popups-to-escape-sandbox"
+                                />
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col flex-1 p-6 overflow-y-auto">
+                              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">No form link configured.</p>
+                              <button type="button" onClick={handleContinue} className="self-start px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Continue</button>
+                            </div>
+                          )
+                        ) : null}
                       </div>
                       {totalSteps > 1 && (
                         <div className="flex items-center justify-between flex-shrink-0 pt-2">

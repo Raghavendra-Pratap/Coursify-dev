@@ -1,0 +1,91 @@
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse } from 'next/server'
+import { createServerClient as createServiceClient } from '@/lib/supabase'
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ courseId: string }> }
+) {
+  const { courseId } = await params
+  if (!courseId) {
+    return NextResponse.json({ error: 'Course ID required' }, { status: 400 })
+  }
+
+  const cookieHeader = request.headers.get('cookie') ?? ''
+  const supabaseAuth = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      get(name: string) {
+        const match = cookieHeader.match(new RegExp(`(?:^|; )${name}=([^;]*)`))
+        return match ? decodeURIComponent(match[1]) : undefined
+      },
+      set() {},
+      remove() {},
+    },
+  })
+
+  const { data: { user } } = await supabaseAuth.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  let body: { lessonId?: string }
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+  const lessonId = body.lessonId
+  if (!lessonId || typeof lessonId !== 'string') {
+    return NextResponse.json({ error: 'lessonId required' }, { status: 400 })
+  }
+
+  const db = createServiceClient()
+
+  const { data: enrollment, error: enrollError } = await db
+    .from('enrollments')
+    .select('id')
+    .eq('course_id', courseId)
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (enrollError || !enrollment) {
+    return NextResponse.json({ error: 'Not enrolled in this course' }, { status: 403 })
+  }
+
+  const { error: upsertError } = await db
+    .from('progress')
+    .upsert(
+      {
+        enrollment_id: enrollment.id,
+        lesson_id: lessonId,
+        completed: true,
+        completed_at: new Date().toISOString(),
+        last_accessed_at: new Date().toISOString(),
+      },
+      { onConflict: 'enrollment_id,lesson_id' }
+    )
+
+  if (upsertError) {
+    return NextResponse.json({ error: upsertError.message }, { status: 500 })
+  }
+
+  const { data: courseModules } = await db.from('modules').select('id').eq('course_id', courseId)
+  const moduleIds = (courseModules ?? []).map((m: { id: string }) => m.id)
+  const { count: totalLessons } = moduleIds.length > 0
+    ? await db.from('lessons').select('*', { count: 'exact', head: true }).in('module_id', moduleIds)
+    : { count: 0 }
+  const { count: completedCount } = await db.from('progress').select('*', { count: 'exact', head: true })
+    .eq('enrollment_id', enrollment.id).eq('completed', true)
+  const total = typeof totalLessons === 'number' ? totalLessons : 0
+  const completed = typeof completedCount === 'number' ? completedCount : 0
+  const progressPercentage = total > 0 ? Math.round((completed / total) * 100) : 0
+  const now = new Date().toISOString()
+  const enrollmentUpdate: { progress_percentage: number; last_accessed_at: string; completed_at?: string } = { progress_percentage: progressPercentage, last_accessed_at: now }
+  if (progressPercentage >= 100) enrollmentUpdate.completed_at = now
+  await db.from('enrollments').update(enrollmentUpdate).eq('id', enrollment.id)
+
+  return NextResponse.json({ ok: true })
+}

@@ -111,6 +111,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
   const [learnerFilter, setLearnerFilter] = useState<'all' | 'enrolled' | 'in_progress' | 'completed'>('all');
   const [learnerSearch, setLearnerSearch] = useState('');
   const [learnerSort, setLearnerSort] = useState<'recent' | 'name' | 'progress'>('recent');
+  const [totalUniqueLearners, setTotalUniqueLearners] = useState<number | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -189,10 +190,11 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
         const courseIds = courseList.map((c: { id: string }) => c.id);
         const [modulesRes, statsRes] = await Promise.all([
           supabase.from('modules').select('id, course_id').in('course_id', courseIds),
-          fetch('/api/instructor/course-stats', { credentials: 'include', cache: 'no-store' }).then((r) => r.json().catch(() => ({ stats: {} })))
+          fetch('/api/instructor/course-stats', { credentials: 'include', cache: 'no-store' }).then((r) => r.json().catch(() => ({ stats: {}, totalUniqueLearners: undefined })))
         ]);
         const modules = modulesRes.data ?? [];
         const courseStats: Record<string, { learners: number; avgCompletion: number }> = statsRes.stats ?? {};
+        setTotalUniqueLearners(typeof statsRes.totalUniqueLearners === 'number' ? statsRes.totalUniqueLearners : null);
         const moduleIds = modules.map((m: { id: string }) => m.id);
         const { data: lessonsData } = moduleIds.length
           ? await supabase.from('lessons').select('id, module_id, duration_seconds').in('module_id', moduleIds)
@@ -502,7 +504,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
     total: courses.length,
     published: courses.filter(c => c.status === 'published').length,
     draft: courses.filter(c => c.status === 'draft').length,
-    totalLearners: totalEnrollments,
+    totalLearners: totalUniqueLearners ?? totalEnrollments,
     avgCompletion: totalEnrollments > 0 ? Math.round(totalCompletionSum / totalEnrollments) : 0
   };
 
@@ -738,23 +740,23 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
   }
 
   return (
-    <div>
+    <div className="min-h-full dark:bg-gray-900">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-8 py-6 sticky top-0 z-20">
+      <div className="bg-white dark:bg-gray-900 dark:border-gray-800 border-b border-gray-200 dark:border-gray-800 px-8 py-6 sticky top-0 z-20">
         {configMissing && (
-          <div className="mb-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2">
+          <div className="mb-4 text-sm text-amber-700 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-2">
             Configure Supabase (see BACKEND_SETUP.md) to load and save courses.
           </div>
         )}
         {!configMissing && !loading && courses.length === 0 && (
-          <div className="mb-4 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
+          <div className="mb-4 text-sm text-blue-700 dark:text-blue-200 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-2">
             No courses yet. Create your first course below.
           </div>
         )}
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">My Courses</h1>
-            <p className="text-gray-600 mt-1">Manage and organize your learning content</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">My Courses</h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">Manage and organize your learning content</p>
           </div>
           <button 
             onClick={() => setCurrentView('create')}
@@ -767,25 +769,25 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
 
         {/* Stats Bar */}
         <div className="grid grid-cols-5 gap-4 mb-4">
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl border border-blue-200">
-            <p className="text-sm text-blue-600 font-semibold mb-1">Total Courses</p>
-            <p className="text-3xl font-bold text-blue-700">{statsData.total}</p>
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 p-4 rounded-xl border border-blue-200 dark:border-blue-800">
+            <p className="text-sm text-blue-600 dark:text-blue-400 font-semibold mb-1">Total Courses</p>
+            <p className="text-3xl font-bold text-blue-700 dark:text-white">{statsData.total}</p>
           </div>
-          <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl border border-green-200">
-            <p className="text-sm text-green-600 font-semibold mb-1">Published</p>
-            <p className="text-3xl font-bold text-green-700">{statsData.published}</p>
+          <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 p-4 rounded-xl border border-green-200 dark:border-green-800">
+            <p className="text-sm text-green-600 dark:text-green-400 font-semibold mb-1">Published</p>
+            <p className="text-3xl font-bold text-green-700 dark:text-white">{statsData.published}</p>
           </div>
-          <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 p-4 rounded-xl border border-yellow-200">
-            <p className="text-sm text-yellow-600 font-semibold mb-1">Drafts</p>
-            <p className="text-3xl font-bold text-yellow-700">{statsData.draft}</p>
+          <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 dark:from-yellow-900/20 dark:to-yellow-800/20 p-4 rounded-xl border border-yellow-200 dark:border-yellow-800">
+            <p className="text-sm text-yellow-600 dark:text-yellow-400 font-semibold mb-1">Drafts</p>
+            <p className="text-3xl font-bold text-yellow-700 dark:text-white">{statsData.draft}</p>
           </div>
-          <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-xl border border-purple-200">
-            <p className="text-sm text-purple-600 font-semibold mb-1">Total Learners</p>
-            <p className="text-3xl font-bold text-purple-700">{statsData.totalLearners}</p>
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 p-4 rounded-xl border border-purple-200 dark:border-purple-800">
+            <p className="text-sm text-purple-600 dark:text-purple-400 font-semibold mb-1">Total Learners</p>
+            <p className="text-3xl font-bold text-purple-700 dark:text-white">{statsData.totalLearners}</p>
           </div>
-          <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-xl border border-orange-200">
-            <p className="text-sm text-orange-600 font-semibold mb-1">Avg. Completion</p>
-            <p className="text-3xl font-bold text-orange-700">{statsData.avgCompletion}%</p>
+          <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20 p-4 rounded-xl border border-orange-200 dark:border-orange-800">
+            <p className="text-sm text-orange-600 dark:text-orange-400 font-semibold mb-1">Avg. Completion</p>
+            <p className="text-3xl font-bold text-orange-700 dark:text-white">{statsData.avgCompletion}%</p>
           </div>
         </div>
 
@@ -797,7 +799,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${
                 selectedFilter === 'all' 
                   ? 'bg-blue-600 text-white shadow-lg' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               All ({courses.length})
@@ -807,7 +809,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${
                 selectedFilter === 'published' 
                   ? 'bg-green-600 text-white shadow-lg' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               Published ({courses.filter(c => c.status === 'published').length})
@@ -817,7 +819,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${
                 selectedFilter === 'draft' 
                   ? 'bg-yellow-600 text-white shadow-lg' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               Drafts ({courses.filter(c => c.status === 'draft').length})
@@ -832,14 +834,14 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                 placeholder="Search courses..." 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg w-64 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-lg w-64 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
 
             <select 
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-semibold"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-semibold"
             >
               <option value="recent">Most Recent</option>
               <option value="recommended">Recommended for you</option>
@@ -848,22 +850,22 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
               <option value="completion">Highest Completion</option>
             </select>
 
-            <div className="flex bg-gray-100 rounded-lg p-1">
+            <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
               <button 
                 onClick={() => setViewMode('grid')}
                 className={`p-2 rounded transition-all ${
-                  viewMode === 'grid' ? 'bg-white shadow-sm' : 'hover:bg-gray-200'
+                  viewMode === 'grid' ? 'bg-white dark:bg-gray-600 shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-600'
                 }`}
               >
-                <Grid className="w-5 h-5" />
+                <Grid className="w-5 h-5 dark:text-gray-200" />
               </button>
               <button 
                 onClick={() => setViewMode('list')}
                 className={`p-2 rounded transition-all ${
-                  viewMode === 'list' ? 'bg-white shadow-sm' : 'hover:bg-gray-200'
+                  viewMode === 'list' ? 'bg-white dark:bg-gray-600 shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-600'
                 }`}
               >
-                <List className="w-5 h-5" />
+                <List className="w-5 h-5 dark:text-gray-200" />
               </button>
             </div>
           </div>
@@ -873,10 +875,10 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
       {/* Courses Grid/List */}
       <div className="p-8">
         {filteredCourses.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-2xl border-2 border-dashed border-gray-300">
-            <Folder className="w-20 h-20 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-2xl font-bold mb-2">No courses found</h3>
-            <p className="text-gray-600 mb-6">
+          <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-600">
+            <Folder className="w-20 h-20 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+            <h3 className="text-2xl font-bold mb-2 dark:text-white">No courses found</h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
               {searchQuery 
                 ? `No courses match "${searchQuery}"`
                 : `No ${selectedFilter} courses yet`
@@ -894,7 +896,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
             {filteredCourses.map((course) => (
               <div 
                 key={course.id}
-                className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-xl transition-all group"
+                className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-xl transition-all group"
               >
                 {/* Thumbnail */}
                 <div className={`bg-gradient-to-br ${thumbnailColors[course.thumbnail]} h-48 flex items-center justify-center relative`}>
@@ -912,9 +914,9 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                   <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-all flex space-x-2">
                     <button 
                       onClick={() => handleShareCourse(course)}
-                      className="p-2 bg-white rounded-lg shadow-lg hover:bg-gray-50"
+                      className="p-2 bg-white dark:bg-gray-700 rounded-lg shadow-lg hover:bg-gray-50 dark:hover:bg-gray-600"
                     >
-                      <Share2 className="w-4 h-4 text-gray-700" />
+                      <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-200" />
                     </button>
                     <div className="relative">
                       <button 
@@ -922,19 +924,19 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                           e.stopPropagation();
                           setActiveDropdown(activeDropdown === course.id ? null : course.id);
                         }}
-                        className="p-2 bg-white rounded-lg shadow-lg hover:bg-gray-50"
+                        className="p-2 bg-white dark:bg-gray-700 rounded-lg shadow-lg hover:bg-gray-50 dark:hover:bg-gray-600"
                       >
-                        <MoreVertical className="w-4 h-4 text-gray-700" />
+                        <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-200" />
                       </button>
 
                       {activeDropdown === course.id && (
-                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl border border-gray-200 py-2 z-30">
+                        <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-2 z-30">
                           <button 
                             onClick={() => {
                               handleDuplicateCourse(course);
                               setActiveDropdown(null);
                             }}
-                            className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                            className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
                           >
                             <Copy className="w-4 h-4 mr-2" />
                             Duplicate
@@ -944,29 +946,29 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                               handleArchiveCourse(course.id);
                               setActiveDropdown(null);
                             }}
-                            className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                            className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
                           >
                             <Archive className="w-4 h-4 mr-2" />
                             Archive
                           </button>
                           <button 
                             onClick={() => { openCollaboratorsModal(course); }}
-                            className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                            className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
                           >
                             <UserPlus className="w-4 h-4 mr-2" />
                             Collaborators
                           </button>
-                          <button className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm">
+                          <button className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200">
                             <Download className="w-4 h-4 mr-2" />
                             Export
                           </button>
-                          <hr className="my-2" />
+                          <hr className="my-2 dark:border-gray-600" />
                           <button 
                             onClick={() => {
                               handleDeleteCourse(course);
                               setActiveDropdown(null);
                             }}
-                            className="w-full px-4 py-2 text-left hover:bg-red-50 flex items-center text-sm text-red-600"
+                            className="w-full px-4 py-2 text-left hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center text-sm text-red-600 dark:text-red-400"
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
                             Delete
@@ -980,28 +982,28 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                 {/* Content */}
                 <div className="p-6">
                   <div className="mb-4">
-                    <h3 className="font-bold text-lg mb-2 line-clamp-1">{course.title}</h3>
-                    <p className="text-sm text-gray-600 line-clamp-2">{course.description}</p>
+                    <h3 className="font-bold text-lg mb-2 line-clamp-1 dark:text-white">{course.title}</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">{course.description}</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 mb-4">
-                    <div className="flex items-center text-sm text-gray-600">
+                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                       <BookOpen className="w-4 h-4 mr-2" />
                       <span>{course.modules} modules</span>
                     </div>
-                    <div className="flex items-center text-sm text-gray-600">
+                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                       <Users className="w-4 h-4 mr-2" />
                       <span>{course.learners} learners</span>
                     </div>
-                    <div className="flex items-center text-sm text-gray-600">
+                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                       <Clock className="w-4 h-4 mr-2" />
                       <span>{course.duration}</span>
                     </div>
                     <div className="flex items-center text-sm">
                       <Star className="w-4 h-4 mr-1 text-yellow-500 fill-yellow-500" />
-                      <span className="font-semibold">{course.avgRating || 'N/A'}</span>
+                      <span className="font-semibold dark:text-white">{course.avgRating || 'N/A'}</span>
                       {course.totalRatings > 0 && (
-                        <span className="text-gray-600 ml-1">({course.totalRatings})</span>
+                        <span className="text-gray-600 dark:text-gray-400 ml-1">({course.totalRatings})</span>
                       )}
                     </div>
                   </div>
@@ -1009,7 +1011,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                   {course.completion > 0 && (
                     <div className="mb-4">
                       <div className="flex justify-between text-sm mb-2">
-                        <span className="text-gray-600">Avg. Completion</span>
+                        <span className="text-gray-600 dark:text-gray-400">Avg. Completion</span>
                         <span className="font-semibold flex items-center">
                           {course.completion}%
                           {course.trend === 'up' ? (
@@ -1019,7 +1021,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                           )}
                         </span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                         <div 
                           className={`h-2 rounded-full transition-all ${
                             course.completion >= 80 ? 'bg-green-500' :
@@ -1034,12 +1036,12 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
 
                   <div className="flex flex-wrap gap-2 mb-4">
                     {course.tags.slice(0, 2).map((tag, idx) => (
-                      <span key={idx} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">
+                      <span key={idx} className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 rounded-full">
                         {tag}
                       </span>
                     ))}
                     {course.tags.length > 2 && (
-                      <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">
+                      <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 rounded-full">
                         +{course.tags.length - 2}
                       </span>
                     )}
@@ -1053,15 +1055,15 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                       <Edit className="w-4 h-4 mr-2" />
                       Edit
                     </button>
-                    <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all">
-                      <Eye className="w-5 h-5 text-gray-600" />
+                    <button className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all">
+                      <Eye className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                     </button>
-                    <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all">
-                      <BarChart3 className="w-5 h-5 text-gray-600" />
+                    <button className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all">
+                      <BarChart3 className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                     </button>
                   </div>
 
-                  <div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
+                  <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
                     <span>Updated {course.lastUpdated}</span>
                     <div className="flex items-center space-x-2">
                       {course.hasQuiz && (
@@ -1082,15 +1084,15 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
           </div>
         ) : (
           // List View
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                   <tr>
                     <th className="px-6 py-4 text-left">
                       <input 
                         type="checkbox" 
-                        className="rounded border-gray-300"
+                        className="rounded border-gray-300 dark:border-gray-500"
                         onChange={(e) => {
                           if (e.target.checked) {
                             setSelectedCourses(filteredCourses.map(c => c.id));
@@ -1100,24 +1102,24 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                         }}
                       />
                     </th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Course</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Status</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Learners</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Completion</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Rating</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Last Updated</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Actions</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Course</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Status</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Learners</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Completion</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Rating</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Last Updated</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                   {filteredCourses.map((course) => (
-                    <tr key={course.id} className="hover:bg-gray-50 transition-all">
+                    <tr key={course.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all">
                       <td className="px-6 py-4">
                         <input 
                           type="checkbox"
                           checked={selectedCourses.includes(course.id)}
                           onChange={() => toggleCourseSelection(course.id)}
-                          className="rounded border-gray-300"
+                          className="rounded border-gray-300 dark:border-gray-500"
                         />
                       </td>
                       <td className="px-6 py-4">
@@ -1126,30 +1128,30 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                             <Video className="w-6 h-6 text-white" />
                           </div>
                           <div>
-                            <p className="font-semibold text-sm">{course.title}</p>
-                            <p className="text-xs text-gray-600">{course.modules} modules • {course.duration}</p>
+                            <p className="font-semibold text-sm dark:text-white">{course.title}</p>
+                            <p className="text-xs text-gray-600 dark:text-gray-400">{course.modules} modules • {course.duration}</p>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                          course.status === 'published' ? 'bg-green-100 text-green-700' :
-                          course.status === 'draft' ? 'bg-yellow-100 text-yellow-700' :
-                          'bg-gray-100 text-gray-700'
+                          course.status === 'published' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' :
+                          course.status === 'draft' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300' :
+                          'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
                         }`}>
                           {course.status.charAt(0).toUpperCase() + course.status.slice(1)}
                         </span>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <Users className="w-4 h-4 mr-2 text-gray-600" />
-                          <span className="font-semibold">{course.learners}</span>
-                          <span className="text-gray-600 text-sm ml-1">/ {course.enrolled}</span>
+                          <Users className="w-4 h-4 mr-2 text-gray-600 dark:text-gray-400" />
+                          <span className="font-semibold dark:text-white">{course.learners}</span>
+                          <span className="text-gray-600 dark:text-gray-400 text-sm ml-1">/ {course.enrolled}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-2">
-                          <div className="w-20 bg-gray-200 rounded-full h-2">
+                          <div className="w-20 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                             <div 
                               className={`h-2 rounded-full ${
                                 course.completion >= 80 ? 'bg-green-500' :
@@ -1159,51 +1161,51 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                               style={{width: `${course.completion}%`}}
                             ></div>
                           </div>
-                          <span className="text-sm font-semibold">{course.completion}%</span>
+                          <span className="text-sm font-semibold dark:text-white">{course.completion}%</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
                           <Star className="w-4 h-4 text-yellow-500 fill-yellow-500 mr-1" />
-                          <span className="font-semibold">{course.avgRating || 'N/A'}</span>
+                          <span className="font-semibold dark:text-white">{course.avgRating || 'N/A'}</span>
                           {course.totalRatings > 0 && (
-                            <span className="text-gray-600 text-sm ml-1">({course.totalRatings})</span>
+                            <span className="text-gray-600 dark:text-gray-400 text-sm ml-1">({course.totalRatings})</span>
                           )}
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <p className="text-sm text-gray-600">{course.lastUpdated}</p>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">{course.lastUpdated}</p>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-2">
                           <button 
                             onClick={() => { if (typeof course.id === 'string' && onEditCourse) onEditCourse(course.id); else setCurrentView('create'); }}
-                            className="p-2 hover:bg-gray-100 rounded-lg transition-all" 
+                            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all" 
                             title="Edit"
                           >
-                            <Edit className="w-4 h-4 text-gray-600" />
+                            <Edit className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                           </button>
-                          <button className="p-2 hover:bg-gray-100 rounded-lg transition-all" title="View">
-                            <Eye className="w-4 h-4 text-gray-600" />
+                          <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all" title="View">
+                            <Eye className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                           </button>
-                          <button className="p-2 hover:bg-gray-100 rounded-lg transition-all" title="Analytics">
-                            <BarChart3 className="w-4 h-4 text-gray-600" />
+                          <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all" title="Analytics">
+                            <BarChart3 className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                           </button>
                           <div className="relative">
                             <button 
                               onClick={() => setActiveDropdown(activeDropdown === course.id ? null : course.id)}
-                              className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+                              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
                             >
-                              <MoreVertical className="w-4 h-4 text-gray-600" />
+                              <MoreVertical className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                             </button>
                             {activeDropdown === course.id && (
-                              <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl border border-gray-200 py-2 z-30">
+                              <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-2 z-30">
                                 <button 
                                   onClick={() => {
                                     handleShareCourse(course);
                                     setActiveDropdown(null);
                                   }}
-                                  className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                                  className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
                                 >
                                   <Share2 className="w-4 h-4 mr-2" />
                                   Share
@@ -1213,29 +1215,29 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                                     handleDuplicateCourse(course);
                                     setActiveDropdown(null);
                                   }}
-                                  className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                                  className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
                                 >
                                   <Copy className="w-4 h-4 mr-2" />
                                   Duplicate
                                 </button>
                                 <button 
                                   onClick={() => { openCollaboratorsModal(course); setActiveDropdown(null); }}
-                                  className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                                  className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
                                 >
                                   <UserPlus className="w-4 h-4 mr-2" />
                                   Collaborators
                                 </button>
-                                <button className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm">
+                                <button className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200">
                                   <Download className="w-4 h-4 mr-2" />
                                   Export
                                 </button>
-                                <hr className="my-2" />
+                                <hr className="my-2 dark:border-gray-600" />
                                 <button 
                                   onClick={() => {
                                     handleDeleteCourse(course);
                                     setActiveDropdown(null);
                                   }}
-                                  className="w-full px-4 py-2 text-left hover:bg-red-50 flex items-center text-sm text-red-600"
+                                  className="w-full px-4 py-2 text-left hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center text-sm text-red-600 dark:text-red-400"
                                 >
                                   <Trash2 className="w-4 h-4 mr-2" />
                                   Delete
@@ -1283,22 +1285,22 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
       {/* Delete Confirmation Modal */}
       {showDeleteModal && courseToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4">
-            <div className="p-6 border-b border-gray-200">
-              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <AlertCircle className="w-6 h-6 text-red-600" />
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full mx-4 border border-gray-200 dark:border-gray-700">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+              <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
               </div>
-              <h3 className="text-2xl font-bold text-center mb-2">Delete Course?</h3>
-              <p className="text-gray-600 text-center">
-                Are you sure you want to delete <span className="font-semibold">"{courseToDelete.title}"</span>? This action cannot be undone.
+              <h3 className="text-2xl font-bold text-center mb-2 dark:text-white">Delete Course?</h3>
+              <p className="text-gray-600 dark:text-gray-400 text-center">
+                Are you sure you want to delete <span className="font-semibold dark:text-white">&quot;{courseToDelete.title}&quot;</span>? This action cannot be undone.
               </p>
             </div>
             <div className="p-6">
-              <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
-                <p className="text-sm text-red-900">
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 mb-6">
+                <p className="text-sm text-red-900 dark:text-red-200">
                   <span className="font-semibold">Warning:</span> Deleting this course will also remove:
                 </p>
-                <ul className="list-disc list-inside text-sm text-red-800 mt-2 space-y-1">
+                <ul className="list-disc list-inside text-sm text-red-800 dark:text-red-300 mt-2 space-y-1">
                   <li>All {courseToDelete.learners} learner enrollments</li>
                   <li>Progress data and completion records</li>
                   <li>All course content and videos</li>
@@ -1311,7 +1313,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                     setShowDeleteModal(false);
                     setCourseToDelete(null);
                   }}
-                  className="flex-1 px-6 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 font-semibold transition-all"
+                  className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold transition-all dark:text-gray-200"
                 >
                   Cancel
                 </button>
@@ -1435,30 +1437,30 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
 
         return (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4">
-              <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-                <h3 className="text-2xl font-bold">Share Course</h3>
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-lg w-full mx-4 border border-gray-200 dark:border-gray-700">
+              <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <h3 className="text-2xl font-bold dark:text-white">Share Course</h3>
                 <button 
                   onClick={() => {
                     setShowShareModal(false);
                     setCourseToShare(null);
                     setShareCopyFeedback(false);
                   }}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
                 >
-                  <X className="w-6 h-6" />
+                  <X className="w-6 h-6 dark:text-gray-200" />
                 </button>
               </div>
 
               <div className="p-6">
                 <div className="mb-6">
-                  <p className="text-sm font-semibold mb-2">Course Link</p>
+                  <p className="text-sm font-semibold mb-2 dark:text-gray-200">Course Link</p>
                   <div className="flex items-center space-x-2">
                     <input 
                       type="text" 
                       value={courseUrl}
                       readOnly
-                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg bg-gray-50"
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white"
                     />
                     <button 
                       type="button"
@@ -1472,47 +1474,47 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                 </div>
 
                 <div className="mb-6">
-                  <p className="text-sm font-semibold mb-3">Share via</p>
+                  <p className="text-sm font-semibold mb-3 dark:text-gray-200">Share via</p>
                   <div className="grid grid-cols-4 gap-3">
                     <button 
                       type="button"
                       onClick={handleShareEmail}
-                      className="p-4 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-center"
+                      className="p-4 border-2 border-gray-200 dark:border-gray-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-center"
                     >
-                      <Mail className="w-6 h-6 mx-auto mb-2 text-gray-600" />
-                      <p className="text-xs font-semibold">Email</p>
+                      <Mail className="w-6 h-6 mx-auto mb-2 text-gray-600 dark:text-gray-300" />
+                      <p className="text-xs font-semibold dark:text-gray-200">Email</p>
                     </button>
                     <button 
                       type="button"
                       onClick={handleCopy}
-                      className="p-4 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-center"
+                      className="p-4 border-2 border-gray-200 dark:border-gray-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-center"
                     >
-                      <Link2 className="w-6 h-6 mx-auto mb-2 text-gray-600" />
-                      <p className="text-xs font-semibold">Link</p>
+                      <Link2 className="w-6 h-6 mx-auto mb-2 text-gray-600 dark:text-gray-300" />
+                      <p className="text-xs font-semibold dark:text-gray-200">Link</p>
                     </button>
                     <button 
                       type="button"
                       onClick={handleShareSlack}
-                      className="p-4 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-center"
+                      className="p-4 border-2 border-gray-200 dark:border-gray-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-center"
                     >
-                      <Share2 className="w-6 h-6 mx-auto mb-2 text-gray-600" />
-                      <p className="text-xs font-semibold">Slack</p>
+                      <Share2 className="w-6 h-6 mx-auto mb-2 text-gray-600 dark:text-gray-300" />
+                      <p className="text-xs font-semibold dark:text-gray-200">Slack</p>
                     </button>
                     <button 
                       type="button"
                       onClick={handleCopy}
-                      className="p-4 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-center"
+                      className="p-4 border-2 border-gray-200 dark:border-gray-600 rounded-xl hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-center"
                     >
-                      <Globe className="w-6 h-6 mx-auto mb-2 text-gray-600" />
-                      <p className="text-xs font-semibold">Public</p>
+                      <Globe className="w-6 h-6 mx-auto mb-2 text-gray-600 dark:text-gray-300" />
+                      <p className="text-xs font-semibold dark:text-gray-200">Public</p>
                     </button>
                   </div>
                 </div>
 
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
                   <div className="flex items-start">
-                    <CheckCircle className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
-                    <div className="text-sm text-blue-900">
+                    <CheckCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-3 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-blue-900 dark:text-blue-200">
                       <p className="font-semibold mb-1">Course is Published</p>
                       <p>Learners can access this course immediately after enrolling.</p>
                     </div>

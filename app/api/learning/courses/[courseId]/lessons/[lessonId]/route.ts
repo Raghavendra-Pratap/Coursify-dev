@@ -60,18 +60,19 @@ export async function GET(
     .eq('lesson_id', lessonId)
     .order('order_index')
 
-  const items = (contentItems ?? []).map((ci) => ({ ...ci, videoSegments: [] as unknown[], readingMaterial: null as unknown, quiz: null as unknown }))
+  const items = (contentItems ?? []).map((ci) => ({ ...ci, videoSegments: [] as unknown[], readingMaterial: null as unknown, quiz: null as unknown, form: null as unknown }))
   const contentItemIds = items.map((c) => c.id).filter(Boolean)
 
   if (contentItemIds.length > 0) {
-    const [segmentsRes, readingRes, quizzesRes] = await Promise.all([
+    const [segmentsRes, readingRes, quizzesRes, formsRes] = await Promise.all([
       db.from('video_segments').select('id, content_item_id, name, duration_seconds, start_time_seconds, end_time_seconds, source, source_url, storage_path').in('content_item_id', contentItemIds).order('id'),
       db.from('reading_materials').select('*').in('content_item_id', contentItemIds),
       db.from('quizzes').select('*').in('content_item_id', contentItemIds),
+      db.from('forms').select('*').in('content_item_id', contentItemIds),
     ])
 
-    const byContentId: Record<string, { segments: unknown[]; reading: unknown; quiz: unknown }> = {}
-    for (const id of contentItemIds) byContentId[id] = { segments: [], reading: null, quiz: null }
+    const byContentId: Record<string, { segments: unknown[]; reading: unknown; quiz: unknown; form: unknown }> = {}
+    for (const id of contentItemIds) byContentId[id] = { segments: [], reading: null, quiz: null, form: null }
 
     for (const s of segmentsRes.data ?? []) {
       const cid = (s as { content_item_id: string }).content_item_id
@@ -85,6 +86,10 @@ export async function GET(
       const cid = (q as { content_item_id: string }).content_item_id
       if (byContentId[cid]) byContentId[cid].quiz = q
     }
+    for (const f of formsRes.data ?? []) {
+      const cid = (f as { content_item_id: string }).content_item_id
+      if (byContentId[cid]) byContentId[cid].form = f
+    }
 
     for (const it of items) {
       const extra = byContentId[it.id]
@@ -92,6 +97,7 @@ export async function GET(
         it.videoSegments = extra.segments
         it.readingMaterial = extra.reading
         it.quiz = extra.quiz
+        it.form = extra.form
       }
     }
   }
@@ -99,5 +105,6 @@ export async function GET(
   return NextResponse.json({
     lesson: { id: lesson.id, module_id: lesson.module_id, title: lesson.title, description: lesson.description, order_index: lesson.order_index },
     contentItems: items,
+    enrollmentId: (enrollment as { id: string } | null)?.id ?? null,
   })
 }

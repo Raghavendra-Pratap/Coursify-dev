@@ -60,6 +60,7 @@ export default function LearnCoursePage() {
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId])
 
   if (loading) {
