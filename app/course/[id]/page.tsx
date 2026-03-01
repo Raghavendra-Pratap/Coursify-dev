@@ -117,39 +117,41 @@ export default function CoursePage({ params }: { params: { id: string } }) {
                   </Link>
                 </div>
               ) : (
-              <button
-                type="button"
-                disabled={enrolling || (autoEnrolled === false && !enrollError)}
-                onClick={async () => {
-                  setEnrollError(null)
-                  setEnrolling(true)
-                  try {
-                    const res = await fetch(`/api/courses/${encodeURIComponent(id)}/enroll`, {
-                      method: 'POST',
-                      credentials: 'include',
-                    })
-                    const data = await res.json().catch(() => ({}))
-                    if (!res.ok) {
-                      setEnrollError(data?.error || 'Enrollment failed')
-                      return
+              <>
+                <button
+                  type="button"
+                  disabled={enrolling || (autoEnrolled === false && !enrollError)}
+                  onClick={async () => {
+                    setEnrollError(null)
+                    setEnrolling(true)
+                    try {
+                      const res = await fetch(`/api/courses/${encodeURIComponent(id)}/enroll`, {
+                        method: 'POST',
+                        credentials: 'include',
+                      })
+                      const data = await res.json().catch(() => ({}))
+                      if (!res.ok) {
+                        setEnrollError(data?.error || 'Enrollment failed')
+                        return
+                      }
+                      if (typeof window !== 'undefined') {
+                        window.localStorage.setItem('coursify_session_mode', 'learner')
+                      }
+                      window.location.href = '/'
+                    } catch {
+                      setEnrollError('Something went wrong.')
+                    } finally {
+                      setEnrolling(false)
                     }
-                    if (typeof window !== 'undefined') {
-                      window.localStorage.setItem('coursify_session_mode', 'learner')
-                    }
-                    window.location.href = '/'
-                  } catch {
-                    setEnrollError('Something went wrong.')
-                  } finally {
-                    setEnrolling(false)
-                  }
-                }}
-                className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-70"
-              >
-                {enrolling ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                {enrolling ? 'Enrolling…' : 'Enroll in this course'}
-                <ArrowRight className="w-4 h-4" />
-              </button>
-              {enrollError && <p className="mt-2 text-sm text-red-600">{enrollError}</p>}
+                  }}
+                  className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-70"
+                >
+                  {enrolling ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  {enrolling ? 'Enrolling…' : 'Enroll in this course'}
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+                {enrollError && <p className="mt-2 text-sm text-red-600">{enrollError}</p>}
+              </>
               )}
             </>
           ) : (
