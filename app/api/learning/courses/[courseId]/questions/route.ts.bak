@@ -1,0 +1,57 @@
+import { createServerClient } from '@supabase/ssr';
+import { createServerClient as createServiceClient } from '@/lib/supabase';
+import { NextResponse } from 'next/server';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+function createAuthClient(request: Request) {
+  return createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      get(name: string) {
+        return request.headers.get('cookie')?.split(';').find((c) => c.trim().startsWith(name + '='))?.split('=')[1] ?? undefined;
+      },
+      set() {},
+      remove() {},
+    },
+  });
+}
+
+export async function GET(request: Request, { params }: { params: Promise<{ courseId: string }> }) {
+  const { courseId } = await params;
+  const { searchParams } = new URL(request.url);
+  const lessonId = searchParams.get('lessonId') ?? undefined;
+  const moduleId = searchParams.get('moduleId') ?? undefined;
+  const supabaseAuth = createAuthClient(request);
+  const { data: { user } } = await supabaseAuth.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const db = createServiceClient();
+  const { data: isCreatorOrCollab } = await db.rpc('is_course_owner_or_collaborator', { cid: courseId });
+  const canAnswer = !!isCreatorOrCollab;
+  const { data: enrollment } = await db.from('enrollments').select('id').eq('course_id', courseId).eq('user_id', user.id).maybeSingle();
+  if (!enrollment && !canAnswer) return NextResponse.json({ error: 'You must be enrolled to view questions' }, { status: 403 });
+  let query = db.from('course_questions').select('id, course_id, module_id, lesson_id, asked_by, question_text, answer_text, answered_by, answered_at, created_at').eq('course_id', courseId).order('created_at', { ascending: false });
+  if (lessonId) query = query.eq('lesson_id', lessonId);
+  if (moduleId) query = query.eq('module_id', moduleId);
+  const { data: questions, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ questions: questions ?? [], canAnswer });
+}
+
+export async function POST(request: Request, { params }: { params: Promise<{ courseId: string }> }) {
+  const { courseId } = await params;
+  const supabaseAuth = createAuthClient(request);
+  const { data: { user } } = await supabaseAuth.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const body = await request.json().catch(() => ({}));
+  const questionText = typeof body.question_text === 'string' ? body.question_text.trim() : '';
+  const lessonId = typeof body.lesson_id === 'string' && body.lesson_id ? body.lesson_id : null;
+  const moduleId = typeof body.module_id === 'string' && body.module_id ? body.module_id : null;
+  if (!questionText) return NextResponse.json({ error: 'question_text is required' }, { status: 400 });
+  const db = createServiceClient();
+  const { data: enrollment } = await db.from('enrollments').select('id').eq('course_id', courseId).eq('user_id', user.id).maybeSingle();
+  if (!enrollment) return NextResponse.json({ error: 'You must be enrolled to ask questions' }, { status: 403 });
+  const { data: question, error } = await db.from('course_questions').insert({ course_id: courseId, module_id: moduleId, lesson_id: lessonId, asked_by: user.id, question_text: questionText }).select('id, course_id, module_id, lesson_id, asked_by, question_text, answer_text, answered_by, answered_at, created_at').single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ question });
+}

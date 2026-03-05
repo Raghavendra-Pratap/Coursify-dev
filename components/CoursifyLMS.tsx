@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { Play, Upload, Edit, Users, BarChart3, Settings, Plus, Check, X, Clock, FileText, Video, Folder, ChevronRight, Menu, Search, Bell, Award, TrendingUp, Home, BookOpen, Zap, Eye, Share2, Download, Target, Mail, User, LogOut } from 'lucide-react';
+import { Play, Upload, Edit, Users, BarChart3, Settings, Plus, Check, X, Clock, FileText, Video, Folder, ChevronRight, Menu, Search, Bell, Award, TrendingUp, Home, BookOpen, Zap, Eye, Share2, Download, Target, Mail, User, LogOut, StickyNote, HelpCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import Dashboard from './pages/Dashboard';
@@ -25,6 +25,9 @@ const Learners = dynamic(() => import('./pages/Learners'), { loading: pageLoadin
 const Analytics = dynamic(() => import('./pages/Analytics'), { loading: pageLoading, ssr: false });
 const Reports = dynamic(() => import('./pages/Reports'), { loading: pageLoading, ssr: false });
 const TakeCourse = dynamic(() => import('./pages/TakeCourse'), { loading: pageLoading, ssr: false });
+const MyNotes = dynamic(() => import('./pages/MyNotes'), { loading: pageLoading, ssr: false });
+const QAndA = dynamic(() => import('./pages/QAndA'), { loading: pageLoading, ssr: false });
+const Notifications = dynamic(() => import('./pages/Notifications'), { loading: pageLoading, ssr: false });
 
 type UserDisplay = { displayName: string; email?: string; initials: string; role?: string };
 
@@ -43,9 +46,13 @@ const CoursifyLMS = () => {
   const [isRedirectingToGoogle, setIsRedirectingToGoogle] = useState(false);
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
   const [learningCourseId, setLearningCourseId] = useState<string | null>(null);
+  const [learningLessonId, setLearningLessonId] = useState<string | null>(null);
   const authChecked = !authLoading;
   /** Only restore dashboard/courses view on initial load or login; don't overwrite when user ref changes (e.g. tab focus token refresh) */
   const sessionViewRestoredRef = useRef(false);
+  /** Ref to current view so the auth effect can avoid overwriting Take Course / Create Course when it re-runs (learner + instructor) */
+  const currentViewRef = useRef(currentView);
+  currentViewRef.current = currentView;
 
   // Apply saved theme (dark/light) on load. Default is dark; users can switch to light in Settings.
   useEffect(() => {
@@ -97,11 +104,12 @@ const CoursifyLMS = () => {
       }
     });
     const maybeRestoreView = (mode: SessionMode) => {
-      if (!sessionViewRestoredRef.current) {
-        sessionViewRestoredRef.current = true;
-        if (mode === 'learner') setCurrentView('courses');
-        else if (mode === 'instructor') setCurrentView('dashboard');
-      }
+      if (sessionViewRestoredRef.current) return;
+      const view = currentViewRef.current;
+      if (view !== 'dashboard' && view !== 'courses') return;
+      sessionViewRestoredRef.current = true;
+      if (mode === 'learner') setCurrentView('courses');
+      else if (mode === 'instructor') setCurrentView('dashboard');
     };
     supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('user_id', user.id).then(({ count }) => {
       const n = count ?? 0;
@@ -303,7 +311,12 @@ const CoursifyLMS = () => {
         ) : (
           <nav className="flex-1 min-h-0 p-4 space-y-2 overflow-y-auto">
             {sessionMode === 'learner' ? (
-              <NavItem icon={BookOpen} label="My learning" view="courses" />
+              <>
+                <NavItem icon={BookOpen} label="My learning" view="courses" />
+                <NavItem icon={StickyNote} label="My Notes" view="notes" />
+                <NavItem icon={HelpCircle} label="Q & A" view="qa" />
+                <NavItem icon={Bell} label="Notifications" view="notifications" />
+              </>
             ) : (
               <>
                 <NavItem icon={Home} label="Dashboard" view="dashboard" />
@@ -311,6 +324,8 @@ const CoursifyLMS = () => {
                 <NavItem icon={Users} label="Learners" view="learners" />
                 <NavItem icon={BarChart3} label="Analytics" view="analytics" />
                 <NavItem icon={FileText} label="Reports" view="reports" />
+                <NavItem icon={HelpCircle} label="Q & A" view="qa" />
+                <NavItem icon={Bell} label="Notifications" view="notifications" />
               </>
             )}
           </nav>
@@ -463,9 +478,12 @@ const CoursifyLMS = () => {
   return (
     <AppLayout>
       {currentView === 'dashboard' && (Dashboard != null ? <Dashboard sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} setCurrentView={setCurrentView} /> : fallback)}
-      {currentView === 'courses' && (MyCourses != null ? <MyCourses setCurrentView={setCurrentView} onEditCourse={(id) => { setEditingCourseId(id); setCurrentView('create'); }} onStartCourse={(id) => { setLearningCourseId(id); setCurrentView('take'); }} sessionMode={sessionMode} learningCourseId={learningCourseId} /> : fallback)}
+      {currentView === 'courses' && (MyCourses != null ? <MyCourses setCurrentView={setCurrentView} onEditCourse={(id) => { setEditingCourseId(id); setCurrentView('create'); }} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} sessionMode={sessionMode} learningCourseId={learningCourseId} /> : fallback)}
       {currentView === 'create' && (CreateCourse != null ? <CreateCourse setCurrentView={setCurrentView} initialCourseId={editingCourseId} onBackToCourses={() => { setEditingCourseId(null); setCurrentView('courses'); }} /> : fallback)}
-      {currentView === 'take' && learningCourseId && (TakeCourse != null ? <TakeCourse courseId={learningCourseId} onBack={() => { setLearningCourseId(null); setCurrentView('courses'); }} sidebarOpen={sidebarOpen} /> : fallback)}
+      {currentView === 'take' && learningCourseId && (TakeCourse != null ? <TakeCourse courseId={learningCourseId} onBack={() => { setLearningCourseId(null); setLearningLessonId(null); setCurrentView('courses'); }} sidebarOpen={sidebarOpen} initialLessonId={learningLessonId} /> : fallback)}
+      {currentView === 'notes' && (MyNotes != null ? <MyNotes setCurrentView={setCurrentView} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} onOpenLesson={(courseId, lessonId) => { setLearningCourseId(courseId); setLearningLessonId(lessonId); setCurrentView('take'); }} /> : fallback)}
+      {currentView === 'qa' && (QAndA != null ? <QAndA setCurrentView={setCurrentView} sessionMode={sessionMode} onStartCourse={(id) => { setLearningCourseId(id); setCurrentView('take'); }} /> : fallback)}
+      {currentView === 'notifications' && (Notifications != null ? <Notifications setCurrentView={setCurrentView} onOpenCourse={(id) => { setLearningCourseId(id); setCurrentView('take'); }} /> : fallback)}
       {currentView === 'learners' && (Learners != null ? <Learners setCurrentView={setCurrentView} /> : fallback)}
       {currentView === 'analytics' && (Analytics != null ? <Analytics /> : fallback)}
       {currentView === 'reports' && (Reports != null ? <Reports /> : fallback)}

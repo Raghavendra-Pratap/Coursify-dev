@@ -81,6 +81,13 @@ type EnrolledCourse = {
   title: string;
   progress_percentage: number;
   completed_at: string | null;
+  module_count?: number;
+  duration_seconds?: number;
+  updated_at?: string | null;
+  avg_rating?: number;
+  total_ratings?: number;
+  my_rating?: number | null;
+  my_review?: string | null;
 };
 
 const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onStartCourse, sessionMode = 'instructor', learningCourseId = null }) => {
@@ -118,6 +125,11 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
   const [learnerFilter, setLearnerFilter] = useState<'all' | 'enrolled' | 'in_progress' | 'completed'>('all');
   const [learnerSearch, setLearnerSearch] = useState('');
   const [learnerSort, setLearnerSort] = useState<'recent' | 'name' | 'progress'>('recent');
+  const [rateModalCourse, setRateModalCourse] = useState<EnrolledCourse | null>(null);
+  const [rateModalRating, setRateModalRating] = useState(0);
+  const [rateModalReview, setRateModalReview] = useState('');
+  const [rateSubmitting, setRateSubmitting] = useState(false);
+  const [rateError, setRateError] = useState<string | null>(null);
   const [totalUniqueLearners, setTotalUniqueLearners] = useState<number | null>(null);
   const [userRole, setUserRole] = useState<'learner' | 'instructor' | 'admin' | null>(null);
 
@@ -592,6 +604,40 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
 
   const filteredEnrolled = getFilteredEnrolled();
 
+  const openRateModal = (c: EnrolledCourse) => {
+    setRateModalCourse(c);
+    setRateModalRating(c.my_rating ?? 0);
+    setRateModalReview(c.my_review ?? '');
+    setRateError(null);
+  };
+
+  const submitRate = async () => {
+    if (!rateModalCourse || rateModalRating < 1 || rateModalRating > 5) return;
+    setRateSubmitting(true);
+    setRateError(null);
+    try {
+      const res = await fetch(`/api/learning/courses/${rateModalCourse.course_id}/rating`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating: rateModalRating, review: rateModalReview.trim() || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setRateError(data?.error ?? 'Failed to submit rating');
+        return;
+      }
+      setRateModalCourse(null);
+      fetch('/api/learning/enrolled', { credentials: 'include', cache: 'no-store' })
+        .then((res) => res.json().catch(() => ({ courses: [] })))
+        .then((data) => setEnrolledCourses(Array.isArray(data.courses) ? data.courses : []));
+    } catch {
+      setRateError('Failed to submit rating');
+    } finally {
+      setRateSubmitting(false);
+    }
+  };
+
   if (isLearnerView) {
     return (
       <div>
@@ -698,23 +744,51 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
               </p>
             </div>
           ) : viewMode === 'grid' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {filteredEnrolled.map((c) => {
                 const stage = getEnrollmentStage(c);
+                const modules = c.module_count ?? 0;
+                const durationStr = formatCourseDuration(c.duration_seconds ?? 0);
+                const avgRating = c.avg_rating;
+                const totalRatings = c.total_ratings ?? 0;
+                const myRating = c.my_rating;
+                const lastUpdated = c.updated_at ? formatCourseDate(c.updated_at) : null;
                 return (
                   <div key={c.id} className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-xl transition-all group">
-                    <div className="bg-gradient-to-br from-blue-400 to-blue-600 h-48 flex items-center justify-center relative">
-                      <Video className="w-20 h-20 text-white opacity-80" />
+                    <div className="bg-gradient-to-br from-blue-400 to-blue-600 h-36 flex items-center justify-center relative">
+                      <Video className="w-16 h-16 text-white opacity-80" />
                       <span className={`absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-semibold ${
                         stage === 'completed' ? 'bg-green-500 text-white' : stage === 'in_progress' ? 'bg-amber-500 text-white' : 'bg-blue-500 text-white'
                       }`}>
                         {getStageLabel(stage)}
                       </span>
                     </div>
-                    <div className="p-6">
-                      <h3 className="font-bold text-lg mb-2 line-clamp-1 text-gray-900 dark:text-white">{c.title}</h3>
+                    <div className="p-5">
+                      <h3 className="font-bold text-lg mb-3 line-clamp-1 text-gray-900 dark:text-white">{c.title}</h3>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-4">
+                        <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                          <BookOpen className="w-4 h-4 mr-2 flex-shrink-0" />
+                          <span>{modules} module{modules !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                          <Clock className="w-4 h-4 mr-2 flex-shrink-0" />
+                          <span>{durationStr}</span>
+                        </div>
+                        <div className="flex items-center text-sm">
+                          <Star className={`w-4 h-4 mr-1 flex-shrink-0 ${(avgRating ?? 0) > 0 ? 'text-yellow-500 fill-yellow-500' : 'text-gray-300 dark:text-gray-500'}`} />
+                          <span className="font-semibold text-gray-900 dark:text-white">{avgRating != null && avgRating > 0 ? avgRating.toFixed(1) : 'N/A'}</span>
+                          {totalRatings > 0 && <span className="text-gray-500 dark:text-gray-400 ml-1 text-xs">({totalRatings})</span>}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openRateModal(c)}
+                          className="flex items-center text-sm text-blue-600 dark:text-blue-400 hover:underline justify-start"
+                        >
+                          {myRating != null ? 'Update rating' : 'Rate course'}
+                        </button>
+                      </div>
                       <div className="mb-4">
-                        <div className="flex justify-between text-sm mb-2">
+                        <div className="flex justify-between text-sm mb-1">
                           <span className="text-gray-600 dark:text-gray-400">My progress</span>
                           <span className="font-semibold text-gray-900 dark:text-white">{c.progress_percentage ?? 0}%</span>
                         </div>
@@ -729,11 +803,17 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                       </div>
                       <button
                         onClick={() => onStartCourse?.(c.course_id)}
-                        className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center justify-center gap-2 transition-all"
+                        className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center justify-center gap-2 transition-all"
                       >
                         {getStageButtonLabel(stage)}
                         <Play className="w-4 h-4" />
                       </button>
+                      {lastUpdated && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">Updated {lastUpdated}</p>
+                      )}
+                      {c.my_review && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">Your review: {c.my_review}</p>
+                      )}
                     </div>
                   </div>
                 );
@@ -746,7 +826,11 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                   <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                     <tr>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Course</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Modules</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Duration</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Rating</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Progress</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Updated</th>
                       <th className="px-6 py-4 text-right text-sm font-semibold text-gray-900 dark:text-white">Action</th>
                     </tr>
                   </thead>
@@ -756,6 +840,14 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                         <td className="px-6 py-4">
                           <span className="font-medium text-gray-900 dark:text-white">{c.title}</span>
                         </td>
+                        <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{c.module_count ?? 0}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{formatCourseDuration(c.duration_seconds ?? 0)}</td>
+                        <td className="px-6 py-4">
+                          <button type="button" onClick={() => openRateModal(c)} className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline">
+                            <Star className={`w-4 h-4 ${(c.avg_rating ?? 0) > 0 ? 'text-yellow-500 fill-yellow-500' : ''}`} />
+                            {(c.avg_rating ?? 0) > 0 ? c.avg_rating!.toFixed(1) : 'Rate'}
+                          </button>
+                        </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
                             <div className="w-24 h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
@@ -764,11 +856,17 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                             <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{c.progress_percentage ?? 0}%</span>
                           </div>
                         </td>
+                        <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{c.updated_at ? formatCourseDate(c.updated_at) : '—'}</td>
                         <td className="px-6 py-4 text-right">
-                          <button onClick={() => onStartCourse?.(c.course_id)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center gap-2 ml-auto">
-                            {getStageButtonLabel(getEnrollmentStage(c))}
-                            <Play className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => openRateModal(c)} className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700" title="Rate & review">
+                              <Star className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => onStartCourse?.(c.course_id)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center gap-2">
+                              {getStageButtonLabel(getEnrollmentStage(c))}
+                              <Play className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -778,6 +876,47 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
             </div>
           )}
         </div>
+
+        {/* Rate & review modal */}
+        {rateModalCourse && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => !rateSubmitting && setRateModalCourse(null)}>
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Rate this course</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 line-clamp-1">{rateModalCourse.title}</p>
+              <div className="flex gap-1 mb-4">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setRateModalRating(star)}
+                    className="p-1 rounded hover:opacity-80 transition-opacity"
+                    aria-label={`${star} star${star !== 1 ? 's' : ''}`}
+                  >
+                    <Star className={`w-8 h-8 ${rateModalRating >= star ? 'text-yellow-500 fill-yellow-500' : 'text-gray-300 dark:text-gray-500'}`} />
+                  </button>
+                ))}
+              </div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Review (optional)</label>
+              <textarea
+                value={rateModalReview}
+                onChange={(e) => setRateModalReview(e.target.value)}
+                placeholder="Share your experience…"
+                rows={3}
+                maxLength={2000}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 text-sm resize-none mb-4"
+              />
+              {rateError && <p className="text-sm text-red-600 dark:text-red-400 mb-2">{rateError}</p>}
+              <div className="flex gap-2 justify-end">
+                <button type="button" onClick={() => !rateSubmitting && setRateModalCourse(null)} className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+                  Cancel
+                </button>
+                <button type="button" onClick={submitRate} disabled={rateSubmitting || rateModalRating < 1} className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 font-medium">
+                  {rateSubmitting ? 'Saving…' : 'Submit'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

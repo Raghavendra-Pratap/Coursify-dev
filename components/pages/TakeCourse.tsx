@@ -20,9 +20,14 @@ import {
   Sun,
   Maximize,
   Minimize,
+  StickyNote,
+  GripVertical,
+  Send,
+  X,
 } from 'lucide-react';
 import { LessonVideoPlayer, type VideoSegment } from '../LessonVideoPlayer';
 import { ReadingContentRenderer } from '@/components/ReadingContentRenderer';
+import { useAuth } from '@/contexts/AuthContext';
 
 type Lesson = { id: string; title: string; description?: string | null; order_index: number };
 type Module = { id: string; title: string; order_index: number; lessons: Lesson[] };
@@ -46,7 +51,15 @@ interface TakeCourseProps {
   courseId: string;
   onBack: () => void;
   sidebarOpen?: boolean;
+  /** When provided, open directly to this lesson after course loads. */
+  initialLessonId?: string | null;
 }
+
+const NOTES_STORAGE_PREFIX = 'coursify_note_';
+const NOTES_MANIFEST_KEY = 'coursify_notes_manifest';
+const DEFAULT_NOTES_WIDTH = 320;
+const MIN_NOTES_WIDTH = 200;
+const MAX_NOTES_WIDTH = 600;
 
 /** Convert document/form URLs to embed-friendly format (Google Docs /preview, Google Forms embedded, etc.) */
 function getEmbedUrl(url: string): string {
@@ -131,7 +144,15 @@ function QuizEmbedWithWebhookToken({
   );
 }
 
-export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: TakeCourseProps) {
+function noteStorageKey(userId: string | null, courseId: string, lessonId: string): string | null {
+  if (!userId) return null;
+  return `${NOTES_STORAGE_PREFIX}${userId}_${courseId}_${lessonId}`;
+}
+
+export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initialLessonId = null }: TakeCourseProps) {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+
   const [course, setCourse] = useState<{ id: string; title: string; description?: string | null } | null>(null);
   const [modules, setModules] = useState<Module[]>([]);
   const [completedLessonIds, setCompletedLessonIds] = useState<Set<string>>(new Set());
@@ -154,6 +175,19 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
   const docViewerRef = useRef<HTMLDivElement>(null);
   const [currentVideoProgress, setCurrentVideoProgress] = useState(0);
   const [currentVideoDurationSec, setCurrentVideoDurationSec] = useState(0);
+
+  const [notesOpen, setNotesOpen] = useState(true);
+  const [notesWidth, setNotesWidth] = useState(DEFAULT_NOTES_WIDTH);
+  const [noteContent, setNoteContent] = useState('');
+  const [resizingNotes, setResizingNotes] = useState(false);
+  const noteSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [questionsPanelOpen, setQuestionsPanelOpen] = useState(false);
+  const [questions, setQuestions] = useState<{ id: string; question_text: string; answer_text: string | null; answered_at: string | null; created_at: string }[]>([]);
+  const [questionsLoading, setQuestionsLoading] = useState(false);
+  const [questionInput, setQuestionInput] = useState('');
+  const [questionSubmitting, setQuestionSubmitting] = useState(false);
+  const [questionError, setQuestionError] = useState<string | null>(null);
 
   useEffect(() => {
     setSidebarPortalTarget(document.getElementById('take-course-sidebar-content'));
@@ -201,12 +235,20 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
     loadCourse();
   }, [loadCourse]);
 
-  // Auto-select first lesson when course loads and none is selected
+  // Auto-select first lesson when course loads and none is selected; or open to initialLessonId when provided
   useEffect(() => {
-    if (loading || selectedLessonId || modules.length === 0) return;
+    if (loading || modules.length === 0) return;
+    if (initialLessonId) {
+      const exists = modules.some((m) => m.lessons?.some((l: { id: string }) => l.id === initialLessonId));
+      if (exists) {
+        setSelectedLessonId(initialLessonId);
+        return;
+      }
+    }
+    if (selectedLessonId) return;
     const firstLesson = modules[0]?.lessons?.[0];
     if (firstLesson?.id) setSelectedLessonId(firstLesson.id);
-  }, [loading, modules, selectedLessonId]);
+  }, [loading, modules, selectedLessonId, initialLessonId]);
 
   useEffect(() => {
     if (!selectedLessonId) {
@@ -244,11 +286,167 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
     setCurrentStepIndex(0);
   }, [selectedLessonId, lessonContent?.contentItems?.length]);
 
+  // Load note for current lesson from localStorage
+  useEffect(() => {
+    if (!userId || !courseId || !selectedLessonId) {
+      setNoteContent('');
+      return;
+    }
+    const key = noteStorageKey(userId, courseId, selectedLessonId);
+    if (!key) return;
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+      setNoteContent(raw ?? '');
+    } catch {
+      setNoteContent('');
+    }
+  }, [userId, courseId, selectedLessonId]);
+
+  // Debounced save of note + update manifest (so My Notes can list all notes; titles stored so notes survive course delete; module ref for notebook)
+  const flushNoteSave = useCallback((
+    uid: string | null,
+    cid: string,
+    lid: string,
+    ctitle: string,
+    ltitle: string,
+    content: string,
+    moduleId?: string | null,
+    moduleTitle?: string | null
+  ) => {
+    if (!uid) return;
+    const key = noteStorageKey(uid, cid, lid);
+    if (!key || typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(key, content);
+      const manifestKey = `${NOTES_MANIFEST_KEY}_${uid}`;
+      const raw = localStorage.getItem(manifestKey);
+      const entries: { courseId: string; courseTitle: string; lessonId: string; lessonTitle: string; moduleId?: string; moduleTitle?: string; updatedAt: number }[] = raw ? JSON.parse(raw) : [];
+      const rest = entries.filter((e) => !(e.courseId === cid && e.lessonId === lid));
+      rest.push({
+        courseId: cid,
+        courseTitle: ctitle,
+        lessonId: lid,
+        lessonTitle: ltitle,
+        ...(moduleId != null && { moduleId: String(moduleId) }),
+        ...(moduleTitle != null && moduleTitle !== '' && { moduleTitle: String(moduleTitle) }),
+        updatedAt: Date.now(),
+      });
+      rest.sort((a, b) => b.updatedAt - a.updatedAt);
+      localStorage.setItem(manifestKey, JSON.stringify(rest));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!userId || !courseId || !selectedLessonId || !course?.title) return;
+    const key = noteStorageKey(userId, courseId, selectedLessonId);
+    if (!key) return;
+    const lessonTitle = lessonContent?.lesson?.title ?? 'Lesson';
+    const content = noteContent;
+    const currentModule = modules.find((m) => m.lessons?.some((l: { id: string }) => l.id === selectedLessonId));
+    const moduleId = currentModule?.id ?? null;
+    const moduleTitle = currentModule?.title ?? null;
+
+    if (noteSaveTimeoutRef.current) clearTimeout(noteSaveTimeoutRef.current);
+    noteSaveTimeoutRef.current = setTimeout(() => {
+      noteSaveTimeoutRef.current = null;
+      flushNoteSave(userId, courseId, selectedLessonId, course.title, lessonTitle, content, moduleId, moduleTitle);
+    }, 500);
+    return () => {
+      if (noteSaveTimeoutRef.current) {
+        clearTimeout(noteSaveTimeoutRef.current);
+        noteSaveTimeoutRef.current = null;
+        // Flush pending save when switching lesson so we don't lose the previous lesson's note
+        flushNoteSave(userId, courseId, selectedLessonId, course.title, lessonTitle, content, moduleId, moduleTitle);
+      }
+    };
+  }, [userId, courseId, selectedLessonId, course?.title, lessonContent?.lesson?.title, noteContent, modules, flushNoteSave]);
+
+  // Resize notes panel: global mouse move/up when resizing
+  useEffect(() => {
+    if (!resizingNotes) return;
+    const onMove = (e: MouseEvent) => {
+      const container = document.querySelector('[data-take-course-layout]');
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const x = rect.right - e.clientX;
+      const w = Math.round(Math.min(MAX_NOTES_WIDTH, Math.max(MIN_NOTES_WIDTH, x)));
+      setNotesWidth(w);
+    };
+    const onUp = () => setResizingNotes(false);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [resizingNotes]);
+
   // Reset progress display when switching to a different step so the bar doesn't show stale 100%
   useEffect(() => {
     setCurrentVideoProgress(0);
     setCurrentVideoDurationSec(0);
   }, [currentStepIndex]);
+
+  // Fetch questions for current lesson when questions panel is open
+  useEffect(() => {
+    if (!questionsPanelOpen || !courseId || !selectedLessonId) {
+      setQuestions([]);
+      return;
+    }
+    let cancelled = false;
+    setQuestionsLoading(true);
+    setQuestionError(null);
+    fetch(`/api/learning/courses/${courseId}/questions?lessonId=${encodeURIComponent(selectedLessonId)}`, { credentials: 'include', cache: 'no-store' })
+      .then((res) => {
+        if (cancelled) return;
+        if (!res.ok) throw new Error(res.status === 401 ? 'Sign in to view questions' : res.status === 403 ? 'Enrolled learners only' : 'Failed to load questions');
+        return res.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setQuestions(Array.isArray(data.questions) ? data.questions : []);
+      })
+      .catch((err) => {
+        if (!cancelled) setQuestionError(err instanceof Error ? err.message : 'Failed to load questions');
+        if (!cancelled) setQuestions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setQuestionsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [questionsPanelOpen, courseId, selectedLessonId]);
+
+  const submitQuestion = useCallback(async () => {
+    const text = questionInput.trim();
+    if (!text || !courseId || !selectedLessonId) return;
+    setQuestionSubmitting(true);
+    setQuestionError(null);
+    try {
+      const res = await fetch(`/api/learning/courses/${courseId}/questions`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question_text: text, lesson_id: selectedLessonId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setQuestionError(data?.error ?? (res.status === 401 ? 'Sign in to ask a question' : 'Failed to submit'));
+        return;
+      }
+      setQuestionInput('');
+      setQuestions((prev) => (data.question ? [data.question, ...prev] : prev));
+    } catch {
+      setQuestionError('Failed to submit question');
+    } finally {
+      setQuestionSubmitting(false);
+    }
+  }, [courseId, selectedLessonId, questionInput]);
 
   const totalLessons = useMemo(
     () => modules.reduce((acc, m) => acc + (m.lessons?.length ?? 0), 0),
@@ -484,8 +682,8 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 flex w-full mx-auto px-4 sm:px-6 py-4 overflow-hidden">
-          {/* Lesson area: fits within screen; optional notes panel can be added on the right later */}
+        <div data-take-course-layout className="flex-1 min-h-0 flex w-full mx-auto px-4 sm:px-6 py-4 overflow-hidden">
+          {/* Lesson area */}
           <main className="flex-1 min-h-0 min-w-0 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
           {contentLoading ? (
             <div className="flex-1 flex items-center justify-center p-8 text-gray-500 dark:text-gray-400">
@@ -494,10 +692,23 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
           ) : lessonContent ? (
             <>
               <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">{lessonContent.lesson?.title ?? 'Lesson'}</h2>
-                {lessonContent.lesson?.description && (
-                  <p className="text-gray-600 dark:text-gray-400 mt-1 text-sm">{lessonContent.lesson.description}</p>
-                )}
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">{lessonContent.lesson?.title ?? 'Lesson'}</h2>
+                    {lessonContent.lesson?.description && (
+                      <p className="text-gray-600 dark:text-gray-400 mt-1 text-sm">{lessonContent.lesson.description}</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setQuestionsPanelOpen(true)}
+                    className="flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-500 dark:border-blue-400 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors text-sm font-medium"
+                    aria-label="Ask a question"
+                  >
+                    <HelpCircle className="w-4 h-4" />
+                    Ask a question
+                  </button>
+                </div>
               </div>
 
               <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-6 flex flex-col">
@@ -545,6 +756,15 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
                   const totalSteps = steps.length;
                   const step = steps[currentStepIndex];
                   const isLastStep = currentStepIndex >= totalSteps - 1;
+                  const totalLessonDurationSec = steps.reduce((acc, s) => {
+                    if (s.type !== 'video') return acc;
+                    const seg = s.segment;
+                    const start = seg.start_time_seconds ?? 0;
+                    const end = seg.end_time_seconds ?? undefined;
+                    const dur = seg.duration_seconds;
+                    const segmentSec = end != null && end > start ? end - start : (dur != null ? dur : 0);
+                    return acc + Math.max(0, segmentSec);
+                  }, 0);
 
                   return (
                     <div className="flex flex-col gap-4 flex-1 min-h-0">
@@ -559,12 +779,9 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
                       <div className="rounded-xl overflow-hidden bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex-1 min-h-0 flex flex-col shadow-sm">
                         {!step ? null : step.type === 'video' ? (
                           <div className="flex flex-col flex-1 min-h-0">
-                            {/* Dark video area: 16:9 player with center play/pause (handled in LessonVideoPlayer) */}
-                            <div className="flex-1 min-h-0 flex items-center justify-center p-4 overflow-hidden bg-gray-900 dark:bg-black">
-                              <div
-                                className="aspect-video max-w-full rounded-lg overflow-hidden bg-black shrink-0 select-none"
-                                style={{ width: 'min(64rem, min(100%, (100vh - 18rem) * 16 / 9))', maxHeight: 'calc(100vh - 18rem)' }}
-                              >
+                            {/* Dark video area: 16:9 player fills available width and scales with window */}
+                            <div className="flex-1 min-h-0 flex items-center justify-center p-2 sm:p-4 overflow-hidden bg-gray-900 dark:bg-black">
+                              <div className="aspect-video w-full max-w-full rounded-lg overflow-hidden bg-black shrink-0 select-none max-h-[calc(100vh-12rem)]">
                                 <LessonVideoPlayer
                                   segment={step.segment}
                                   onSegmentComplete={() => {
@@ -579,15 +796,15 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
                                 />
                               </div>
                             </div>
-                            {/* Bottom bar: title left, duration right (like reference layout) */}
+                            {/* Bottom bar: title left, total lesson duration right */}
                             <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 bg-gray-900 dark:bg-gray-950 border-t border-gray-700">
                               <span className="text-sm font-medium text-white">
                                 {step.segment.name}
                               </span>
                               <span className="text-sm text-white/90 tabular-nums">
-                                {currentVideoDurationSec >= 60
-                                  ? `${Math.ceil(currentVideoDurationSec / 60)} min`
-                                  : `${Math.round(currentVideoDurationSec)} sec`}
+                                {totalLessonDurationSec >= 60
+                                  ? `${Math.ceil(totalLessonDurationSec / 60)} min`
+                                  : `${Math.round(totalLessonDurationSec)} sec`}
                               </span>
                             </div>
                             {/* Segmented progress bar: blue (completed/current), white (remaining), grey (upcoming) with gaps */}
@@ -875,6 +1092,154 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
             </div>
           )}
         </main>
+
+        {/* Resizable Notes sidebar */}
+        {notesOpen ? (
+          <>
+            <div
+              role="separator"
+              aria-label="Resize notes panel"
+              onMouseDown={(e) => { e.preventDefault(); setResizingNotes(true); }}
+              className="flex-shrink-0 w-1 cursor-col-resize hover:bg-blue-400 dark:hover:bg-blue-600 transition-colors rounded mx-0.5 self-stretch flex items-center justify-center group"
+            >
+              <div className="w-0.5 h-8 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-blue-500 dark:group-hover:bg-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <aside
+              className="flex-shrink-0 flex flex-col rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden"
+              style={{ width: notesWidth }}
+            >
+              <div className="flex items-center justify-between flex-shrink-0 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
+                  <StickyNote className="w-4 h-4 text-amber-500" />
+                  Notes
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setNotesOpen(false)}
+                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                  aria-label="Close notes"
+                >
+                  <ChevronRight className="w-4 h-4 rotate-180" />
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-hidden flex flex-col p-2">
+                {userId ? (
+                  <textarea
+                    value={noteContent}
+                    onChange={(e) => setNoteContent(e.target.value)}
+                    placeholder="Your notes for this lesson…"
+                    className="w-full h-full min-h-[8rem] p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 text-sm"
+                  />
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 p-3">Sign in to save notes.</p>
+                )}
+              </div>
+            </aside>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setNotesOpen(true)}
+            className="flex-shrink-0 flex flex-col items-center justify-center w-9 rounded-r-lg border border-l-0 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 py-2"
+            title="Open notes"
+            aria-label="Open notes"
+          >
+            <StickyNote className="w-5 h-5" />
+            <span className="text-[10px] font-medium mt-0.5">Notes</span>
+          </button>
+        )}
+
+        {/* Questions panel overlay */}
+        {questionsPanelOpen && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/40 z-40"
+              aria-hidden
+              onClick={() => setQuestionsPanelOpen(false)}
+            />
+            <div
+              className="fixed top-0 right-0 bottom-0 w-full max-w-md bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 shadow-xl z-50 flex flex-col"
+              role="dialog"
+              aria-label="Questions for this lesson"
+            >
+              <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <HelpCircle className="w-5 h-5 text-blue-500" />
+                  Questions
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setQuestionsPanelOpen(false)}
+                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Ask the course creator or a collaborator. Your question is tied to this lesson.
+                </p>
+                <div>
+                  <label htmlFor="take-course-question-input" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Your question or concern
+                  </label>
+                  <textarea
+                    id="take-course-question-input"
+                    value={questionInput}
+                    onChange={(e) => setQuestionInput(e.target.value)}
+                    placeholder="Type your question…"
+                    rows={3}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm resize-none"
+                    disabled={questionSubmitting}
+                  />
+                  <button
+                    type="button"
+                    onClick={submitQuestion}
+                    disabled={questionSubmitting || !questionInput.trim()}
+                    className="mt-2 flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    <Send className="w-4 h-4" />
+                    {questionSubmitting ? 'Sending…' : 'Send question'}
+                  </button>
+                </div>
+                {questionError && (
+                  <p className="text-sm text-red-600 dark:text-red-400 flex items-center gap-1">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    {questionError}
+                  </p>
+                )}
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                  <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Questions for this lesson</h4>
+                  {questionsLoading ? (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+                  ) : questions.length === 0 ? (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">No questions yet. Ask the first one above.</p>
+                  ) : (
+                    <ul className="space-y-3">
+                      {questions.map((q) => (
+                        <li key={q.id} className="rounded-lg border border-gray-200 dark:border-gray-600 p-3 bg-gray-50 dark:bg-gray-900/50">
+                          <p className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">{q.question_text}</p>
+                          {q.answer_text ? (
+                            <div className="mt-2 pl-2 border-l-2 border-blue-400 dark:border-blue-500">
+                              <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-0.5">Answer from creator</p>
+                              <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{q.answer_text}</p>
+                            </div>
+                          ) : (
+                            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 italic">No answer yet.</p>
+                          )}
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                            {new Date(q.created_at).toLocaleString()}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
         </div>
       </div>
     </>

@@ -416,8 +416,8 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   // Stable key per segment + player mode so React unmounts/remounts when switching (avoids removeChild DOM error)
   const playerMode = error ? 'error' : (source === 'youtube' && url) ? 'youtube' : !videoUrl ? 'nourl' : useIframe ? 'iframe' : 'video';
   const wrapper = (key: string, children: React.ReactNode) => (
-    <div className="w-full" data-player-root>
-      <div key={key}>{children}</div>
+    <div className="w-full h-full min-w-0 min-h-0" data-player-root>
+      <div key={key} className="w-full h-full min-w-0 min-h-0">{children}</div>
     </div>
   );
 
