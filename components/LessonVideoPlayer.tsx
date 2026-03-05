@@ -67,11 +67,9 @@ interface LessonVideoPlayerProps {
   onSegmentComplete: () => void;
   /** Require watching to this fraction (0–1) of segment before firing onSegmentComplete. Default 0.95 */
   completionThreshold?: number;
-  /** Optional: report progress 0–1 and duration in seconds for parent (e.g. segmented progress bar) */
-  onProgress?: (progress: number, durationSeconds: number) => void;
 }
 
-export function LessonVideoPlayer({ segment, onSegmentComplete, completionThreshold = 0.95, onProgress }: LessonVideoPlayerProps) {
+export function LessonVideoPlayer({ segment, onSegmentComplete, completionThreshold = 0.95 }: LessonVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoElReadyTrackRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -80,8 +78,6 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   const ytPlayerRef = useRef<YT.Player | null>(null);
   const onCompleteRef = useRef(onSegmentComplete);
   onCompleteRef.current = onSegmentComplete;
-  const onProgressRef = useRef(onProgress);
-  onProgressRef.current = onProgress;
 
   const rawUrl = (
     segment.source_url ??
@@ -95,8 +91,6 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   const start = segment.start_time_seconds ?? 0;
   const end = segment.end_time_seconds ?? (segment.duration_seconds != null ? segment.duration_seconds + start : undefined);
   const segmentDuration = end != null && start != null ? end - start : segment.duration_seconds ?? 0;
-  const segmentBoundsRef = useRef({ start, end, segmentDuration });
-  segmentBoundsRef.current = { start, end, segmentDuration };
   const videoUrl = url || (segment.storage_path && /^https?:\/\//i.test(String(segment.storage_path)) ? segment.storage_path : null);
   const driveId = videoUrl ? getGoogleDriveFileId(videoUrl) : null;
   // Drive: stream via our proxy and play in <video> so we have full control (one button, timer + video in sync). No iframe.
@@ -221,12 +215,7 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
 
     if (typeof YT !== 'undefined' && YT.Player) {
       initYouTube();
-      return () => {
-        if (ytPlayerRef.current?.destroy) ytPlayerRef.current.destroy();
-        ytPlayerRef.current = null;
-        setReadyPlayer(null);
-        setYtReady(false);
-      };
+      return;
     }
     const script = document.createElement('script');
     script.src = 'https://www.youtube.com/iframe_api';
@@ -240,8 +229,6 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
     return () => {
       if (ytPlayerRef.current?.destroy) ytPlayerRef.current.destroy();
       ytPlayerRef.current = null;
-      setReadyPlayer(null);
-      setYtReady(false);
     };
   }, [source, url, segment.id, start, end, markComplete]);
 
@@ -277,26 +264,6 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
               const d = player.getDuration();
               if (typeof d === 'number' && d > 0) setYtDuration(d);
             }
-            // Report progress to parent every poll so segmented bar stays in sync (use ref so we always use current segment)
-            const report = onProgressRef.current;
-            if (typeof report === 'function') {
-              const { start: s, end: e, segmentDuration: sd } = segmentBoundsRef.current;
-              const effectiveDuration = sd > 0
-                ? sd
-                : e != null && e > s
-                  ? e - s
-                  : (() => {
-                      if (player.getDuration) {
-                        const d = player.getDuration();
-                        if (typeof d === 'number' && d > 0) return Math.max(1, d - s);
-                      }
-                      return 1;
-                    })();
-              if (effectiveDuration >= 0.5) {
-                const progress = Math.min(1, Math.max(0, (t - s) / effectiveDuration));
-                report(progress, effectiveDuration);
-              }
-            }
             const inSeekCooldown = Date.now() - lastSeekAtRef.current < SEEK_COOLDOWN_MS;
             if (!inSeekCooldown) {
               if (end != null && t >= end - 0.3) {
@@ -322,7 +289,7 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
       mounted = false;
       clearInterval(intervalId);
     };
-  }, [source, readyPlayer, start, end, markComplete, segmentDuration]);
+  }, [source, readyPlayer, start, end, markComplete]);
 
   // HTML5 video: timeupdate + clamp + completion; sync state and smooth time when playing (only when direct video is mounted)
   useEffect(() => {
@@ -351,19 +318,11 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
       setVideoCurrentTime(current);
       setVideoPlaying(!v.paused);
       if (completed) return;
-      const segmentLen = effectiveEnd - effectiveStart;
-      if (segmentLen < 0.5) return; // don't mark complete for zero or near-zero duration (avoids immediate complete on load)
-      const required = segmentLen * completionThreshold + effectiveStart;
+      const required = (effectiveEnd - effectiveStart) * completionThreshold + effectiveStart;
       if (current >= required - 0.5) markComplete();
     };
 
-    const handleEnded = () => {
-      const dur = v.duration;
-      if (!Number.isFinite(dur) || dur <= 0) return;
-      const effectiveEnd = end != null && end > 0 ? Math.min(end, dur) : dur;
-      if (effectiveEnd - start < 0.5) return; // avoid marking complete for near-zero-length segments
-      markComplete();
-    };
+    const handleEnded = () => markComplete();
     const handlePlay = () => setVideoPlaying(true);
     const handlePause = () => setVideoPlaying(false);
 
@@ -385,46 +344,14 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
       setVideoCurrentTime(clamped);
     }, 80);
 
-    // Report progress to parent on a timer so the segmented bar updates in sync during playback
-    const progressReportMs = 150;
-    const MIN_DURATION_TO_REPORT = 0.5; // avoid reporting progress when duration not yet known or bogus (would show 100%)
-    const progressReportId = setInterval(() => {
-      const el = videoRef.current;
-      const report = onProgressRef.current;
-      if (!el || typeof report !== 'function') return;
-      const dur = el.duration;
-      if (!Number.isFinite(dur) || dur <= 0) return;
-      const effectiveEnd = end != null && end > 0 ? Math.min(end, dur) : dur;
-      const effectiveStart = start;
-      const effectiveDuration = Math.max(0, effectiveEnd - effectiveStart);
-      if (effectiveDuration < MIN_DURATION_TO_REPORT) return; // don't report until duration is known
-      const current = Math.max(effectiveStart, Math.min(effectiveEnd, el.currentTime));
-      const progress = Math.min(1, Math.max(0, (current - effectiveStart) / effectiveDuration));
-      report(progress, effectiveDuration);
-    }, progressReportMs);
-
     return () => {
       v.removeEventListener('timeupdate', handleTimeUpdate);
       v.removeEventListener('ended', handleEnded);
       v.removeEventListener('play', handlePlay);
       v.removeEventListener('pause', handlePause);
       clearInterval(pollId);
-      clearInterval(progressReportId);
     };
   }, [source, useIframe, url, start, end, completed, markComplete, completionThreshold, videoElReady]);
-
-  // Report progress for direct video path (must be at top level; cannot be after early return)
-  useEffect(() => {
-    if (source === 'youtube' || useIframe || !url) return;
-    const report = onProgressRef.current;
-    if (typeof report !== 'function') return;
-    const dur = videoDuration > 0 ? videoDuration : (typeof videoRef.current?.duration === 'number' && Number.isFinite(videoRef.current.duration) ? videoRef.current.duration : 0);
-    const effectiveEnd = dur > 0 ? (end != null && end > 0 ? Math.min(end, dur) : dur) : (end ?? start + segmentDuration);
-    const effectiveDuration = Math.max(0, effectiveEnd - start);
-    if (effectiveDuration < 0.5) return;
-    const segmentProgress = effectiveDuration > 0 ? Math.min(1, Math.max(0, (videoCurrentTime - start) / effectiveDuration)) : 0;
-    report(segmentProgress, effectiveDuration);
-  }, [source, useIframe, url, videoDuration, videoCurrentTime, start, end, segmentDuration]);
 
   // Stable key per segment + player mode so React unmounts/remounts when switching (avoids removeChild DOM error)
   const playerMode = error ? 'error' : (source === 'youtube' && url) ? 'youtube' : !videoUrl ? 'nourl' : useIframe ? 'iframe' : 'video';
@@ -433,15 +360,6 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
       <div key={key}>{children}</div>
     </div>
   );
-
-  /** Reports progress to parent when in YT/iframe path (use ref so parent always gets updates without effect re-running on callback identity) */
-  const ReportProgress = ({ progress, durationSec }: { progress: number; durationSec: number }) => {
-    useEffect(() => {
-      const report = onProgressRef.current;
-      if (typeof report === 'function') report(progress, durationSec);
-    }, [progress, durationSec]);
-    return null;
-  };
 
   if (error) {
     return wrapper(
@@ -456,12 +374,12 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
     const player = readyPlayer;
     const effectiveDuration = segmentDuration > 0
       ? segmentDuration
-      : end != null && end > start
+      : end != null
         ? end - start
         : ytDuration > 0
-          ? Math.max(1, ytDuration - start) // use at least 1s so progress never jumps to 100% before duration is known
-          : 1;
-    const progress = effectiveDuration >= 0.5
+          ? Math.max(0.001, ytDuration - start)
+          : Math.max(0.001, (end ?? start) - start);
+    const progress = effectiveDuration > 0
       ? Math.min(1, Math.max(0, (ytCurrentTime - start) / effectiveDuration))
       : 0;
 
@@ -549,7 +467,6 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
         style={{ aspectRatio: '16/9' }}
         onContextMenu={(e) => e.preventDefault()}
       >
-        <ReportProgress progress={progress} durationSec={effectiveDuration} />
         <div id={`yt-player-${segment.id}`} className="absolute inset-0 w-full h-full" />
         {/* Top bar: same style as bottom control bar, hides YT title/Share without being heavy */}
         <div
@@ -688,7 +605,6 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
         style={{ aspectRatio: '16/9' }}
         onContextMenu={(e) => e.preventDefault()}
       >
-        <ReportProgress progress={iframeProgress} durationSec={iframeDuration} />
         {/* Iframe: pointer-events-none so only our overlay/control bar receive clicks — one trigger only, native controls disabled. */}
         <iframe
           title={segment.name}
@@ -881,22 +797,6 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
         onContextMenu={(e) => e.preventDefault()}
         aria-hidden
       />
-      {/* Center play/pause when paused (reference layout: prominent circle, pause icon when paused) */}
-      {!completed && !videoPlaying && (
-        <div
-          className="absolute inset-0 z-[9] flex items-center justify-center cursor-pointer"
-          onClick={handleVideoPlayPause}
-          onContextMenu={(e) => e.preventDefault()}
-          aria-hidden
-        >
-          <div
-            className="w-20 h-20 rounded-full bg-white/90 hover:bg-white flex items-center justify-center shadow-xl transition-all hover:scale-110"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Play className="w-10 h-10 text-gray-800 ml-1" />
-          </div>
-        </div>
-      )}
       {/* Overlay: click to play/pause; custom controls below */}
       <div
         className="absolute inset-0 z-10 flex flex-col justify-end cursor-pointer"
