@@ -50,6 +50,10 @@ interface CourseRow {
   language: string;
   level: string;
   tags: string[];
+  /** Course owner (created_by); for "Unpublished changes" and publish gating */
+  createdBy?: string;
+  /** True after Save when course is published; cleared on Publish/Republish */
+  hasUnpublishedChanges?: boolean;
 }
 
 const formatCourseDate = (dateStr: string) => {
@@ -115,6 +119,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
   const [learnerSearch, setLearnerSearch] = useState('');
   const [learnerSort, setLearnerSort] = useState<'recent' | 'name' | 'progress'>('recent');
   const [totalUniqueLearners, setTotalUniqueLearners] = useState<number | null>(null);
+  const [userRole, setUserRole] = useState<'learner' | 'instructor' | 'admin' | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -125,6 +130,18 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
     });
     return () => { subscription.unsubscribe(); };
   }, []);
+
+  useEffect(() => {
+    if (!userId) {
+      setUserRole(null);
+      return;
+    }
+    (async () => {
+      const { data } = await (supabase as any).from('user_profiles').select('role').eq('id', userId).maybeSingle();
+      const r = (data as { role?: string } | null)?.role;
+      setUserRole(r === 'admin' ? 'admin' : r === 'instructor' ? 'instructor' : r === 'learner' ? 'learner' : null);
+    })();
+  }, [userId]);
 
   useEffect(() => {
     if (!userId) {
@@ -187,9 +204,14 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
       }
       setConfigMissing(false);
       try {
-        const { data, error } = await supabase.from('courses').select('id, title, description, status, created_at, updated_at').order('updated_at', { ascending: false });
-        if (error) throw error;
-        const courseList = data || [];
+        let courseList: { id: string; title: string; description: string | null; status: string; created_at: string; updated_at: string; created_by?: string; has_unpublished_changes?: boolean }[] = [];
+        const { data: dataWithMeta, error: errWith } = await supabase.from('courses').select('id, title, description, status, created_at, updated_at, created_by, has_unpublished_changes').order('updated_at', { ascending: false });
+        if (!errWith && dataWithMeta) courseList = dataWithMeta as typeof courseList;
+        if (errWith) {
+          const { data: dataBasic, error: errBasic } = await supabase.from('courses').select('id, title, description, status, created_at, updated_at').order('updated_at', { ascending: false });
+          if (errBasic) throw errBasic;
+          courseList = (dataBasic || []) as typeof courseList;
+        }
         const courseIds = courseList.map((c: { id: string }) => c.id);
         const [modulesRes, statsRes] = await Promise.all([
           supabase.from('modules').select('id, course_id').in('course_id', courseIds),
@@ -218,7 +240,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
             durationSecondsByCourse[cid] = (durationSecondsByCourse[cid] ?? 0) + sec;
           }
         });
-        setCourses(courseList.map((c: { id: string; title: string; description: string | null; status: string; created_at: string; updated_at: string }) => {
+        setCourses(courseList.map((c: { id: string; title: string; description: string | null; status: string; created_at: string; updated_at: string; created_by?: string; has_unpublished_changes?: boolean }) => {
           const st = courseStats[c.id] ?? { learners: 0, avgCompletion: 0 };
           return {
           id: c.id,
@@ -244,7 +266,9 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
           hasCertificate: false,
           language: 'English',
           level: 'Beginner',
-          tags: []
+          tags: [],
+          createdBy: c.created_by,
+          hasUnpublishedChanges: !!c.has_unpublished_changes
         };
         }));
       } catch {
@@ -928,6 +952,9 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                   }`}>
                     {course.status.charAt(0).toUpperCase() + course.status.slice(1)}
                   </span>
+                  {course.status === 'published' && course.hasUnpublishedChanges && (course.createdBy === userId || userRole === 'admin') && (
+                    <span className="absolute bottom-4 left-4 px-2 py-1 rounded bg-amber-500/90 text-white text-xs font-medium" title="Republish to release latest to learners">Unpublished changes</span>
+                  )}
 
                   {/* Quick Actions */}
                   <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-all flex space-x-2">
@@ -1153,13 +1180,18 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                          course.status === 'published' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' :
-                          course.status === 'draft' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300' :
-                          'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
-                        }`}>
-                          {course.status.charAt(0).toUpperCase() + course.status.slice(1)}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span className={`inline-flex w-fit px-3 py-1 rounded-full text-xs font-semibold ${
+                            course.status === 'published' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' :
+                            course.status === 'draft' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300' :
+                            'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
+                          }`}>
+                            {course.status.charAt(0).toUpperCase() + course.status.slice(1)}
+                          </span>
+                          {course.status === 'published' && course.hasUnpublishedChanges && (course.createdBy === userId || userRole === 'admin') && (
+                            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium" title="Republish to release latest version to learners">Unpublished changes</span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">

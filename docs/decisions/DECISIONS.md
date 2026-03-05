@@ -145,4 +145,23 @@ Decisions recovered from existing codebase and developer clarification.
 
 ---
 
+## 2025-02-11 - Share Links, Domain, and Content Protection
+
+### Magic links for course sharing
+**Context:** Sharing direct `/course/UUID` URLs exposes course IDs.  
+**Decision:** Use HMAC-signed magic links: `/go/TOKEN` verifies and redirects to `/course/[id]`. Share modal fetches link from `GET /api/courses/[id]/magic-link`; fallback to direct URL if API fails.  
+**Rationale:** Reduces exposure of internal IDs; links can be revoked by changing secret.  
+**Consequences:** Requires `MAGIC_LINK_SECRET` in env; `NEXT_PUBLIC_APP_URL` should be set to production domain (e.g. `https://coursify.bsoc.space`) so generated links use custom domain.
+
+### Hide Vercel URL in production
+**Context:** Production is served at both coursify-dev.vercel.app and custom domain coursify.bsoc.space.  
+**Decision:** `vercel.json` redirects requests with host `coursify-dev.vercel.app` to `https://coursify.bsoc.space/:path*` (301). Set `NEXT_PUBLIC_APP_URL=https://coursify.bsoc.space` in Vercel so all generated links use custom domain.  
+**Rationale:** Single public face; vercel.app URL effectively hidden.
+
+### Default theme and content protection
+**Decision:** Default theme is dark (when no saved preference). Right-click and devtools shortcuts (F12, Ctrl+Shift+I/J/C, Ctrl+U and Mac equivalents) blocked via DisableContextMenu. Video and reading content wrappers use `select-none` to reduce easy copying of source URLs.  
+**Rationale:** Reduce casual exposure of video/content sources; better default UX for dark users.
+
+---
+
 *Add new decisions as development continues.*

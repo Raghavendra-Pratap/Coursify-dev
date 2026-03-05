@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Play, Plus, Clock, Video, ChevronRight, Edit, X, Save, Zap, Folder, Upload, Eye, RotateCcw,
+  Play, Pause, Plus, Clock, Video, ChevronRight, Edit, X, Save, Zap, Folder, Upload, Eye, RotateCcw,
   Trash2, CheckCircle, Info, ChevronDown, ChevronUp, Download, Copy, FileText, Menu,
   Youtube, HelpCircle, Radio, AlertCircle, BookOpen, Link
 } from 'lucide-react';
@@ -96,6 +96,46 @@ interface Module {
   duration: string;
 }
 
+/** Normalize course snapshot for change detection (order-independent; ignore ids and volatile fields like lastEdited). Only creates a new version when content actually changed. */
+function normalizeSnapshotForCompare(snapshot: { title?: string; description?: string; modules?: Array<{ title?: string; order?: number; lessons?: Array<{ title?: string; order?: number; duration?: string; content?: Array<Record<string, unknown>> }> }> } | null): string {
+  if (!snapshot || typeof snapshot !== 'object') return '';
+  const stripVolatile = (obj: Record<string, unknown>): Record<string, unknown> => {
+    const { id: _id, lastEdited: _le, ...rest } = obj;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(rest)) {
+      if (v && typeof v === 'object' && !Array.isArray(v) && k === 'videoSegment') {
+        const { lastEdited: _vle, ...vRest } = v as Record<string, unknown>;
+        out[k] = vRest;
+      } else if (Array.isArray(v)) {
+        out[k] = v.map((item) => (item && typeof item === 'object' ? stripVolatile(item as Record<string, unknown>) : item));
+      } else out[k] = v;
+    }
+    return out;
+  };
+  const mods = (snapshot.modules || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const normalized = {
+    title: snapshot.title ?? '',
+    description: snapshot.description ?? '',
+    modules: mods.map((m) => {
+      const lessons = (m.lessons || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      return {
+        title: m.title ?? '',
+        order: m.order ?? 0,
+        lessons: lessons.map((l) => {
+          const content = (l.content || []).slice().sort((a, b) => ((a as { order?: number }).order ?? 0) - ((b as { order?: number }).order ?? 0));
+          return {
+            title: l.title ?? '',
+            order: l.order ?? 0,
+            duration: l.duration ?? '',
+            content: content.map((c) => stripVolatile(c as Record<string, unknown>)),
+          };
+        }),
+      };
+    }),
+  };
+  return JSON.stringify(normalized);
+}
+
 /** Extract YouTube video ID from watch or youtu.be URL */
 function getYouTubeVideoId(url: string): string | null {
   if (!url?.trim()) return null;
@@ -124,6 +164,19 @@ function detectVideoLinkType(url: string): VideoSource | null {
   if (getGoogleDriveFileId(u)) return 'google_drive';
   if (u.startsWith('http://') || u.startsWith('https://')) return 'external_url';
   return null;
+}
+
+/** True if the URL is a known non-video link (e.g. Google Doc, Sheet, Form). Use to warn in video link section. */
+function isNonVideoLink(url: string): boolean {
+  const u = (url?.trim() || '').toLowerCase();
+  if (!u) return false;
+  if (/docs\.google\.com\/document\//.test(u)) return true;
+  if (/docs\.google\.com\/spreadsheets\//.test(u)) return true;
+  if (/docs\.google\.com\/forms\//.test(u)) return true;
+  if (/docs\.google\.com\/presentation\//.test(u)) return true;
+  if (/drive\.google\.com\/drive\//.test(u)) return true; // folder
+  if (/drive\.google\.com\/folders\//.test(u)) return true;
+  return false;
 }
 
 /** Extract Google Drive file ID from share/view or open URL (for public viewing) */
@@ -159,6 +212,31 @@ function parseHHMMSSToSeconds(s: string): number | null {
   const [h, m, sec] = parts;
   if (m < 0 || m > 59 || sec < 0 || sec > 59 || h < 0) return null;
   return h * 3600 + m * 60 + sec;
+}
+
+/** Convert document URLs to embed-friendly format (Google Docs /preview, etc.) — same as TakeCourse. */
+function getReadingEmbedUrl(url: string): string {
+  const u = url.trim().startsWith('http') ? url.trim() : `https://${url.trim()}`;
+  const gdocMatch = u.match(/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)(?:\/edit|\/view)?/);
+  if (gdocMatch) return `https://docs.google.com/document/d/${gdocMatch[1]}/preview`;
+  const gsheetMatch = u.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  if (gsheetMatch) return `https://docs.google.com/spreadsheets/d/${gsheetMatch[1]}/htmlembed`;
+  if (/\.(docx?|xlsx?|pptx?)(\?|$)/i.test(u) || u.includes('office.com') || u.includes('onedrive')) {
+    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(u)}`;
+  }
+  return u;
+}
+
+/** Google Form embed URL (viewform?embedded=true) for quiz/form in combined viewer. */
+function getFormEmbedUrl(url: string): string {
+  const u = url.trim().startsWith('http') ? url.trim() : `https://${url.trim()}`;
+  const m = u.match(/docs\.google\.com\/forms\/d\/(?:e\/)?([a-zA-Z0-9_-]+)(?:\/.*)?/);
+  if (m) {
+    const id = m[1];
+    const base = id.length > 20 ? `https://docs.google.com/forms/d/e/${id}/viewform` : `https://docs.google.com/forms/d/${id}/viewform`;
+    return base.includes('?') ? `${base}&embedded=true` : `${base}?embedded=true`;
+  }
+  return u;
 }
 
 /** Format seconds as HH:MM:SS (e.g. 90 → "00:01:30"). */
@@ -273,6 +351,16 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
   const [unifiedVideoUrl, setUnifiedVideoUrl] = useState('');
   const [contentToReplace, setContentToReplace] = useState<{lessonId: number, contentId: number} | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
+  /** Combined (learner-style) preview: step-by-step with synced or simulated progress. */
+  const [lessonPreviewMode, setLessonPreviewMode] = useState<'segment' | 'combined'>('combined');
+  const [previewPopupContent, setPreviewPopupContent] = useState<ContentItem | null>(null);
+  const [combinedSegmentIndex, setCombinedSegmentIndex] = useState(0);
+  const [combinedPlaybackSeconds, setCombinedPlaybackSeconds] = useState(0);
+  const [combinedPlaying, setCombinedPlaying] = useState(false);
+  const [combinedYtPlayerReady, setCombinedYtPlayerReady] = useState(false);
+  const combinedYtPlayerRef = useRef<{ getCurrentTime?: () => number; playVideo?: () => void; pauseVideo?: () => void; destroy?: () => void } | null>(null);
+  const [combinedDrivePlayerReady, setCombinedDrivePlayerReady] = useState(false);
+  const combinedDriveVideoRef = useRef<HTMLVideoElement | null>(null);
   const [segmentName, setSegmentName] = useState('');
   const [startTime, setStartTime] = useState('');
   const [duration, setDuration] = useState('');
@@ -644,6 +732,211 @@ function onFormSubmit(e) {
     return () => clearInterval(id);
   }, [segIdentity, hasCombinedPlayer, combinedSegmentDuration]);
 
+  /** Duration of a video segment in seconds (for combined preview). */
+  const getSegmentDurationSeconds = (vs: VideoSegment): number => {
+    if (vs.startTimestamp != null && vs.endTimestamp != null && vs.endTimestamp > vs.startTimestamp)
+      return vs.endTimestamp - vs.startTimestamp;
+    return parseTimeToSeconds(vs.duration || '0:00');
+  };
+
+  // Combined (learner) view: all content in order (video, reading, quiz, form) like TakeCourse
+  const allStepsForLesson = currentLessonData?.content ?? [];
+  const totalSteps = allStepsForLesson.length;
+  const totalStepsCombined = totalSteps;
+  const currentStepContent = allStepsForLesson[combinedSegmentIndex] ?? null;
+  const isCurrentStepVideo = currentStepContent?.type === 'video' && currentStepContent?.videoSegment;
+  const currentSegmentInCombined = isCurrentStepVideo ? (currentStepContent as ContentItem & { type: 'video'; videoSegment: VideoSegment }) : null;
+  const videoSegmentsForLesson = allStepsForLesson.filter((c): c is ContentItem & { type: 'video'; videoSegment: VideoSegment } => c.type === 'video' && !!c.videoSegment);
+  const totalCombinedSeconds = videoSegmentsForLesson.reduce((acc, c) => acc + getSegmentDurationSeconds(c.videoSegment!), 0);
+  const currentSegmentDurationSec = currentSegmentInCombined ? getSegmentDurationSeconds(currentSegmentInCombined.videoSegment!) : 0;
+  const accumulatedDurationBeforeCurrent = videoSegmentsForLesson.filter((_, i) => allStepsForLesson.indexOf(videoSegmentsForLesson[i]) < combinedSegmentIndex).reduce((acc, c) => acc + getSegmentDurationSeconds(c.videoSegment!), 0);
+  const progressInCurrentStep = isCurrentStepVideo && currentSegmentDurationSec > 0 ? Math.min(1, combinedPlaybackSeconds / currentSegmentDurationSec) : 0;
+  const combinedProgressPct = totalSteps > 0 ? ((combinedSegmentIndex + progressInCurrentStep) / totalSteps) * 100 : 0;
+
+  useEffect(() => {
+    setCombinedSegmentIndex(0);
+    setCombinedPlaybackSeconds(0);
+    setCombinedPlaying(false);
+    setCombinedYtPlayerReady(false);
+    combinedYtPlayerRef.current = null;
+  }, [currentModule, currentLesson]);
+
+  const segForCombined = lessonPreviewMode === 'combined' ? currentSegmentInCombined?.videoSegment : null;
+  const ytIdCombined = segForCombined?.source === 'youtube' && segForCombined?.sourceUrl ? getYouTubeVideoId(segForCombined.sourceUrl) : null;
+  const driveIdCombined = segForCombined?.source === 'google_drive' && segForCombined?.sourceUrl ? getGoogleDriveFileId(segForCombined.sourceUrl) : null;
+  const ytStartCombined = segForCombined?.startTimestamp ?? 0;
+  const ytEndCombined = segForCombined?.endTimestamp ?? 0;
+
+  useEffect(() => {
+    if (!driveIdCombined) setCombinedDrivePlayerReady(false);
+  }, [driveIdCombined, combinedSegmentIndex]);
+
+  useEffect(() => {
+    setCombinedPlaybackSeconds(0);
+  }, [combinedSegmentIndex]);
+
+  // YouTube IFrame API for combined preview: single persistent container, cueVideoById on segment change, never destroy
+  const COMBINED_YT_CONTAINER_ID = 'create-course-combined-yt';
+  useEffect(() => {
+    if (lessonPreviewMode !== 'combined') {
+      setCombinedYtPlayerReady(false);
+      combinedYtPlayerRef.current = null;
+      return;
+    }
+    if (!ytIdCombined || !currentSegmentInCombined) {
+      setCombinedYtPlayerReady(false);
+      return;
+    }
+    const containerId = COMBINED_YT_CONTAINER_ID;
+    type YtPlayer = { getCurrentTime?: () => number; playVideo?: () => void; pauseVideo?: () => void; cueVideoById?: (opts: { videoId: string; startSeconds: number; endSeconds?: number }) => void };
+
+    const initOrUpdateYt = () => {
+      const YT = (typeof window !== 'undefined' ? (window as unknown as { YT?: { Player: new (el: string, opts: unknown) => YtPlayer } }).YT : undefined);
+      if (!YT?.Player) return;
+      const el = document.getElementById(containerId);
+      if (!el) return;
+      const existing = combinedYtPlayerRef.current as YtPlayer | null;
+      const containerStillMounted = typeof document !== 'undefined' && document.body.contains(el);
+      if (existing?.cueVideoById && containerStillMounted) {
+        existing.cueVideoById({
+          videoId: ytIdCombined,
+          startSeconds: Math.floor(ytStartCombined),
+          endSeconds: ytEndCombined > ytStartCombined ? Math.floor(ytEndCombined) : undefined,
+        });
+        setCombinedYtPlayerReady(true);
+        return;
+      }
+      if (!containerStillMounted) combinedYtPlayerRef.current = null;
+      setCombinedYtPlayerReady(false);
+      const player = new YT.Player(containerId, {
+        videoId: ytIdCombined,
+        width: '100%',
+        height: '100%',
+        playerVars: {
+          start: Math.floor(ytStartCombined),
+          end: ytEndCombined > ytStartCombined ? Math.floor(ytEndCombined) : undefined,
+          rel: 0,
+          modestbranding: 1,
+          controls: 1,
+          autoplay: 0,
+        },
+        events: {
+          onReady: () => {
+            combinedYtPlayerRef.current = player as unknown as YtPlayer;
+            setCombinedYtPlayerReady(true);
+          },
+        },
+      });
+      combinedYtPlayerRef.current = player as unknown as YtPlayer;
+    };
+
+    if (typeof window !== 'undefined' && (window as unknown as { YT?: { Player: unknown } }).YT?.Player) {
+      initOrUpdateYt();
+      return () => {
+        setCombinedYtPlayerReady(false);
+        // Never destroy: same window switches YT/Drive by visibility; container stays mounted
+      };
+    }
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.async = true;
+    const win = typeof window !== 'undefined' ? (window as unknown as { onYouTubeIframeAPIReady?: () => void }) : undefined;
+    const prev = win?.onYouTubeIframeAPIReady;
+    if (win) {
+      win.onYouTubeIframeAPIReady = () => { prev?.(); initOrUpdateYt(); };
+    }
+    document.head.appendChild(script);
+    return () => {
+      setCombinedYtPlayerReady(false);
+    };
+  }, [lessonPreviewMode, combinedSegmentIndex, ytIdCombined, ytStartCombined, ytEndCombined, currentSegmentInCombined]);
+
+  // Sync combined progress from Drive proxy video
+  useEffect(() => {
+    if (lessonPreviewMode !== 'combined' || !combinedDrivePlayerReady || !currentSegmentInCombined?.videoSegment || !driveIdCombined) return;
+    const seg = currentSegmentInCombined.videoSegment;
+    const startSec = seg.startTimestamp ?? 0;
+    const endSec = seg.endTimestamp ?? startSec;
+    const segmentDuration = endSec > startSec ? endSec - startSec : 0;
+    let mounted = true;
+    const POLL_MS = 100;
+    const intervalId = setInterval(() => {
+      if (!mounted) return;
+      const el = combinedDriveVideoRef.current;
+      if (!el || !Number.isFinite(el.currentTime)) return;
+      const t = el.currentTime;
+      const timeInSegment = Math.max(0, t - startSec);
+      setCombinedPlaybackSeconds(Math.min(timeInSegment, segmentDuration));
+      if (segmentDuration > 0 && timeInSegment >= segmentDuration - 0.3) {
+        const steps = (currentLessonData?.content?.length ?? 0);
+        if (combinedSegmentIndex < steps - 1) {
+          setCombinedSegmentIndex((i) => i + 1);
+          setCombinedPlaybackSeconds(0);
+          el.pause();
+        } else {
+          setCombinedPlaying(false);
+        }
+      }
+    }, POLL_MS);
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+    };
+  }, [lessonPreviewMode, combinedDrivePlayerReady, combinedSegmentIndex, currentSegmentInCombined, driveIdCombined, currentLessonData?.content?.length]);
+
+  // Sync combined progress from YouTube player
+  useEffect(() => {
+    if (lessonPreviewMode !== 'combined' || !combinedYtPlayerReady || !currentSegmentInCombined?.videoSegment) return;
+    const seg = currentSegmentInCombined.videoSegment;
+    const startSec = seg.startTimestamp ?? 0;
+    const endSec = seg.endTimestamp ?? startSec;
+    const segmentDuration = endSec > startSec ? endSec - startSec : 0;
+    let mounted = true;
+    const POLL_MS = 100;
+    const intervalId = setInterval(() => {
+      if (!mounted) return;
+      const player = combinedYtPlayerRef.current;
+      const t = player?.getCurrentTime?.();
+      if (typeof t !== 'number' || t < 0) return;
+      const timeInSegment = Math.max(0, t - startSec);
+      setCombinedPlaybackSeconds(Math.min(timeInSegment, segmentDuration));
+      if (segmentDuration > 0 && timeInSegment >= segmentDuration - 0.3) {
+        const steps = (currentLessonData?.content?.length ?? 0);
+        if (combinedSegmentIndex < steps - 1) {
+          setCombinedSegmentIndex((i) => i + 1);
+          setCombinedPlaybackSeconds(0);
+          player?.pauseVideo?.();
+        } else {
+          setCombinedPlaying(false);
+        }
+      }
+    }, POLL_MS);
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+    };
+  }, [lessonPreviewMode, combinedYtPlayerReady, combinedSegmentIndex, currentSegmentInCombined, currentLessonData?.content?.length]);
+
+  // Simulated timer when we don't have synced source (YouTube or Drive proxy)
+  useEffect(() => {
+    if (lessonPreviewMode !== 'combined' || !combinedPlaying || totalCombinedSeconds <= 0 || combinedYtPlayerReady || combinedDrivePlayerReady) return;
+    const interval = setInterval(() => {
+      setCombinedPlaybackSeconds((prev) => {
+        const next = prev + 0.1;
+        if (next >= currentSegmentDurationSec) {
+          if (combinedSegmentIndex < totalSteps - 1) {
+            setCombinedSegmentIndex((i) => i + 1);
+            return 0;
+          }
+          setCombinedPlaying(false);
+          return currentSegmentDurationSec;
+        }
+        return next;
+      });
+    }, 100);
+    return () => clearInterval(interval);
+  }, [lessonPreviewMode, combinedPlaying, combinedSegmentIndex, currentSegmentDurationSec, totalSteps, totalCombinedSeconds, combinedYtPlayerReady, combinedDrivePlayerReady]);
+
   // Drag and Drop Handlers
   const handleDragStart = (e: React.DragEvent, type: 'module' | 'lesson' | 'content', id: number, moduleId?: number, lessonId?: number) => {
     setDraggedItem({ type, id, moduleId, lessonId });
@@ -830,6 +1123,7 @@ function onFormSubmit(e) {
           if (startVal < 0) return;
           if (endVal < startVal) return;
           const maxSec = videoMaxDuration.trim() ? parseHHMMSSToSeconds(videoMaxDuration.trim()) : null;
+          if (duration.trim() && !videoMaxDuration.trim()) return;
           if (maxSec != null && endVal > maxSec) return;
 
           const startStr = formatSecondsToHHMMSS(startVal);
@@ -1473,9 +1767,12 @@ function onFormSubmit(e) {
                     onDragStart={(e) => handleDragStart(e, 'content', content.id, currentModule, currentLessonData.id)}
                     onDragOver={handleDragOver}
                     onDrop={(e) => handleDrop(e, 'content', content.id, currentModule, currentLessonData.id)}
-                    onClick={() => setSelectedContent(idx)}
+                    onClick={() => {
+                      setSelectedContent(idx);
+                      if (lessonPreviewMode === 'combined') setCombinedSegmentIndex(idx);
+                    }}
                     className={`p-6 rounded-xl border-2 transition-all cursor-pointer ${
-                      idx === selectedContent
+                      idx === selectedContent || (lessonPreviewMode === 'combined' && idx === combinedSegmentIndex)
                         ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500 dark:border-blue-500 shadow-lg'
                         : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500'
                     } ${draggedItem?.type === 'content' && draggedItem.id === content.id ? 'opacity-50' : ''}`}
@@ -1660,8 +1957,172 @@ function onFormSubmit(e) {
                 </button>
               </div>
 
-              {/* Video Preview with Streaming Info */}
-              {currentContent?.type === 'video' && currentContent.videoSegment && (() => {
+              {/* Combined (learner) view — one window: video + reading + quiz + form in order, like TakeCourse (from e359e8bd) */}
+              {totalSteps > 0 && currentStepContent && (
+                <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-sm border-2 border-blue-200 dark:border-blue-900/50 mb-6">
+                  <div className="rounded-2xl overflow-hidden shadow-xl relative bg-gray-900 dark:bg-gray-950" style={{ minHeight: '50vh' }}>
+                    {currentStepContent.type === 'video' && currentStepContent.videoSegment && (() => {
+                      const seg = currentStepContent.videoSegment;
+                      const sourceUrl = seg.sourceUrl || '';
+                      const ytId = seg.source === 'youtube' ? getYouTubeVideoId(sourceUrl) : null;
+                      const driveId = seg.source === 'google_drive' ? getGoogleDriveFileId(sourceUrl) : null;
+                      const externalUrl = seg.source === 'external_url' && sourceUrl ? sourceUrl : null;
+                      const useYtSegmentPlayer = ytId && seg.endTimestamp != null && seg.endTimestamp > 0;
+                      const embedUrl = ytId && !useYtSegmentPlayer
+                        ? getYouTubeEmbedUrl(ytId, seg.startTimestamp ?? undefined, seg.endTimestamp ?? undefined)
+                        : driveId ? getGoogleDriveEmbedUrl(driveId, seg.startTimestamp ?? undefined) : externalUrl;
+                      return (
+                        <>
+                          {lessonPreviewMode === 'combined' && (ytIdCombined || driveIdCombined) && currentSegmentInCombined?.videoSegment ? (
+                            <div className="aspect-video w-full relative">
+                              {/* Same window: both players always mounted; visibility switches by segment source */}
+                              <div
+                                id="create-course-combined-yt"
+                                className="absolute inset-0 w-full h-full"
+                                style={{ display: ytIdCombined ? 'block' : 'none' }}
+                              />
+                              <video
+                                ref={combinedDriveVideoRef}
+                                src={driveIdCombined ? getDriveProxyVideoUrl(driveIdCombined) : undefined}
+                                onCanPlay={() => setCombinedDrivePlayerReady(true)}
+                                onError={() => setCombinedDrivePlayerReady(false)}
+                                className="absolute inset-0 w-full h-full object-contain"
+                                controls
+                                onPlay={() => setCombinedPlaying(true)}
+                                onPause={() => setCombinedPlaying(false)}
+                                style={{ display: driveIdCombined ? 'block' : 'none' }}
+                              />
+                              <div className="absolute top-2 right-2 bg-purple-600 text-white px-2 py-1 rounded text-xs font-semibold flex items-center pointer-events-none">
+                                <Radio className="w-3 h-3 mr-1" /> Segment: {formatSecondsToTime(seg.startTimestamp ?? 0)} - {formatSecondsToTime(seg.endTimestamp || 0)}
+                              </div>
+                            </div>
+                          ) : useYtSegmentPlayer ? (
+                            <div className="aspect-video w-full relative">
+                              <YouTubeSegmentPlayer videoId={ytId!} startSeconds={seg.startTimestamp ?? 0} endSeconds={seg.endTimestamp ?? undefined} title={seg.name} className="absolute inset-0 w-full h-full" />
+                              <div className="absolute top-2 right-2 bg-purple-600 text-white px-2 py-1 rounded text-xs font-semibold flex items-center">
+                                <Radio className="w-3 h-3 mr-1" /> Segment: {formatSecondsToTime(seg.startTimestamp ?? 0)} - {formatSecondsToTime(seg.endTimestamp || 0)}
+                              </div>
+                            </div>
+                          ) : embedUrl ? (
+                            <div className="aspect-video w-full relative">
+                              {(seg.source === 'google_drive' || seg.source === 'external_url') && seg.endTimestamp != null && seg.endTimestamp > (seg.startTimestamp ?? 0) ? (
+                                <SegmentEnforcedIframePlayer embedUrl={embedUrl} startSeconds={seg.startTimestamp ?? 0} endSeconds={seg.endTimestamp ?? undefined} title={seg.name} className="absolute inset-0 w-full h-full" />
+                              ) : (
+                                <iframe title={seg.name} src={embedUrl} className="absolute inset-0 w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen />
+                              )}
+                              {seg.startTimestamp !== undefined && (
+                                <div className="absolute top-2 right-2 bg-purple-600 text-white px-2 py-1 rounded text-xs font-semibold flex items-center">
+                                  <Radio className="w-3 h-3 mr-1" /> Segment: {formatSecondsToTime(seg.startTimestamp)} - {formatSecondsToTime(seg.endTimestamp || 0)}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="aspect-video w-full flex items-center justify-center bg-gray-800 text-gray-400">Add video source</div>
+                          )}
+                        </>
+                      );
+                    })()}
+                    {currentStepContent.type === 'reading' && currentStepContent.reading && (
+                      <div className="flex flex-col h-full min-h-[50vh]">
+                        <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                            <BookOpen className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                            {currentStepContent.reading.title || 'Reading'}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-h-0 overflow-auto bg-white dark:bg-gray-900 select-none">
+                          {currentStepContent.reading.type === 'url' && currentStepContent.reading.url ? (
+                            <iframe title={currentStepContent.reading.title || 'Document'} src={getReadingEmbedUrl(currentStepContent.reading.url)} className="w-full h-full min-h-[45vh] border-0" allow="fullscreen" sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-popups-to-escape-sandbox" />
+                          ) : currentStepContent.reading.type === 'native' ? (
+                            <div className="p-6">
+                              <ReadingContentRenderer body={currentStepContent.reading.body || ''} format={currentStepContent.reading.format ?? 'plain'} className="text-gray-800 dark:text-gray-200 prose dark:prose-invert max-w-none" />
+                            </div>
+                          ) : (
+                            <div className="p-6 text-gray-500">Add a link or native text.</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {currentStepContent.type === 'quiz' && (
+                      <div className="flex flex-col min-h-[50vh]">
+                        <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                            <HelpCircle className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                            {currentStepContent.quiz?.title || 'Quiz'}
+                          </span>
+                        </div>
+                        {currentStepContent.quiz?.formUrl ? (
+                          <iframe title={currentStepContent.quiz?.title || 'Quiz'} src={getFormEmbedUrl(currentStepContent.quiz?.formUrl ?? '')} className="w-full flex-1 min-h-[45vh] border-0" allow="fullscreen" sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-popups-to-escape-sandbox" />
+                        ) : (
+                          <div className="p-6 text-gray-500 dark:text-gray-400">Add a Google Form URL to this quiz.</div>
+                        )}
+                      </div>
+                    )}
+                    {currentStepContent.type === 'form' && (
+                      <div className="flex flex-col min-h-[50vh]">
+                        <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-green-600 dark:text-green-400" />
+                            {currentStepContent.form?.title || 'Form'}
+                          </span>
+                        </div>
+                        {currentStepContent.form?.formUrl ? (
+                          <iframe title={currentStepContent.form?.title || 'Form'} src={getFormEmbedUrl(currentStepContent.form?.formUrl ?? '')} className="w-full flex-1 min-h-[45vh] border-0" allow="fullscreen" sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-popups-to-escape-sandbox" />
+                        ) : (
+                          <div className="p-6 text-gray-500 dark:text-gray-400">Add a form URL.</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {/* Control bar: step title, Next, two timelines */}
+                  <div className="rounded-xl bg-gray-900/95 dark:bg-gray-950 p-5 text-white mt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-semibold text-white">
+                        {currentStepContent.type === 'video' && currentStepContent.videoSegment?.name}
+                        {currentStepContent.type === 'reading' && (currentStepContent.reading?.title || 'Reading')}
+                        {currentStepContent.type === 'quiz' && (currentStepContent.quiz?.title || 'Quiz')}
+                        {currentStepContent.type === 'form' && (currentStepContent.form?.title || 'Form')}
+                      </span>
+                      <span className="text-sm text-white/90">Step {combinedSegmentIndex + 1} of {totalSteps}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mb-3">
+                      {(currentStepContent.type === 'reading' || currentStepContent.type === 'quiz' || currentStepContent.type === 'form') && (
+                        <button
+                          type="button"
+                          onClick={() => { if (combinedSegmentIndex < totalSteps - 1) setCombinedSegmentIndex((i) => i + 1); }}
+                          className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+                        >
+                          Next
+                        </button>
+                      )}
+                      {isCurrentStepVideo && (
+                        <>
+                          <button type="button" onClick={() => setCombinedPlaying((p) => !p)} className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors">
+                            {combinedPlaying ? <div className="w-4 h-4 flex items-center justify-center gap-0.5"><div className="w-1 h-3 bg-white rounded-sm" /><div className="w-1 h-3 bg-white rounded-sm" /></div> : <Play className="w-4 h-4 text-white ml-0.5" />}
+                          </button>
+                          <span className="text-xs text-white/60">{(combinedYtPlayerReady || combinedDrivePlayerReady) ? 'Synced with player' : 'Simulated playback (sync not available for this source)'}</span>
+                        </>
+                      )}
+                    </div>
+                    {isCurrentStepVideo && (
+                      <div className="mb-3">
+                        <div className="w-full bg-gray-600 rounded-full h-2 overflow-hidden">
+                          <div className="bg-white h-2 rounded-full transition-all duration-100" style={{ width: `${currentSegmentDurationSec > 0 ? (combinedPlaybackSeconds / currentSegmentDurationSec) * 100 : 0}%` }} />
+                        </div>
+                      </div>
+                    )}
+                    <div className="relative w-full h-2.5 bg-gray-700 rounded-full overflow-visible">
+                      <div className="absolute inset-y-0 left-0 bg-blue-500 rounded-full transition-all duration-100 z-[1]" style={{ width: `${combinedProgressPct}%` }} />
+                      {totalSteps > 1 && allStepsForLesson.slice(0, -1).map((_, i) => (
+                        <div key={i} className="absolute top-0 bottom-0 w-px bg-white/80 z-[2]" style={{ left: `${((i + 1) / totalSteps) * 100}%` }} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Video Preview with Streaming Info (Select step mode) */}
+              {lessonPreviewMode !== 'combined' && currentContent?.type === 'video' && currentContent.videoSegment && (() => {
                 const seg = currentContent.videoSegment;
                 const sourceUrl = seg.sourceUrl || '';
                 const segStartSec = seg.startTimestamp ?? parseTimeToSeconds(seg.startTime || '0:00');
@@ -1855,7 +2316,7 @@ function onFormSubmit(e) {
                   </div>
                 </div>
               ); })()}
-              {currentContent?.type === 'reading' && currentContent.reading && (
+              {lessonPreviewMode !== 'combined' && currentContent?.type === 'reading' && currentContent.reading && (
                 <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-sm border-2 border-amber-200 dark:border-amber-900/50 mb-6">
                   <div className="flex items-center mb-4">
                     <BookOpen className="w-6 h-6 text-amber-600 dark:text-amber-400 mr-2" />
@@ -1934,7 +2395,7 @@ function onFormSubmit(e) {
                   })()}
                 </div>
               )}
-              {currentContent?.type === 'quiz' && currentContent.quiz && (
+              {lessonPreviewMode !== 'combined' && currentContent?.type === 'quiz' && currentContent.quiz && (
                 <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-sm border-2 border-green-200 dark:border-green-900/50 mb-6">
                   <div className="flex items-center mb-4">
                     <HelpCircle className="w-6 h-6 text-green-600 dark:text-green-400 mr-2" />
@@ -1980,7 +2441,7 @@ function onFormSubmit(e) {
                   })()}
                 </div>
               )}
-              {currentContent?.type === 'form' && currentContent.form && (
+              {lessonPreviewMode !== 'combined' && currentContent?.type === 'form' && currentContent.form && (
                 <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-sm border-2 border-green-200 dark:border-green-900/50 mb-6">
                   <div className="flex items-center mb-4">
                     <FileText className="w-6 h-6 text-green-600 dark:text-green-400 mr-2" />
@@ -2232,7 +2693,15 @@ function onFormSubmit(e) {
                         onChange={(e) => setUnifiedVideoUrl(e.target.value)}
                         className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
                       />
-                      {unifiedVideoUrl.trim() && (
+                      {unifiedVideoUrl.trim() && isNonVideoLink(unifiedVideoUrl) && (
+                        <div className="mt-2 p-3 rounded-lg bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 flex items-start gap-2">
+                          <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                          <p className="text-sm text-amber-800 dark:text-amber-200">
+                            This doesn&apos;t look like a video link (e.g. Google Doc, Sheet, or Form). Use a YouTube video, Google Drive <strong>video file</strong> (drive.google.com/file/d/...), or another direct video URL.
+                          </p>
+                        </div>
+                      )}
+                      {unifiedVideoUrl.trim() && !isNonVideoLink(unifiedVideoUrl) && (
                         <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
                           Detected: {detectVideoLinkType(unifiedVideoUrl) === 'youtube'
                             ? 'YouTube'
@@ -2242,7 +2711,7 @@ function onFormSubmit(e) {
                         </p>
                       )}
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Works with YouTube, Google Drive (share as &quot;Anyone with the link can view&quot;), or other public streaming URLs.
+                        Works with YouTube, Google Drive video (share as &quot;Anyone with the link can view&quot;), or other public streaming URLs.
                       </p>
                     </div>
                   </div>
@@ -2450,7 +2919,7 @@ function onFormSubmit(e) {
                                 const m = parseHHMMSSToSeconds(videoMaxDuration.trim());
                                 if (m != null && eSec > m) setEndTimeError('Cannot exceed video length');
                                 else setEndTimeError(null);
-                              } else setEndTimeError(null);
+                              } else setEndTimeError('Set video length below so end time is valid');
                             }
                           }}
                           onBlur={() => {
@@ -2462,7 +2931,8 @@ function onFormSubmit(e) {
                               const m = parseHHMMSSToSeconds(videoMaxDuration.trim());
                               if (m != null && e > m) setEndTimeError('Cannot exceed video length');
                               else setEndTimeError(null);
-                            } else setEndTimeError(null);
+                            } else if (duration.trim()) setEndTimeError('Set video length below so end time is valid');
+                            else setEndTimeError(null);
                           }}
                           className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500 ${endTimeError ? 'border-red-500 dark:border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
                         />
@@ -2471,23 +2941,31 @@ function onFormSubmit(e) {
                       </div>
                     </div>
                     <div className="mt-4">
-                      <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Video max duration (optional)</label>
+                      <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">
+                        Video length (total) {duration.trim() ? '(required when segment end is set)' : '(optional)'}
+                      </label>
                       <input
                         type="text"
                         placeholder="00:10:00"
                         value={videoMaxDuration}
                         onChange={(e) => {
                           setVideoMaxDuration(e.target.value);
-                          if (endTimeError === 'Cannot exceed video length') {
-                            const eSec = parseHHMMSSToSeconds(duration.trim());
-                            const m = parseHHMMSSToSeconds(e.target.value.trim());
+                          const eSec = parseHHMMSSToSeconds(duration.trim());
+                          const m = parseHHMMSSToSeconds(e.target.value.trim());
+                          const hasDuration = duration.trim().length > 0;
+                          if (hasDuration) {
                             if (m != null && eSec != null && eSec > m) setEndTimeError('Cannot exceed video length');
-                            else setEndTimeError(null);
+                            else if (m != null && eSec != null) setEndTimeError(null);
+                            else if (!e.target.value.trim()) setEndTimeError('Set video length below so end time is valid');
                           }
                         }}
-                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent max-w-xs bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
+                        className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent max-w-xs bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500 ${duration.trim() && !videoMaxDuration.trim() ? 'border-amber-500 dark:border-amber-500' : 'border-gray-300 dark:border-gray-600'}`}
                       />
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">HH:MM:SS. If set, end time cannot exceed this.</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        HH:MM:SS. End time cannot exceed video length. {duration.trim() && !videoMaxDuration.trim() && (
+                          <span className="text-amber-600 dark:text-amber-400 font-medium">Enter video length to validate segment.</span>
+                        )}
+                      </p>
                     </div>
                   </div>
 
@@ -2522,7 +3000,9 @@ function onFormSubmit(e) {
                       onClick={handleContentUpload}
                       disabled={
                         (uploadType === 'link' &&
-                          (!unifiedVideoUrl.trim() || !detectVideoLinkType(unifiedVideoUrl.trim()))) ||
+                          (!unifiedVideoUrl.trim() ||
+                            isNonVideoLink(unifiedVideoUrl.trim()) ||
+                            !detectVideoLinkType(unifiedVideoUrl.trim()))) ||
                         (() => {
                           const s = parseHHMMSSToSeconds(startTime.trim());
                           const e = parseHHMMSSToSeconds(duration.trim());
@@ -2533,6 +3013,7 @@ function onFormSubmit(e) {
                           if (startTime.trim() && s === null) return true;
                           if (duration.trim() && e === null) return true;
                           if (startVal < 0 || endVal < startVal) return true;
+                          if (duration.trim() && !videoMaxDuration.trim()) return true;
                           const m = videoMaxDuration.trim() ? parseHHMMSSToSeconds(videoMaxDuration.trim()) : null;
                           if (m != null && endVal > m) return true;
                           return false;

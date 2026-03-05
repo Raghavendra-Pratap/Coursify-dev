@@ -26,7 +26,14 @@ Coursify/
 │
 ├── lib/                          # Utility libraries and clients
 │   ├── supabase.ts              # Supabase client (client & server)
-│   └── database.types.ts        # TypeScript types for database
+│   ├── database.types.ts        # TypeScript types for database
+│   └── magic-link.ts            # HMAC-signed magic link tokens (share links)
+│
+├── app/api/                      # API routes (Next.js)
+│   └── courses/[id]/magic-link/ # GET: generate magic link for course share
+├── app/go/[token]/               # Magic link redirect: /go/TOKEN → /course/[id]
+│
+├── vercel.json                   # Vercel config (e.g. redirect vercel.app → custom domain)
 │
 ├── database/                     # Database schema
 │   └── schema.sql               # Complete PostgreSQL schema with RLS
@@ -249,6 +256,17 @@ Course
 **File**: `lib/database.types.ts`
 **Purpose**: TypeScript type definitions for database tables
 **Usage**: Used with Supabase client for type safety
+
+### Magic Links (Share URLs)
+**File**: `lib/magic-link.ts`
+**Purpose**: HMAC-signed tokens (1y expiry) for shareable course links; avoids exposing course UUID.
+**API**: `GET /api/courses/[id]/magic-link` (auth required) → returns `magicLink` (uses `NEXT_PUBLIC_APP_URL`).
+**Route**: `app/go/[token]/page.tsx` — verifies token, redirects to `/course/[id]` or `/?error=invalid_link`.
+**Env**: `MAGIC_LINK_SECRET` (min 16 chars). Share modal in MyCourses uses magic link when available.
+
+### Vercel Redirect
+**File**: `vercel.json`
+**Purpose**: Redirect `coursify-dev.vercel.app` → `https://coursify.bsoc.space` (same path) so production uses custom domain only.
 
 ---
 

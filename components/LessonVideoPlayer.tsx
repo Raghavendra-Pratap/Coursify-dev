@@ -67,9 +67,11 @@ interface LessonVideoPlayerProps {
   onSegmentComplete: () => void;
   /** Require watching to this fraction (0–1) of segment before firing onSegmentComplete. Default 0.95 */
   completionThreshold?: number;
+  /** Optional: report progress 0–1 and duration in seconds for parent (e.g. segmented progress bar) */
+  onProgress?: (progress: number, durationSeconds: number) => void;
 }
 
-export function LessonVideoPlayer({ segment, onSegmentComplete, completionThreshold = 0.95 }: LessonVideoPlayerProps) {
+export function LessonVideoPlayer({ segment, onSegmentComplete, completionThreshold = 0.95, onProgress }: LessonVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoElReadyTrackRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -78,6 +80,8 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   const ytPlayerRef = useRef<YT.Player | null>(null);
   const onCompleteRef = useRef(onSegmentComplete);
   onCompleteRef.current = onSegmentComplete;
+  const onProgressRef = useRef(onProgress);
+  onProgressRef.current = onProgress;
 
   const rawUrl = (
     segment.source_url ??
@@ -91,6 +95,8 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   const start = segment.start_time_seconds ?? 0;
   const end = segment.end_time_seconds ?? (segment.duration_seconds != null ? segment.duration_seconds + start : undefined);
   const segmentDuration = end != null && start != null ? end - start : segment.duration_seconds ?? 0;
+  const segmentBoundsRef = useRef({ start, end, segmentDuration });
+  segmentBoundsRef.current = { start, end, segmentDuration };
   const videoUrl = url || (segment.storage_path && /^https?:\/\//i.test(String(segment.storage_path)) ? segment.storage_path : null);
   const driveId = videoUrl ? getGoogleDriveFileId(videoUrl) : null;
   // Drive: stream via our proxy and play in <video> so we have full control (one button, timer + video in sync). No iframe.
@@ -215,7 +221,12 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
 
     if (typeof YT !== 'undefined' && YT.Player) {
       initYouTube();
-      return;
+      return () => {
+        if (ytPlayerRef.current?.destroy) ytPlayerRef.current.destroy();
+        ytPlayerRef.current = null;
+        setReadyPlayer(null);
+        setYtReady(false);
+      };
     }
     const script = document.createElement('script');
     script.src = 'https://www.youtube.com/iframe_api';
@@ -229,6 +240,8 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
     return () => {
       if (ytPlayerRef.current?.destroy) ytPlayerRef.current.destroy();
       ytPlayerRef.current = null;
+      setReadyPlayer(null);
+      setYtReady(false);
     };
   }, [source, url, segment.id, start, end, markComplete]);
 
@@ -264,6 +277,26 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
               const d = player.getDuration();
               if (typeof d === 'number' && d > 0) setYtDuration(d);
             }
+            // Report progress to parent every poll so segmented bar stays in sync (use ref for current segment)
+            const report = onProgressRef.current;
+            if (typeof report === 'function') {
+              const { start: s, end: e, segmentDuration: sd } = segmentBoundsRef.current;
+              const effectiveDuration = sd > 0
+                ? sd
+                : e != null && e > s
+                  ? e - s
+                  : (() => {
+                      if (player.getDuration) {
+                        const d = player.getDuration();
+                        if (typeof d === 'number' && d > 0) return Math.max(1, d - s);
+                      }
+                      return 1;
+                    })();
+              if (effectiveDuration >= 0.5) {
+                const progress = Math.min(1, Math.max(0, (t - s) / effectiveDuration));
+                report(progress, effectiveDuration);
+              }
+            }
             const inSeekCooldown = Date.now() - lastSeekAtRef.current < SEEK_COOLDOWN_MS;
             if (!inSeekCooldown) {
               if (end != null && t >= end - 0.3) {
@@ -289,7 +322,7 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
       mounted = false;
       clearInterval(intervalId);
     };
-  }, [source, readyPlayer, start, end, markComplete]);
+  }, [source, readyPlayer, start, end, markComplete, segmentDuration]);
 
   // HTML5 video: timeupdate + clamp + completion; sync state and smooth time when playing (only when direct video is mounted)
   useEffect(() => {
@@ -318,11 +351,19 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
       setVideoCurrentTime(current);
       setVideoPlaying(!v.paused);
       if (completed) return;
-      const required = (effectiveEnd - effectiveStart) * completionThreshold + effectiveStart;
+      const segmentLen = effectiveEnd - effectiveStart;
+      if (segmentLen < 0.5) return; // don't mark complete for zero or near-zero duration (avoids immediate complete on load)
+      const required = segmentLen * completionThreshold + effectiveStart;
       if (current >= required - 0.5) markComplete();
     };
 
-    const handleEnded = () => markComplete();
+    const handleEnded = () => {
+      const dur = v.duration;
+      if (!Number.isFinite(dur) || dur <= 0) return;
+      const effectiveEnd = end != null && end > 0 ? Math.min(end, dur) : dur;
+      if (effectiveEnd - start < 0.5) return; // avoid marking complete for near-zero-length segments
+      markComplete();
+    };
     const handlePlay = () => setVideoPlaying(true);
     const handlePause = () => setVideoPlaying(false);
 
@@ -344,12 +385,31 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
       setVideoCurrentTime(clamped);
     }, 80);
 
+    // Report progress to parent so segmented bar updates in sync during playback
+    const progressReportMs = 150;
+    const MIN_DURATION_TO_REPORT = 0.5;
+    const progressReportId = setInterval(() => {
+      const el = videoRef.current;
+      const report = onProgressRef.current;
+      if (!el || typeof report !== 'function') return;
+      const dur = el.duration;
+      if (!Number.isFinite(dur) || dur <= 0) return;
+      const effectiveEnd = end != null && end > 0 ? Math.min(end, dur) : dur;
+      const effectiveStart = start;
+      const effectiveDuration = Math.max(0, effectiveEnd - effectiveStart);
+      if (effectiveDuration < MIN_DURATION_TO_REPORT) return;
+      const current = Math.max(effectiveStart, Math.min(effectiveEnd, el.currentTime));
+      const progress = Math.min(1, Math.max(0, (current - effectiveStart) / effectiveDuration));
+      report(progress, effectiveDuration);
+    }, progressReportMs);
+
     return () => {
       v.removeEventListener('timeupdate', handleTimeUpdate);
       v.removeEventListener('ended', handleEnded);
       v.removeEventListener('play', handlePlay);
       v.removeEventListener('pause', handlePause);
       clearInterval(pollId);
+      clearInterval(progressReportId);
     };
   }, [source, useIframe, url, start, end, completed, markComplete, completionThreshold, videoElReady]);
 

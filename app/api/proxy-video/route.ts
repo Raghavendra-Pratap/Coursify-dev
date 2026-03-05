@@ -12,25 +12,62 @@ function isValidVideoUrl(u: string): boolean {
   }
 }
 
+/** Use usercontent endpoint with confirm=t so Google returns the file instead of virus-scan HTML. */
+function resolveDriveUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (parsed.hostname.toLowerCase() === 'drive.google.com' && parsed.pathname === '/uc') {
+      const id = parsed.searchParams.get('id')
+      if (id) return `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t`
+    }
+  } catch {
+    // ignore
+  }
+  return url
+}
+
+function isDriveUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    return host === 'drive.google.com' || host === 'drive.usercontent.google.com'
+  } catch {
+    return false
+  }
+}
+
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
 export async function GET(request: NextRequest) {
-  const url = request.nextUrl.searchParams.get('url')
+  let url = request.nextUrl.searchParams.get('url')
   if (!url || !isValidVideoUrl(url)) {
     return NextResponse.json({ error: 'Invalid or disallowed URL' }, { status: 400 })
   }
+  url = resolveDriveUrl(url)
   try {
     const range = request.headers.get('range') || ''
+    const isDrive = isDriveUrl(url)
     const res = await fetch(url, {
-      headers: range ? { Range: range } : {},
+      headers: {
+        ...(range ? { Range: range } : {}),
+        'User-Agent': BROWSER_UA,
+        ...(isDrive ? { Accept: '*/*', Referer: 'https://drive.google.com/' } : {}),
+      },
       redirect: 'follow',
     })
     if (!res.ok) {
       return new NextResponse(null, { status: res.status })
     }
-    const contentType = res.headers.get('content-type') || 'video/mp4'
+    const rawContentType = res.headers.get('content-type') || ''
+    const contentType = rawContentType.split(';')[0].trim().toLowerCase()
+    if (contentType === 'text/html') {
+      await res.body?.cancel()
+      return NextResponse.json({ error: 'Drive returned HTML instead of video. Ensure the file is shared as "Anyone with the link can view".' }, { status: 502 })
+    }
     const contentLength = res.headers.get('content-length')
     const acceptRanges = res.headers.get('accept-ranges') || 'bytes'
     const headers = new Headers()
-    headers.set('Content-Type', contentType)
+    headers.set('Content-Type', rawContentType || 'video/mp4')
+
     headers.set('Accept-Ranges', acceptRanges)
     if (contentLength) headers.set('Content-Length', contentLength)
     const resRange = res.headers.get('content-range')
