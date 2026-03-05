@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { Play, Upload, Edit, Users, BarChart3, Settings, Plus, Check, X, Clock, FileText, Video, Folder, ChevronRight, Menu, Search, Bell, Award, TrendingUp, Home, BookOpen, Zap, Eye, Share2, Download, Target, Mail, User, LogOut } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -44,6 +44,8 @@ const CoursifyLMS = () => {
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
   const [learningCourseId, setLearningCourseId] = useState<string | null>(null);
   const authChecked = !authLoading;
+  /** Only restore dashboard/courses view on initial load or login; don't overwrite when user ref changes (e.g. tab focus token refresh) */
+  const sessionViewRestoredRef = useRef(false);
 
   // Apply saved theme (dark/light) on load. Default is dark; users can switch to light in Settings.
   useEffect(() => {
@@ -79,6 +81,7 @@ const CoursifyLMS = () => {
       setUserDisplay({ displayName: 'Guest', initials: '—', role: 'Sign in to save' });
       setProfileStats({ courses: 0, certificates: 0, badges: 0 });
       setSessionMode(null);
+      sessionViewRestoredRef.current = false;
       return;
     }
     const rawName = user.user_metadata?.full_name ?? user.user_metadata?.name ?? (user.email ? user.email.split('@')[0] : null) ?? 'User';
@@ -93,6 +96,13 @@ const CoursifyLMS = () => {
         setUserDisplay((prev) => ({ ...prev, displayName, role }));
       }
     });
+    const maybeRestoreView = (mode: SessionMode) => {
+      if (!sessionViewRestoredRef.current) {
+        sessionViewRestoredRef.current = true;
+        if (mode === 'learner') setCurrentView('courses');
+        else if (mode === 'instructor') setCurrentView('dashboard');
+      }
+    };
     supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('user_id', user.id).then(({ count }) => {
       const n = count ?? 0;
       setProfileStats({ courses: n, certificates: 0, badges: 0 });
@@ -104,8 +114,7 @@ const CoursifyLMS = () => {
           localStorage.setItem(SESSION_MODE_KEY, 'learner');
         }
         setSessionMode(mode);
-        if (mode === 'learner') setCurrentView('courses');
-        else if (mode === 'instructor') setCurrentView('dashboard');
+        maybeRestoreView(mode);
       }
     });
     if (typeof window !== 'undefined') {
@@ -113,8 +122,7 @@ const CoursifyLMS = () => {
       const mode: SessionMode = saved === 'learner' || saved === 'instructor' ? saved : null;
       if (mode !== null) {
         setSessionMode(mode);
-        if (mode === 'learner') setCurrentView('courses');
-        else if (mode === 'instructor') setCurrentView('dashboard');
+        maybeRestoreView(mode);
       }
     }
   }, [user]);
