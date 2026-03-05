@@ -152,6 +152,8 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
   const [docDarkMode, setDocDarkMode] = useState(false);
   const [docFullScreen, setDocFullScreen] = useState(false);
   const docViewerRef = useRef<HTMLDivElement>(null);
+  const [currentVideoProgress, setCurrentVideoProgress] = useState(0);
+  const [currentVideoDurationSec, setCurrentVideoDurationSec] = useState(0);
 
   useEffect(() => {
     setSidebarPortalTarget(document.getElementById('take-course-sidebar-content'));
@@ -241,6 +243,12 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
   useEffect(() => {
     setCurrentStepIndex(0);
   }, [selectedLessonId, lessonContent?.contentItems?.length]);
+
+  // Reset progress display when switching to a different step so the bar doesn't show stale 100%
+  useEffect(() => {
+    setCurrentVideoProgress(0);
+    setCurrentVideoDurationSec(0);
+  }, [currentStepIndex]);
 
   const totalLessons = useMemo(
     () => modules.reduce((acc, m) => acc + (m.lessons?.length ?? 0), 0),
@@ -548,23 +556,13 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
                           Step {Math.min(currentStepIndex + 1, totalSteps)} of {totalSteps}
                         </span>
                       </div>
-                      <div className="rounded-xl overflow-hidden bg-black/5 dark:bg-black/20 border border-gray-200 dark:border-gray-700 flex-1 min-h-0 flex flex-col">
+                      <div className="rounded-xl overflow-hidden bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex-1 min-h-0 flex flex-col shadow-sm">
                         {!step ? null : step.type === 'video' ? (
                           <div className="flex flex-col flex-1 min-h-0">
-                            <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                {step.stepLabel}: {step.segment.name}
-                              </span>
-                              {completedSegments.has(step.segmentId) && (
-                                <span className="flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
-                                  <CheckCircle className="w-4 h-4" /> Watched
-                                </span>
-                              )}
-                            </div>
-                            {/* 16:9 player in designated area only; capped so footer stays visible */}
-                            <div className="flex-1 min-h-0 flex items-center justify-center p-4 overflow-hidden">
+                            {/* Dark video area: 16:9 player with center play/pause (handled in LessonVideoPlayer) */}
+                            <div className="flex-1 min-h-0 flex items-center justify-center p-4 overflow-hidden bg-gray-900 dark:bg-black">
                               <div
-                                className="aspect-video max-w-full rounded-xl overflow-hidden bg-black shrink-0 select-none"
+                                className="aspect-video max-w-full rounded-lg overflow-hidden bg-black shrink-0 select-none"
                                 style={{ width: 'min(64rem, min(100%, (100vh - 18rem) * 16 / 9))', maxHeight: 'calc(100vh - 18rem)' }}
                               >
                                 <LessonVideoPlayer
@@ -574,8 +572,52 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true }: Tak
                                     if (!isLastStep) setCurrentStepIndex((i) => Math.min(i + 1, totalSteps - 1));
                                   }}
                                   completionThreshold={0.95}
+                                  onProgress={(progress, durationSec) => {
+                                    setCurrentVideoProgress(progress);
+                                    setCurrentVideoDurationSec(durationSec);
+                                  }}
                                 />
                               </div>
+                            </div>
+                            {/* Bottom bar: title left, duration right (like reference layout) */}
+                            <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 bg-gray-900 dark:bg-gray-950 border-t border-gray-700">
+                              <span className="text-sm font-medium text-white">
+                                {step.segment.name}
+                              </span>
+                              <span className="text-sm text-white/90 tabular-nums">
+                                {currentVideoDurationSec >= 60
+                                  ? `${Math.ceil(currentVideoDurationSec / 60)} min`
+                                  : `${Math.round(currentVideoDurationSec)} sec`}
+                              </span>
+                            </div>
+                            {/* Segmented progress bar: blue (completed/current), white (remaining), grey (upcoming) with gaps */}
+                            <div className="flex-shrink-0 px-4 pb-3">
+                              <div className="flex gap-1 w-full h-2.5 rounded-full overflow-hidden">
+                                {Array.from({ length: totalSteps }).map((_, i) => {
+                                  const isCompleted = i < currentStepIndex;
+                                  const isCurrent = i === currentStepIndex;
+                                  const fillPct = isCurrent ? Math.min(1, Math.max(0, currentVideoProgress)) * 100 : isCompleted ? 100 : 0;
+                                  return (
+                                    <div
+                                      key={i}
+                                      className="h-full rounded-full overflow-hidden flex-1 min-w-0 flex bg-gray-600 dark:bg-gray-600"
+                                    >
+                                      <div
+                                        className="h-full bg-blue-500 transition-all duration-150 shrink-0"
+                                        style={{ width: `${fillPct}%` }}
+                                      />
+                                      <div
+                                        className={`h-full flex-1 min-w-0 ${isCompleted ? 'bg-blue-500' : isCurrent ? 'bg-white/20' : 'bg-gray-600 dark:bg-gray-600'}`}
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {completedSegments.has(step.segmentId) && (
+                                <p className="text-xs text-emerald-400 mt-1.5 flex items-center gap-1">
+                                  <CheckCircle className="w-3.5 h-3.5" /> Watched
+                                </p>
+                              )}
                             </div>
                           </div>
                         ) : step.type === 'reading' ? (
