@@ -1165,7 +1165,6 @@ function onFormSubmit(e) {
           if (startVal < 0) return;
           if (endVal < startVal) return;
           const maxSec = videoMaxDuration.trim() ? parseHHMMSSToSeconds(videoMaxDuration.trim()) : null;
-          if (duration.trim() && !videoMaxDuration.trim()) return;
           if (maxSec != null && endVal > maxSec) return;
 
           const startStr = formatSecondsToHHMMSS(startVal);
@@ -2997,7 +2996,7 @@ function onFormSubmit(e) {
                                 const m = parseHHMMSSToSeconds(videoMaxDuration.trim());
                                 if (m != null && eSec > m) setEndTimeError('Cannot exceed video length');
                                 else setEndTimeError(null);
-                              } else setEndTimeError('Set video length below so end time is valid');
+                              } else setEndTimeError(null);
                             }
                           }}
                           onBlur={() => {
@@ -3009,7 +3008,7 @@ function onFormSubmit(e) {
                               const m = parseHHMMSSToSeconds(videoMaxDuration.trim());
                               if (m != null && e > m) setEndTimeError('Cannot exceed video length');
                               else setEndTimeError(null);
-                            } else if (duration.trim()) setEndTimeError('Set video length below so end time is valid');
+                            } else if (duration.trim() && e != null && s != null && e > s) setEndTimeError(null);
                             else setEndTimeError(null);
                           }}
                           className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500 ${endTimeError ? 'border-red-500 dark:border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
@@ -3020,7 +3019,7 @@ function onFormSubmit(e) {
                     </div>
                     <div className="mt-4">
                       <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">
-                        Video length (total) {duration.trim() ? '(required when segment end is set)' : '(optional)'}
+                        Video length (total) (optional)
                       </label>
                       <input
                         type="text"
@@ -3031,18 +3030,15 @@ function onFormSubmit(e) {
                           const eSec = parseHHMMSSToSeconds(duration.trim());
                           const m = parseHHMMSSToSeconds(e.target.value.trim());
                           const hasDuration = duration.trim().length > 0;
-                          if (hasDuration) {
-                            if (m != null && eSec != null && eSec > m) setEndTimeError('Cannot exceed video length');
-                            else if (m != null && eSec != null) setEndTimeError(null);
-                            else if (!e.target.value.trim()) setEndTimeError('Set video length below so end time is valid');
+                          if (hasDuration && m != null && eSec != null) {
+                            if (eSec > m) setEndTimeError('Cannot exceed video length');
+                            else setEndTimeError(null);
                           }
                         }}
-                        className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent max-w-xs bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500 ${duration.trim() && !videoMaxDuration.trim() ? 'border-amber-500 dark:border-amber-500' : 'border-gray-300 dark:border-gray-600'}`}
+                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent max-w-xs bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500 border-gray-300 dark:border-gray-600"
                       />
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        HH:MM:SS. End time cannot exceed video length. {duration.trim() && !videoMaxDuration.trim() && (
-                          <span className="text-amber-600 dark:text-amber-400 font-medium">Enter video length to validate segment.</span>
-                        )}
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        HH:MM:SS. If set, segment end time cannot exceed this. Duration is calculated from start and end when both are set.
                       </p>
                     </div>
                   </div>
@@ -3091,7 +3087,6 @@ function onFormSubmit(e) {
                           if (startTime.trim() && s === null) return true;
                           if (duration.trim() && e === null) return true;
                           if (startVal < 0 || endVal < startVal) return true;
-                          if (duration.trim() && !videoMaxDuration.trim()) return true;
                           const m = videoMaxDuration.trim() ? parseHHMMSSToSeconds(videoMaxDuration.trim()) : null;
                           if (m != null && endVal > m) return true;
                           return false;

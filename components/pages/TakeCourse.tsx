@@ -286,7 +286,12 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
     load();
   }, [courseId, selectedLessonId]);
 
+  // Reset step index when lesson or content changes; ref guards against duplicate setState in same tick
+  const stepIndexResetKeyRef = useRef<string>('');
   useEffect(() => {
+    const key = `${selectedLessonId ?? ''}-${lessonContent?.contentItems?.length ?? 'none'}`;
+    if (stepIndexResetKeyRef.current === key) return;
+    stepIndexResetKeyRef.current = key;
     setCurrentStepIndex(0);
   }, [selectedLessonId, lessonContent?.contentItems?.length]);
 
@@ -482,6 +487,11 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
 
   const onSegmentComplete = useCallback((segmentId: string) => {
     setCompletedSegments((prev) => new Set(prev).add(segmentId));
+  }, []);
+
+  const onVideoProgress = useCallback((progress: number, durationSec: number) => {
+    setCurrentVideoProgress(progress);
+    setCurrentVideoDurationSec(durationSec);
   }, []);
 
   // Auto-save lesson completion when all segments are watched (so course progress % updates without requiring the user to click "Complete lesson")
@@ -794,10 +804,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
                                     if (!isLastStep) setCurrentStepIndex((i) => Math.min(i + 1, totalSteps - 1));
                                   }}
                                   completionThreshold={0.95}
-                                  onProgress={(progress, durationSec) => {
-                                    setCurrentVideoProgress(progress);
-                                    setCurrentVideoDurationSec(durationSec);
-                                  }}
+                                  onProgress={onVideoProgress}
                                 />
                               </div>
                             </div>
