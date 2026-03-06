@@ -140,6 +140,19 @@ function getHeaderIndex(headers: string[], name: string): number {
   return headers.findIndex((h) => h.trim().toLowerCase() === lower);
 }
 
+/** Parse "H:MM:SS" or "M:SS" or plain seconds number to seconds. Returns 0 if invalid. */
+function parseTimeToSeconds(value: string): number {
+  const s = (value ?? '').trim();
+  if (!s) return 0;
+  const n = parseInt(s, 10);
+  if (String(n) === s && !s.includes(':')) return Number.isNaN(n) ? 0 : Math.max(0, n);
+  const parts = s.split(':').map((p) => parseInt(p.trim(), 10));
+  if (parts.some(Number.isNaN)) return 0;
+  if (parts.length === 2) return Math.max(0, parts[0]! * 60 + parts[1]!);
+  if (parts.length === 3) return Math.max(0, parts[0]! * 3600 + parts[1]! * 60 + parts[2]!);
+  return 0;
+}
+
 function getCell(row: string[], headers: string[], name: string): string {
   const i = getHeaderIndex(headers, name);
   if (i < 0 || i >= row.length) return '';
@@ -150,13 +163,26 @@ export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | n
   const errors: ValidationError[] = [];
   const rawRows = parseCsv(csvText);
   if (rawRows.length < 2) {
-    errors.push({ row: 1, message: 'CSV must have at least a course row and a header row.' });
+    errors.push({ row: 1, message: 'CSV must have at least a header row and one data row.' });
     return { data: null, errors };
   }
 
-  const courseRow = rawRows[0];
-  const headerRow = rawRows[1];
-  const dataRows = rawRows.slice(2);
+  // Support both formats: (1) row0=course, row1=headers, row2+=data  OR  (2) row0=headers, row1+=data
+  const firstRow = rawRows[0] ?? [];
+  const hasHeaderInFirstRow = firstRow.some((c) => (c ?? '').trim().toLowerCase() === 'course_title');
+  let courseRow: string[];
+  let headerRow: string[];
+  let dataRows: string[][];
+  if (hasHeaderInFirstRow && rawRows.length >= 2) {
+    headerRow = firstRow;
+    dataRows = rawRows.slice(1);
+    courseRow = dataRows[0] ?? [];
+  } else {
+    courseRow = rawRows[0] ?? [];
+    headerRow = rawRows[1] ?? [];
+    dataRows = rawRows.slice(2);
+  }
+  const firstDataRowIndex = hasHeaderInFirstRow ? 2 : 3;
 
   const requiredHeaders = ['course_title', 'module_order', 'module_title', 'lesson_order', 'lesson_title', 'content_order', 'content_type'];
   for (const h of requiredHeaders) {
@@ -171,7 +197,7 @@ export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | n
 
   if (!courseTitle && dataRows.length > 0) {
     const firstDataTitle = getCell(dataRows[0], headerRow, 'course_title');
-    if (!firstDataTitle) errors.push({ row: 3, message: 'course_title is required (set in first row or first data row).' });
+    if (!firstDataTitle) errors.push({ row: firstDataRowIndex, message: 'course_title is required (set in first row or first data row).' });
   }
 
   const title = courseTitle || getCell(dataRows[0] ?? [], headerRow, 'course_title') || 'Untitled Course';
@@ -186,7 +212,7 @@ export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | n
 
   for (let r = 0; r < dataRows.length; r++) {
     const row = dataRows[r];
-    const rowNum = r + 3;
+    const rowNum = r + firstDataRowIndex;
     if (!row || row.every((c) => !c || c.trim() === '')) continue;
 
     const contentOrder = parseInt(getCell(row, headerRow, 'content_order'), 10);
@@ -231,12 +257,12 @@ export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | n
     if (!lessonsByKey.has(lesKey)) {
       const lessonDesc = getCell(row, headerRow, 'lesson_description');
       const lessonDur = getCell(row, headerRow, 'lesson_duration_seconds');
-      const durNum = lessonDur ? parseInt(lessonDur, 10) : undefined;
+      const durNum = lessonDur ? parseTimeToSeconds(lessonDur) : undefined;
       lessonsByKey.set(lesKey, {
         order: lesOrder,
         title: lesTitle,
         description: lessonDesc || undefined,
-        durationSeconds: Number.isNaN(durNum!) ? undefined : durNum,
+        durationSeconds: durNum > 0 ? durNum : undefined,
         content: [],
         rawContentRows: [],
       });
@@ -263,9 +289,9 @@ export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | n
       if (!videoUrl) {
         errors.push({ row: rowNum, message: 'video_url is required for content_type video.' });
       }
-      const durSec = parseInt(getCell(row, headerRow, 'video_duration_seconds'), 10) || 0;
-      const startSec = parseInt(getCell(row, headerRow, 'video_start_seconds'), 10) || 0;
-      const endSec = parseInt(getCell(row, headerRow, 'video_end_seconds'), 10) || durSec || 0;
+      const durSec = parseTimeToSeconds(getCell(row, headerRow, 'video_duration_seconds')) || 0;
+      const startSec = parseTimeToSeconds(getCell(row, headerRow, 'video_start_seconds')) || 0;
+      const endSec = parseTimeToSeconds(getCell(row, headerRow, 'video_end_seconds')) || durSec || 0;
       raw.video = {
         segmentIndex: segSeq,
         name: videoName,
@@ -349,7 +375,7 @@ export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | n
   });
 
   if (moduleList.length === 0 && dataRows.some((row) => row.some((c) => c?.trim()))) {
-    errors.push({ row: 3, message: 'No valid data rows. Check required columns and content_type.' });
+    errors.push({ row: firstDataRowIndex, message: 'No valid data rows. Check required columns and content_type.' });
   }
 
   return {
