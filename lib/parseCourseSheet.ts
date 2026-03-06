@@ -305,8 +305,8 @@ export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | n
   }
 
   // Collapse raw rows into content: group video rows by (content_order), merge into one item with videoSegments
-  for (const mod of modulesByKey.values()) {
-    for (const lesson of mod.lessons) {
+  modulesByKey.forEach((mod) => {
+    mod.lessons.forEach((lesson) => {
       const rawRows = lesson.rawContentRows ?? [];
       rawRows.sort((a, b) => a.contentOrder - b.contentOrder || a.segmentSequence - b.segmentSequence);
       const byOrder = new Map<number, RawContentRow[]>();
@@ -339,8 +339,8 @@ export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | n
       }
       lesson.content = content.sort((a, b) => a.order - b.order);
       delete lesson.rawContentRows;
-    }
-  }
+    });
+  });
 
   const moduleList = Array.from(modulesByKey.values()).sort((a, b) => a.order - b.order);
   moduleList.forEach((m) => {
