@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, Component } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft,
@@ -28,6 +28,52 @@ import {
 import { LessonVideoPlayer, type VideoSegment } from '../LessonVideoPlayer';
 import { ReadingContentRenderer } from '@/components/ReadingContentRenderer';
 import { useAuth } from '@/contexts/AuthContext';
+
+/** Catches render/effect errors (e.g. React #185) in lesson content and shows a fallback instead of crashing. */
+class LessonErrorBoundary extends Component<
+  { children: React.ReactNode; onRetry: () => void; onBack: () => void },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: Error) {
+    if (typeof console !== 'undefined') console.error('LessonErrorBoundary:', error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+          <p className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Something went wrong</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 text-center max-w-md">
+            This lesson could not be loaded. Try again or go back and open another lesson.
+          </p>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                this.setState({ hasError: false });
+                this.props.onRetry();
+              }}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700"
+            >
+              Try again
+            </button>
+            <button
+              type="button"
+              onClick={this.props.onBack}
+              className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              Go back
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type Lesson = { id: string; title: string; description?: string | null; order_index: number };
 type Module = { id: string; title: string; order_index: number; lessons: Lesson[] };
@@ -175,6 +221,8 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
   const docViewerRef = useRef<HTMLDivElement>(null);
   const [currentVideoProgress, setCurrentVideoProgress] = useState(0);
   const [currentVideoDurationSec, setCurrentVideoDurationSec] = useState(0);
+  /** Key for lesson error boundary; increment to remount and recover from render errors (e.g. React #185). */
+  const [lessonErrorBoundaryKey, setLessonErrorBoundaryKey] = useState(0);
 
   const [notesOpen, setNotesOpen] = useState(true);
   const [notesWidth, setNotesWidth] = useState(DEFAULT_NOTES_WIDTH);
@@ -286,14 +334,15 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
     load();
   }, [courseId, selectedLessonId]);
 
-  // Reset step index when lesson or content changes; ref guards against duplicate setState in same tick
-  const stepIndexResetKeyRef = useRef<string>('');
+  // Reset step index only when lesson changes (single dep avoids update loops / React #185)
   useEffect(() => {
-    const key = `${selectedLessonId ?? ''}-${lessonContent?.contentItems?.length ?? 'none'}`;
-    if (stepIndexResetKeyRef.current === key) return;
-    stepIndexResetKeyRef.current = key;
     setCurrentStepIndex(0);
-  }, [selectedLessonId, lessonContent?.contentItems?.length]);
+  }, [selectedLessonId]);
+
+  // Remount lesson error boundary when lesson changes so a previous crash doesn't block the new lesson
+  useEffect(() => {
+    setLessonErrorBoundaryKey((k) => k + 1);
+  }, [selectedLessonId]);
 
   // Load note for current lesson from localStorage
   useEffect(() => {
@@ -705,6 +754,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
               Loading lesson…
             </div>
           ) : lessonContent ? (
+            <LessonErrorBoundary key={lessonErrorBoundaryKey} onRetry={() => setLessonErrorBoundaryKey((k) => k + 1)} onBack={onBack}>
             <>
               <div className="p-6 border-b border-gray-200 dark:border-gray-700">
                 <div className="flex items-start justify-between gap-4">
@@ -1095,6 +1145,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
                 )}
               </div>
             </>
+            </LessonErrorBoundary>
           ) : (
             <div className="flex-1 flex items-center justify-center p-12 text-center text-gray-500 dark:text-gray-400">
               <div>

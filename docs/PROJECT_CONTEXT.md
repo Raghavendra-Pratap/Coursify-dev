@@ -37,6 +37,13 @@
 
 ---
 
+## Course and module names
+
+- **Database**: `courses.title` and `modules.title` are **TEXT** (no character limit in Postgres).
+- **UI**: No app-level character limit is enforced. Very long names are truncated in some places (e.g. Take Course header). For a smooth UI, keeping **course and module titles under ~200 characters** is recommended. Long names do not cause React #185 or other front-end errors by themselves.
+
+---
+
 ## Pending / optional
 
 - Set **NEXT_PUBLIC_APP_URL** and **MAGIC_LINK_SECRET** in Vercel production env.
