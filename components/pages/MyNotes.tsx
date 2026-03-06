@@ -54,9 +54,9 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
       list.push(e);
       map.set(e.courseId, list);
     }
-    for (const list of map.values()) {
+    map.forEach((list) => {
       list.sort((a, b) => b.updatedAt - a.updatedAt);
-    }
+    });
     return map;
   }, [entries]);
 
