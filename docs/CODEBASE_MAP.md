@@ -1,6 +1,6 @@
 # Codebase Map: Coursify LMS
 
-**Last Updated**: Current Session  
+**Last Updated**: 2025-03 (post–learner mode & course import from sheet)  
 **Purpose**: Navigation guide for the codebase structure, entry points, and component relationships
 
 ---
@@ -18,19 +18,39 @@ Coursify/
 │   ├── CoursifyLMS.tsx          # Main app orchestrator (sidebar + routing)
 │   └── pages/                   # Page-level components
 │       ├── Dashboard.tsx         # Dashboard with stats, charts, activity
-│       ├── CreateCourse.tsx      # Course creation with micro-video editor
-│       ├── MyCourses.tsx         # Course management (grid/list, filters)
+│       ├── CreateCourse.tsx      # Course creation + Import from sheet
+│       ├── MyCourses.tsx         # Course management; learner/instructor tabs
 │       ├── Learners.tsx         # Learner management and tracking
 │       ├── Analytics.tsx        # Analytics dashboard (4 metric views)
-│       └── Reports.tsx          # Report generation and scheduling
+│       ├── Reports.tsx          # Report generation and scheduling
+│       ├── TakeCourse.tsx       # Learner: video, reading, quiz/form, Q&A, notes
+│       ├── MyNotes.tsx          # Learner: notes by course (localStorage)
+│       ├── Notifications.tsx    # Learner: notifications sidebar
+│       └── QAndA.tsx            # Learner: course Q&A threads
 │
 ├── lib/                          # Utility libraries and clients
 │   ├── supabase.ts              # Supabase client (client & server)
 │   ├── database.types.ts        # TypeScript types for database
-│   └── magic-link.ts            # HMAC-signed magic link tokens (share links)
+│   ├── magic-link.ts            # HMAC-signed magic link tokens (share links)
+│   └── parseCourseSheet.ts      # CSV course import parser (segment_sequence)
+│
+├── public/                       # Static assets
+│   └── course-import-template.csv # Template for Import from sheet
 │
 ├── app/api/                      # API routes (Next.js)
-│   └── courses/[id]/magic-link/ # GET: generate magic link for course share
+│   ├── courses/[id]/magic-link/ # GET: generate magic link for course share
+│   ├── instructor/
+│   │   ├── courses/import-from-sheet/ # POST: create draft course from CSV
+│   │   ├── courses/[courseId]/structure/ # POST: replace course structure
+│   │   ├── courses/[courseId]/notify-update/ # POST: notify learners
+│   │   └── questions/           # GET/POST: instructor Q&A
+│   ├── learning/
+│   │   ├── enrolled/            # GET: enrolled courses (with extra fields)
+│   │   ├── my-questions/        # GET: current user's questions
+│   │   ├── courses/[courseId]/questions/ # GET/POST: course Q&A
+│   │   ├── courses/[courseId]/questions/[questionId]/ # PATCH: answer
+│   │   └── courses/[courseId]/rating/ # POST: rate course (1–5, review)
+│   └── notifications/          # GET/PATCH: user notifications
 ├── app/go/[token]/               # Magic link redirect: /go/TOKEN → /course/[id]
 │
 ├── vercel.json                   # Vercel config (e.g. redirect vercel.app → custom domain)
@@ -94,8 +114,8 @@ Coursify/
   - `currentView` - Controls which page to display
   - `sidebarOpen` - Sidebar collapse state
   - `showProfileModal` - Profile modal visibility
-- **Navigation**: Routes to 7 views (dashboard, courses, create, learners, analytics, reports, settings)
-- **Components**: Renders page components based on `currentView`
+- **Navigation**: Routes to dashboard, courses, create, learners, analytics, reports, settings; learner views (take course, My Notes, Notifications, Q&A)
+- **Components**: Renders page components based on `currentView`; supports learner/instructor session mode
 
 ---
 
@@ -110,8 +130,12 @@ app/page.tsx
     │
     └── Main Content Area (conditional rendering)
         ├── Dashboard (pages/Dashboard.tsx)
-        ├── MyCourses (pages/MyCourses.tsx)
-        ├── CreateCourse (pages/CreateCourse.tsx)
+        ├── MyCourses (pages/MyCourses.tsx) — instructor + learner tabs
+        ├── CreateCourse (pages/CreateCourse.tsx) — includes Import from sheet
+        ├── TakeCourse (pages/TakeCourse.tsx) — learner course player
+        ├── MyNotes (pages/MyNotes.tsx)
+        ├── Notifications (pages/Notifications.tsx)
+        ├── QAndA (pages/QAndA.tsx)
         ├── Learners (pages/Learners.tsx)
         ├── Analytics (pages/Analytics.tsx)
         ├── Reports (pages/Reports.tsx)
@@ -160,6 +184,7 @@ app/page.tsx
 ### 3. CreateCourse (`components/pages/CreateCourse.tsx`)
 **Purpose**: Course creation with micro-video editor
 **Features**:
+- **Import from sheet**: Upload CSV → create draft course (parser: `lib/parseCourseSheet.ts`); template: `public/course-import-template.csv`; API: `POST /api/instructor/courses/import-from-sheet`
 - Drag-and-drop for modules/lessons/content
 - Multiple upload options (file, Google Drive, YouTube)
 - Quiz/form insertion
@@ -511,10 +536,11 @@ export default ComponentName;
 
 ## 🔗 Related Documentation
 
-- **Project Context**: `PROJECT_CONTEXT.md` - Overall project status
-- **Backend Setup**: `BACKEND_SETUP.md` - Supabase configuration
-- **Project Plan**: `project_plan.md` - Development roadmap
-- **Implementation**: `PAGES_IMPLEMENTATION.md` - UI feature details
+- **Docs index**: `docs/DOCS_INDEX.md` - Full list of docs with descriptions
+- **Project Context**: `docs/PROJECT_CONTEXT.md` - Overall project status, recent completions
+- **Technical Reference**: `docs/TECHNICAL_REFERENCE.md` - Schema, APIs, Supabase
+- **Course import plan**: `docs/plans/COURSE_FROM_SHEET_PLAN.md` - CSV import structure and API
+- **Decisions**: `docs/decisions/DECISIONS.md` - Architecture decisions
 
 ---
 

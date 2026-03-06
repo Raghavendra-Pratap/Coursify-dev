@@ -231,13 +231,18 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
     }
   }, [courseId]);
 
+  const hasAutoSelectedRef = useRef(false);
+
   useEffect(() => {
     loadCourse();
+    hasAutoSelectedRef.current = false;
   }, [loadCourse]);
 
-  // Auto-select first lesson when course loads and none is selected; or open to initialLessonId when provided
+  // Auto-select first lesson when course loads (once per load); or open to initialLessonId when provided
   useEffect(() => {
     if (loading || modules.length === 0) return;
+    if (hasAutoSelectedRef.current) return;
+    hasAutoSelectedRef.current = true;
     if (initialLessonId) {
       const exists = modules.some((m) => m.lessons?.some((l: { id: string }) => l.id === initialLessonId));
       if (exists) {
@@ -245,10 +250,9 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
         return;
       }
     }
-    if (selectedLessonId) return;
     const firstLesson = modules[0]?.lessons?.[0];
     if (firstLesson?.id) setSelectedLessonId(firstLesson.id);
-  }, [loading, modules, selectedLessonId, initialLessonId]);
+  }, [loading, modules, initialLessonId]);
 
   useEffect(() => {
     if (!selectedLessonId) {
@@ -482,8 +486,9 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
 
   // Auto-save lesson completion when all segments are watched (so course progress % updates without requiring the user to click "Complete lesson")
   const submittedLessonForSegmentsRef = useRef<string | null>(null);
+  const completedLessonIdsHasCurrent = selectedLessonId != null && completedLessonIds.has(selectedLessonId);
   useEffect(() => {
-    if (!hasVideoSegments || !allSegmentsWatched || !selectedLessonId || completedLessonIds.has(selectedLessonId)) return;
+    if (!hasVideoSegments || !allSegmentsWatched || !selectedLessonId || completedLessonIdsHasCurrent) return;
     if (submittedLessonForSegmentsRef.current === selectedLessonId) return;
     submittedLessonForSegmentsRef.current = selectedLessonId;
     (async () => {
@@ -502,7 +507,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
         submittedLessonForSegmentsRef.current = null;
       }
     })();
-  }, [courseId, selectedLessonId, hasVideoSegments, allSegmentsWatched, completedLessonIds]);
+  }, [courseId, selectedLessonId, hasVideoSegments, allSegmentsWatched, completedLessonIdsHasCurrent]);
 
   const handleCompleteLesson = async () => {
     if (!selectedLessonId || !canCompleteLesson) return;

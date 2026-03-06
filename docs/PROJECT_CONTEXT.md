@@ -1,7 +1,7 @@
 # Coursify LMS - Project Context
 
-**Last Updated**: 2025-02-11  
-**Status**: In active development; production at https://coursify.bsoc.space (custom domain). Develop/release from root codebase (Next.js App Router, Supabase auth, instructor/learner flows).
+**Last Updated**: 2025-03  
+**Status**: In active development; production at https://coursify.bsoc.space (custom domain). Develop/release from root codebase (Next.js App Router, Supabase auth, instructor/learner flows). Default branch: **develop**.
 
 ---
 
@@ -11,15 +11,21 @@
 
 ### Current state
 - **Auth**: Supabase; roles (admin, instructor, learner); profile and course ownership.
-- **Instructor**: Dashboard, My Courses, Create Course, Learners, Analytics, Reports; Learners aligned with dashboard enrollments; Share modal uses magic link when available.
-- **Learner**: Take Course (video, reading, quizzes/forms); progress and certificates (instructor-awarded).
-- **Deploy**: Vercel; `develop` branch; custom domain coursify.bsoc.space; vercel.app redirects to custom domain via `vercel.json`.
+- **Instructor**: Dashboard, My Courses, Create Course (with **Import from sheet** CSV), Learners, Analytics, Reports; Share modal uses magic link when available.
+- **Learner**: My Courses (enrolled), Take Course (video, reading, quizzes/forms, Q&A, notes); **My Notes** (by course, localStorage); **Notifications**; **Q&A** threads; course **ratings** (1–5 + review); progress and certificates (instructor-awarded).
+- **Deploy**: Vercel; `develop` branch; custom domain coursify.bsoc.space; vercel.app redirects via `vercel.json`.
 
-### Recent completions (Feb 2025)
+### Recent completions (Mar 2025)
+- **Course import from sheet**: Create Course → Import from sheet; CSV parser (`lib/parseCourseSheet.ts`), segment_sequence, draft creation, template at `public/course-import-template.csv`; API `POST /api/instructor/courses/import-from-sheet`.
+- **Learner mode**: Notes sidebar, Q&A threads (`course_questions`), Notifications (`user_notifications`), My Notes page, learner course cards (modules, duration, rating, last updated), rate-course modal.
+- **Build fixes**: `params` vs `params()` in rating route; `forEach` instead of `for..of` over Map iterators (MyNotes, parseCourseSheet) for Vercel build.
+- **Merge**: feature/learner-mode-advancements merged into develop (no PR).
+
+### Earlier (Feb 2025)
 - Magic links for sharing (`/go/[token]`, API, Share modal).
 - Redirect coursify-dev.vercel.app → coursify.bsoc.space.
 - Default theme dark; devtools/right-click blocked; `select-none` on video/content.
-- Learners page: same scope as Dashboard, pending invites when no enrollments, last active/joined dates, sign-up email.
+- Learners page: same scope as Dashboard, pending invites, last active/joined dates.
 
 ---
 
