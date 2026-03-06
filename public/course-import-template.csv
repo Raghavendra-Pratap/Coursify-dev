@@ -1,0 +1,5 @@
+course_title,course_description,module_order,module_title,module_description,lesson_order,lesson_title,lesson_description,lesson_duration_seconds,content_order,content_type,segment_sequence,video_name,video_source,video_url,video_duration_seconds,video_start_seconds,video_end_seconds,reading_type,reading_title,reading_url,reading_body,quiz_title,quiz_form_url,form_title,form_url
+"My Course Title","Short course description (optional)",0,Welcome,,0,Overview,Optional lesson description,,0,video,0,Intro,youtube,https://www.youtube.com/watch?v=dQw4w9WgXcQ,120,0,120,,,,,,,,
+"My Course Title",,0,Welcome,,0,Overview,,,1,reading,,,,,,,,,"url","Read this doc",https://example.com/doc,,,,,,
+"My Course Title",,0,Welcome,,1,Key concepts,,,60,0,video,0,Part 1,youtube,https://www.youtube.com/watch?v=VIDEO_ID,60,,,"",,,,,,,,
+"My Course Title",,0,Welcome,,1,Key concepts,,,60,0,video,1,Part 2,youtube,https://www.youtube.com/watch?v=VIDEO_ID2,60,,,"",,,,,,,,
