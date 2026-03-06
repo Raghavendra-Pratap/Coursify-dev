@@ -107,8 +107,8 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   // Drive: stream via our proxy and play in <video> so we have full control (one button, timer + video in sync). No iframe.
   const videoUrlForPlayback = driveId ? getDriveProxyVideoUrl(driveId) : videoUrl;
   const useIframe = !!videoUrl && !driveId && !isDirectVideoUrl(videoUrl);
-  /** True when we show iframe: either external URL (useIframe) or Drive fallback after proxy failed. */
-  const useIframeForPlayback = useIframe || (!!driveId && driveProxyFailed);
+  /** Use iframe for external URLs or for Drive (Drive iframe avoids proxy <video> and prevents React #185 update loop). */
+  const useIframeForPlayback = useIframe || !!driveId;
 
   const markComplete = useCallback(() => {
     setCompleted(true);
@@ -659,9 +659,9 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
     );
   }
 
-  // Iframe-based playback (Drive/external URL, or Drive fallback when proxy fails): same overlay + control bar
+  // Iframe-based playback (Drive or other external URL): same overlay + control bar
   if (useIframeForPlayback) {
-    const iframeSrc = (driveId && driveProxyFailed)
+    const iframeSrc = driveId
       ? getGoogleDriveEmbedUrl(driveId, start > 0 ? start : undefined)
       : videoUrl!;
     const iframeDuration = segmentDuration > 0 ? segmentDuration : 60;
@@ -751,8 +751,8 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
               <span className="text-white text-sm tabular-nums">
                 {formatTime(iframeElapsed)} / {formatTime(iframeDuration)}
               </span>
-              {driveId && driveProxyFailed && (
-                <span className="text-white/70 text-xs" title="Streaming via Google Drive embed">Drive</span>
+              {driveId && (
+                <span className="text-white/70 text-xs" title="Streaming via Google Drive">Drive</span>
               )}
               <span className="p-1.5 text-white/70" title="Volume controlled in video area" aria-label="Volume in video area">
                 <Volume2 className="w-5 h-5" />
