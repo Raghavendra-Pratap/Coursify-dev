@@ -27,7 +27,7 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { courseId } = await params()
+  const { courseId } = await params
   const body = await request.json().catch(() => ({}))
   const rating = typeof body.rating === "number" ? Math.min(5, Math.max(1, Math.round(body.rating))) : null
   const review = typeof body.review === "string" ? body.review.trim().slice(0, 2000) : null
