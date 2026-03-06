@@ -183,6 +183,8 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
         width: '100%',
         height: '100%',
         playerVars: {
+          // Required to avoid postMessage origin mismatches in some embeds.
+          origin: typeof window !== 'undefined' ? window.location.origin : undefined,
           start: Math.floor(start),
           end: end != null ? Math.floor(end) : undefined,
           rel: 0,
