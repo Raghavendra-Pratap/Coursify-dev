@@ -35,8 +35,8 @@ export async function GET(request: Request) {
       byParent.set(q.parent_id, list);
     }
   }
-  const courseIds = [...new Set(questions.map((q: { course_id: string }) => q.course_id))];
-  const lessonIds = [...new Set(questions.map((q: { lesson_id: string | null }) => q.lesson_id).filter(Boolean))];
+  const courseIds = Array.from(new Set(questions.map((q: { course_id: string }) => q.course_id)));
+  const lessonIds = Array.from(new Set(questions.map((q: { lesson_id: string | null }) => q.lesson_id).filter(Boolean)));
   const { data: courses } = await db.from('courses').select('id, title').in('id', courseIds);
   const { data: lessons } = lessonIds.length ? await db.from('lessons').select('id, title').in('id', lessonIds) : { data: [] };
   const courseTitleBy = new Map((courses ?? []).map((c: { id: string; title: string }) => [c.id, c.title]));

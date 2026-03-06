@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, Pause, Plus, Clock, Video, ChevronRight, Edit, X, Save, Zap, Folder, Upload, Eye, RotateCcw,
   Trash2, CheckCircle, Info, ChevronDown, ChevronUp, Download, Copy, FileText, Menu,
-  Youtube, HelpCircle, Radio, AlertCircle, BookOpen, Link
+  Youtube, HelpCircle, Radio, AlertCircle, BookOpen, Link, FileSpreadsheet
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { ReadingContentRenderer } from '@/components/ReadingContentRenderer';
@@ -13,6 +13,8 @@ interface CreateCourseProps {
   setCurrentView: (view: string) => void;
   initialCourseId?: string | null;
   onBackToCourses?: () => void;
+  /** When course is created from sheet import, open it in the editor (parent sets editingCourseId and stays on create view). */
+  onImportSuccess?: (courseId: string) => void;
 }
 
 // Updated data structure: Lessons contain content items (video segments, quizzes, forms, reading)
@@ -338,7 +340,7 @@ function YouTubeSegmentPlayer({
   );
 }
 
-const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCourseId, onBackToCourses }) => {
+const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCourseId, onBackToCourses, onImportSuccess }) => {
   const [currentModule, setCurrentModule] = useState(0);
   const [currentLesson, setCurrentLesson] = useState(0);
   const [selectedContent, setSelectedContent] = useState(0);
@@ -365,6 +367,10 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
   const [startTime, setStartTime] = useState('');
   const [duration, setDuration] = useState('');
   const [videoMaxDuration, setVideoMaxDuration] = useState(''); // Optional HH:MM:SS for validation
+  const [showImportSheet, setShowImportSheet] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importLoading, setImportLoading] = useState(false);
   const [startTimeError, setStartTimeError] = useState<string | null>(null);
   const [endTimeError, setEndTimeError] = useState<string | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -573,6 +579,42 @@ function onFormSubmit(e) {
   const showSaveMessage = (msg: string) => {
     setSaveMessage(msg);
     setTimeout(() => setSaveMessage(null), 4000);
+  };
+
+  const handleImportSheet = async () => {
+    if (!importFile) {
+      setImportError('Choose a CSV file first.');
+      return;
+    }
+    setImportError(null);
+    setImportLoading(true);
+    try {
+      const formData = new FormData();
+      formData.set('sheet', importFile);
+      const res = await fetch('/api/instructor/courses/import-from-sheet', {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const details = Array.isArray(json.details) ? json.details.map((d: { row?: number; message?: string }) => `Row ${d.row}: ${d.message}`).join('; ') : json.details || json.error;
+        setImportError(details || res.statusText || 'Import failed.');
+        return;
+      }
+      const courseId = json.courseId;
+      setShowImportSheet(false);
+      setImportFile(null);
+      if (courseId && onImportSuccess) {
+        onImportSuccess(courseId);
+      } else if (courseId) {
+        showSaveMessage('Course created. Reload the page to edit it.');
+      }
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : 'Import failed.');
+    } finally {
+      setImportLoading(false);
+    }
   };
 
   // Updated course structure: Modules -> Lessons -> Content Items (videos/quizzes/forms)
@@ -1553,6 +1595,42 @@ function onFormSubmit(e) {
           </button>
           <h3 className="text-lg font-bold mb-2 dark:text-white">Course Structure</h3>
           <p className="text-sm text-gray-600 dark:text-gray-400">Drag to reorder modules, lessons, and content</p>
+          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+            <button
+              type="button"
+              onClick={() => { setShowImportSheet(!showImportSheet); setImportError(null); setImportFile(null); }}
+              className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Import from sheet
+            </button>
+            {showImportSheet && (
+              <div className="mt-3 space-y-2">
+                <a
+                  href="/course-import-template.csv"
+                  download="course-import-template.csv"
+                  className="block text-xs text-gray-500 dark:text-gray-400 hover:underline"
+                >
+                  Download CSV template
+                </a>
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => { setImportFile(e.target.files?.[0] ?? null); setImportError(null); }}
+                  className="block w-full text-xs text-gray-600 dark:text-gray-300 file:mr-2 file:py-1.5 file:px-2 file:rounded file:border-0 file:text-xs file:font-medium file:bg-blue-50 file:text-blue-700 dark:file:bg-blue-900/30 dark:file:text-blue-300"
+                />
+                {importError && <p className="text-xs text-red-600 dark:text-red-400">{importError}</p>}
+                <button
+                  type="button"
+                  disabled={importLoading}
+                  onClick={handleImportSheet}
+                  className="w-full py-1.5 px-2 rounded bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {importLoading ? 'Importing…' : 'Upload and create draft'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="p-6">

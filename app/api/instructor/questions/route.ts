@@ -26,7 +26,7 @@ export async function GET(request: Request) {
   const courseIds = (myCourses ?? []).map((c: { id: string }) => c.id);
   const { data: collabRows } = await db.from('course_collaborators').select('course_id').eq('user_id', user.id);
   const collabIds = (collabRows ?? []).map((c: { course_id: string }) => c.course_id);
-  const allCourseIds = [...new Set([...courseIds, ...collabIds])];
+  const allCourseIds = Array.from(new Set([...courseIds, ...collabIds]));
   if (allCourseIds.length === 0) return NextResponse.json({ threads: [] });
   const selectCols = 'id, course_id, module_id, lesson_id, parent_id, asked_by, question_text, answer_text, answered_by, answered_at, created_at';
   const { data: rows, error } = await db.from('course_questions').select(selectCols).in('course_id', allCourseIds).order('created_at', { ascending: true });
@@ -41,8 +41,8 @@ export async function GET(request: Request) {
       byParent.set(q.parent_id, list);
     }
   }
-  const cIds = [...new Set(questions.map((q: { course_id: string }) => q.course_id))];
-  const lIds = [...new Set(questions.map((q: { lesson_id: string | null }) => q.lesson_id).filter(Boolean))];
+  const cIds = Array.from(new Set(questions.map((q: { course_id: string }) => q.course_id)));
+  const lIds = Array.from(new Set(questions.map((q: { lesson_id: string | null }) => q.lesson_id).filter(Boolean)));
   const { data: courses } = await db.from('courses').select('id, title').in('id', cIds);
   const { data: lessons } = lIds.length ? await db.from('lessons').select('id, title').in('id', lIds) : { data: [] };
   const courseTitleBy = new Map((courses ?? []).map((c: { id: string; title: string }) => [c.id, c.title]));
