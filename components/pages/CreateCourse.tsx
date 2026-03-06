@@ -679,7 +679,7 @@ function onFormSubmit(e) {
               const type = (item.content_type === 'video' || item.content_type === 'quiz' || item.content_type === 'form' || item.content_type === 'reading') ? item.content_type : 'reading';
               const contentItem: ContentItem = { id: ci, type: type as ContentType, order: item.order_index };
               if (type === 'video') {
-                const { data: vsRows } = await db.from('video_segments').select('name, duration_seconds, start_time_seconds, end_time_seconds, source, source_url').eq('content_item_id', item.id);
+                const { data: vsRows } = await db.from('video_segments').select('name, duration_seconds, start_time_seconds, end_time_seconds, source, source_url').eq('content_item_id', item.id).order('id');
                 const vs = vsRows?.[0] as { name: string; duration_seconds: number; start_time_seconds: number; end_time_seconds: number; source: string; source_url: string | null } | undefined;
                 contentItem.videoSegment = vs ? { id: ci, name: vs.name, duration: formatSecondsToHHMMSS(vs.duration_seconds || 0), startTime: formatSecondsToHHMMSS(vs.start_time_seconds || 0), endTime: formatSecondsToHHMMSS(vs.end_time_seconds || 0), startTimestamp: vs.start_time_seconds ?? 0, endTimestamp: vs.end_time_seconds, status: 'active', size: '', lastEdited: '', source: (vs.source as VideoSource) || 'upload', sourceUrl: vs.source_url || undefined } : undefined;
               }
@@ -1858,48 +1858,69 @@ function onFormSubmit(e) {
                       <div className="flex items-start flex-1">
                         <Menu className="w-5 h-5 text-gray-400 dark:text-gray-500 mr-3 mt-1 cursor-move" />
                         <div className="flex-1">
-                          {content.type === 'video' && content.videoSegment && (
+                          {content.type === 'video' && (
                             <>
-                              <div className="flex items-center mb-2">
-                                <Video className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-2" />
-                                <span className="font-semibold text-gray-900 dark:text-white">{content.videoSegment.name}</span>
-                                {content.videoSegment.source === 'youtube' && (
-                                  <Youtube className="w-4 h-4 text-red-600 dark:text-red-400 ml-2" />
-                                )}
-                                {content.videoSegment.source === 'google_drive' && (
-                                  <Folder className="w-4 h-4 text-green-600 dark:text-green-400 ml-2" />
-                                )}
-                                {content.videoSegment.source === 'external_url' && (
-                                  <Video className="w-4 h-4 text-violet-600 dark:text-violet-400 ml-2" />
-                                )}
-                                {content.videoSegment.startTimestamp !== undefined && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setShowStreamSettings(true);
-                                    }}
-                                    className="ml-2 px-2 py-1 text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded flex items-center"
-                                  >
-                                    <Radio className="w-3 h-3 mr-1" />
-                                    Streaming
-                                  </button>
-                                )}
-                              </div>
-                              <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
-                                <span className="flex items-center">
-                                  <Clock className="w-4 h-4 mr-1" />
-                                  {content.videoSegment.duration}
-                                </span>
-                                <span className="flex items-center">
-                                  <Video className="w-4 h-4 mr-1" />
-                                  {content.videoSegment.size}
-                                </span>
-                                {content.videoSegment.startTimestamp !== undefined && (
-                                  <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded">
-                                    {formatSecondsToTime(content.videoSegment.startTimestamp)} - {formatSecondsToTime(content.videoSegment.endTimestamp || 0)}
-                                  </span>
-                                )}
-                              </div>
+                              {content.videoSegment ? (
+                                <>
+                                  <div className="flex items-center mb-2">
+                                    <Video className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-2" />
+                                    <span className="font-semibold text-gray-900 dark:text-white">{content.videoSegment.name}</span>
+                                    {content.videoSegment.source === 'youtube' && (
+                                      <Youtube className="w-4 h-4 text-red-600 dark:text-red-400 ml-2" />
+                                    )}
+                                    {content.videoSegment.source === 'google_drive' && (
+                                      <Folder className="w-4 h-4 text-green-600 dark:text-green-400 ml-2" />
+                                    )}
+                                    {content.videoSegment.source === 'external_url' && (
+                                      <Video className="w-4 h-4 text-violet-600 dark:text-violet-400 ml-2" />
+                                    )}
+                                    {content.videoSegment.startTimestamp !== undefined && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setShowStreamSettings(true);
+                                        }}
+                                        className="ml-2 px-2 py-1 text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded flex items-center"
+                                      >
+                                        <Radio className="w-3 h-3 mr-1" />
+                                        Streaming
+                                      </button>
+                                    )}
+                                  </div>
+                                  {(content.videoSegment.sourceUrl || content.videoSegment.source !== 'upload') && (
+                                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-1 truncate max-w-full" title={content.videoSegment.sourceUrl || ''}>
+                                      <Link className="w-3 h-3 inline-block mr-1 align-middle" />
+                                      {content.videoSegment.sourceUrl ? (
+                                        <a href={content.videoSegment.sourceUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-blue-600 dark:text-blue-400 hover:underline truncate inline-block max-w-full">
+                                          {content.videoSegment.sourceUrl}
+                                        </a>
+                                      ) : (
+                                        <span>Link not set</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
+                                    <span className="flex items-center">
+                                      <Clock className="w-4 h-4 mr-1" />
+                                      {content.videoSegment.duration}
+                                    </span>
+                                    <span className="flex items-center">
+                                      <Video className="w-4 h-4 mr-1" />
+                                      {content.videoSegment.size}
+                                    </span>
+                                    {content.videoSegment.startTimestamp !== undefined && (
+                                      <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded">
+                                        {formatSecondsToTime(content.videoSegment.startTimestamp)} - {formatSecondsToTime(content.videoSegment.endTimestamp || 0)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                                  <Video className="w-5 h-5 flex-shrink-0" />
+                                  <span className="text-sm">Video — link not loaded. Save and reopen, or re-add the video link.</span>
+                                </div>
+                              )}
                             </>
                           )}
                           {content.type === 'quiz' && content.quiz && (

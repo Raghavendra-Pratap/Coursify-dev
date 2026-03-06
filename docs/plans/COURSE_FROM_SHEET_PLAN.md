@@ -37,16 +37,16 @@ One CSV/Excel sheet. **First row**: course-level (course title, course descripti
 |--------|----------|-------------|
 | **course_title** | Yes (first row) | Course title (only first row used) |
 | **course_description** | No | Course description |
-| **module_order** | Yes | 0-based or 1-based index for module order |
+| **module_order** | Yes | 1-based index for module order (1 = first module) |
 | **module_title** | Yes | Module name |
 | **module_description** | No | Module description |
-| **lesson_order** | Yes | Order of lesson within module |
+| **lesson_order** | Yes | 1-based order of lesson within module (1 = first lesson) |
 | **lesson_title** | Yes | Lesson name |
 | **lesson_description** | No | Lesson description |
 | **lesson_duration_seconds** | No | Total lesson duration (can be derived from content if omitted) |
-| **content_order** | Yes | Order of this content item within the lesson |
+| **content_order** | Yes | 1-based order of this content item within the lesson (1 = first) |
 | **content_type** | Yes | `video` \| `reading` \| `quiz` \| `form` |
-| **segment_sequence** | No (video) | 0-based order of this segment within the video block. Rows with the same module, lesson, and content_order and type video are merged into one content item; segment_sequence defines playback order. Omit or 0 for a single segment. |
+| **segment_sequence** | No (video) | 1-based order of this segment within the video block (1 = first segment). Rows with the same module, lesson, and content_order and type video are merged into one content item; segment_sequence defines playback order. Omit or 1 for a single segment. |
 | **video_name** | If video | Segment name |
 | **video_source** | If video | `youtube` \| `google_drive` \| `external_url` (upload not supported from sheet) |
 | **video_url** | If video | URL (YouTube, Drive share link, or external) |
@@ -64,15 +64,15 @@ One CSV/Excel sheet. **First row**: course-level (course title, course descripti
 
 **Parsing rules**:
 - For any row where `module_title` or `lesson_title` is blank, reuse the previous row’s module/lesson.
-- **Segments**: Rows with the same module, lesson, and `content_order` and `content_type=video` are treated as one video content item with multiple segments. Use `segment_sequence` (0, 1, 2, …) to order segments. Stored as `segment_index` in the database.
+- **Segments**: Rows with the same module, lesson, and `content_order` and `content_type=video` are treated as one video content item with multiple segments. Use `segment_sequence` (1, 2, 3, …) to order segments. Stored as 0-based `segment_index` in the database.
 
 **Example (minimal)**:
 
 ```csv
 course_title,course_description,module_order,module_title,lesson_order,lesson_title,content_order,content_type,video_name,video_source,video_url
-Introduction to Sales,,0,Welcome,0,Overview,0,video,Intro,youtube,https://www.youtube.com/watch?v=xxx
-Introduction to Sales,,0,Welcome,0,Overview,1,reading,,,,"",url,Read this doc,
-Introduction to Sales,,0,Welcome,1,Key concepts,0,video,Main lesson,youtube,https://www.youtube.com/watch?v=yyy
+Introduction to Sales,,1,Welcome,1,Overview,1,video,Intro,youtube,https://www.youtube.com/watch?v=xxx
+Introduction to Sales,,1,Welcome,1,Overview,2,reading,,,,"",url,Read this doc,
+Introduction to Sales,,1,Welcome,2,Key concepts,1,video,Main lesson,youtube,https://www.youtube.com/watch?v=yyy
 ```
 
 ---

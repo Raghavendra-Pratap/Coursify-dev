@@ -159,6 +159,12 @@ function getCell(row: string[], headers: string[], name: string): string {
   return (row[i] ?? '').trim();
 }
 
+/** CSV uses 1-based order/sequence (1 = first). Convert to 0-based for internal/DB use. Accepts 0 or 1 as first. */
+function csvOrderToZeroBased(csvValue: number): number {
+  if (typeof csvValue !== 'number' || Number.isNaN(csvValue) || csvValue < 0) return 0;
+  return csvValue >= 1 ? csvValue - 1 : 0;
+}
+
 const BOM = '\uFEFF';
 
 export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | null; errors: ValidationError[] } {
@@ -236,20 +242,23 @@ export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | n
       modOrder = lastResolvedModOrder;
       modTitle = lastResolvedModTitle;
     } else {
-      lastResolvedModOrder = modOrder;
+      lastResolvedModOrder = csvOrderToZeroBased(modOrder);
       lastResolvedModTitle = modTitle;
     }
     if (!lesTitle) {
       lesOrder = lastResolvedLesOrder;
       lesTitle = lastResolvedLesTitle;
     } else {
-      lastResolvedLesOrder = lesOrder;
+      lastResolvedLesOrder = csvOrderToZeroBased(lesOrder);
       lastResolvedLesTitle = lesTitle;
     }
+    modOrder = csvOrderToZeroBased(modOrder);
+    lesOrder = csvOrderToZeroBased(lesOrder);
     if (Number.isNaN(contentOrder) && contentOrder !== 0) {
       errors.push({ row: rowNum, message: 'content_order must be a number.' });
       continue;
     }
+    const contentOrderZero = csvOrderToZeroBased(contentOrder);
 
     const modKey = `${modOrder}|${modTitle}`;
     const lesKey = `${modKey}|${lesOrder}|${lesTitle}`;
@@ -275,10 +284,10 @@ export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | n
     const lesson = lessonsByKey.get(lesKey)!;
 
     const segmentSequence = parseInt(getCell(row, headerRow, 'segment_sequence'), 10);
-    const segSeq = Number.isNaN(segmentSequence) ? 0 : Math.max(0, segmentSequence);
+    const segSeq = csvOrderToZeroBased(Number.isNaN(segmentSequence) ? 0 : Math.max(0, segmentSequence));
 
     const raw: RawContentRow = {
-      contentOrder: contentOrder,
+      contentOrder: contentOrderZero,
       type: contentType as ContentType,
       segmentSequence: segSeq,
     };
