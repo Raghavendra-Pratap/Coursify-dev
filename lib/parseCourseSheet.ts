@@ -266,7 +266,7 @@ export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | n
         order: lesOrder,
         title: lesTitle,
         description: lessonDesc || undefined,
-        durationSeconds: durNum > 0 ? durNum : undefined,
+        durationSeconds: durNum != null && durNum > 0 ? durNum : undefined,
         content: [],
         rawContentRows: [],
       });
