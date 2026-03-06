@@ -18,12 +18,13 @@ function getYouTubeEmbedUrl(videoId: string, startSeconds?: number, endSeconds?:
   return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
 }
 
-/** Extract Google Drive file ID from share/view or open URL */
+/** Extract Google Drive file ID from share/view/preview or open URL */
 function getGoogleDriveFileId(url: string): string | null {
   if (!url?.trim()) return null;
   const m = url.match(/drive\.google\.com\/file\/d\/([^/?#]+)/) ||
     url.match(/drive\.google\.com\/open\?id=([^&]+)/) ||
-    url.match(/drive\.google\.com\/uc\?id=([^&]+)/);
+    url.match(/drive\.google\.com\/uc\?id=([^&]+)/) ||
+    url.match(/drive\.google\.com\/thumbnail\?id=([^&]+)/);
   return m ? m[1] : null;
 }
 
@@ -77,6 +78,10 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   const containerRef = useRef<HTMLDivElement>(null);
   const [completed, setCompleted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** When set, show "Open in Drive" link in error UI (Drive proxy failed). */
+  const [errorDriveId, setErrorDriveId] = useState<string | null>(null);
+  /** When true, use Drive embed iframe instead of proxy <video> (fallback after proxy error). */
+  const [driveProxyFailed, setDriveProxyFailed] = useState(false);
   const ytPlayerRef = useRef<YT.Player | null>(null);
   const onCompleteRef = useRef(onSegmentComplete);
   onCompleteRef.current = onSegmentComplete;
@@ -102,14 +107,22 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   // Drive: stream via our proxy and play in <video> so we have full control (one button, timer + video in sync). No iframe.
   const videoUrlForPlayback = driveId ? getDriveProxyVideoUrl(driveId) : videoUrl;
   const useIframe = !!videoUrl && !driveId && !isDirectVideoUrl(videoUrl);
+  /** True when we show iframe: either external URL (useIframe) or Drive fallback after proxy failed. */
+  const useIframeForPlayback = useIframe || (!!driveId && driveProxyFailed);
 
   const markComplete = useCallback(() => {
     setCompleted(true);
     onCompleteRef.current();
   }, []);
 
-  const handleVideoError = useCallback(() => {
-    setError('Video could not be loaded. Check the URL or try another browser.');
+  const handleVideoError = useCallback((forDriveId: string | null) => {
+    if (forDriveId) {
+      setError(null);
+      setErrorDriveId(null);
+      setDriveProxyFailed(true);
+    } else {
+      setError('Video could not be loaded. Check the URL or try another browser.');
+    }
   }, []);
 
   const [iframeSegmentComplete, setIframeSegmentComplete] = useState(false);
@@ -120,6 +133,8 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
     setIframeSegmentComplete(false);
     setIframeElapsed(0);
     setIframeTimerStarted(false);
+    setDriveProxyFailed(false);
+    setErrorDriveId(null);
   }, [segment.id]);
   useEffect(() => {
     setYtDuration(0);
@@ -128,20 +143,20 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   }, [segment.id]);
   const iframeDurationSeconds = segmentDuration > 0 ? segmentDuration : 60;
   useEffect(() => {
-    if (source === 'youtube' || !useIframe || segmentDuration <= 0 || !iframeTimerStarted) return;
+    if (source === 'youtube' || !useIframeForPlayback || segmentDuration <= 0 || !iframeTimerStarted) return;
     const id = setInterval(() => {
       setIframeElapsed((prev) => Math.min(prev + 1, iframeDurationSeconds));
     }, 1000);
     return () => clearInterval(id);
-  }, [source, useIframe, segmentDuration, iframeTimerStarted, iframeDurationSeconds]);
+  }, [source, useIframeForPlayback, segmentDuration, iframeTimerStarted, iframeDurationSeconds]);
   const iframeCompletedFiredRef = useRef(false);
   useEffect(() => {
-    if (!useIframe || iframeElapsed < iframeDurationSeconds) return;
+    if (!useIframeForPlayback || iframeElapsed < iframeDurationSeconds) return;
     if (iframeCompletedFiredRef.current) return;
     iframeCompletedFiredRef.current = true;
     setIframeSegmentComplete(true);
     markComplete();
-  }, [useIframe, iframeElapsed, iframeDurationSeconds, markComplete]);
+  }, [useIframeForPlayback, iframeElapsed, iframeDurationSeconds, markComplete]);
   useEffect(() => {
     iframeCompletedFiredRef.current = false;
   }, [segment.id]);
@@ -416,7 +431,7 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   }, [source, useIframe, url, start, end, completed, markComplete, completionThreshold, videoElReady]);
 
   // Stable key per segment + player mode so React unmounts/remounts when switching (avoids removeChild DOM error)
-  const playerMode = error ? 'error' : (source === 'youtube' && url) ? 'youtube' : !videoUrl ? 'nourl' : useIframe ? 'iframe' : 'video';
+  const playerMode = error ? 'error' : (source === 'youtube' && url) ? 'youtube' : !videoUrl ? 'nourl' : useIframeForPlayback ? 'iframe' : 'video';
   const wrapper = (key: string, children: React.ReactNode) => (
     <div className="w-full h-full min-w-0 min-h-0" data-player-root>
       <div key={key} className="w-full h-full min-w-0 min-h-0">{children}</div>
@@ -426,8 +441,18 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   if (error) {
     return wrapper(
       `${segment.id}-error`,
-      <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 text-red-700 dark:text-red-300 text-sm">
-        {error}
+      <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 text-red-700 dark:text-red-300 text-sm space-y-2">
+        <p>{error}</p>
+        {errorDriveId && (
+          <a
+            href={getGoogleDriveEmbedUrl(errorDriveId)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline font-medium"
+          >
+            Open in Google Drive
+          </a>
+        )}
       </div>
     );
   }
@@ -634,8 +659,11 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
     );
   }
 
-  // Iframe-based playback (Drive/external URL): same overlay + control bar as other players (hides host's controls)
-  if (useIframe) {
+  // Iframe-based playback (Drive/external URL, or Drive fallback when proxy fails): same overlay + control bar
+  if (useIframeForPlayback) {
+    const iframeSrc = (driveId && driveProxyFailed)
+      ? getGoogleDriveEmbedUrl(driveId, start > 0 ? start : undefined)
+      : videoUrl!;
     const iframeDuration = segmentDuration > 0 ? segmentDuration : 60;
     const iframeProgress = iframeDuration > 0 ? Math.min(1, iframeElapsed / iframeDuration) : 0;
     const handleIframeFullscreen = () => {
@@ -670,7 +698,7 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
         {/* Iframe: pointer-events-none so only our overlay/control bar receive clicks — one trigger only, native controls disabled. */}
         <iframe
           title={segment.name}
-          src={(completed || iframeSegmentComplete) ? 'about:blank' : videoUrl!}
+          src={(completed || iframeSegmentComplete) ? 'about:blank' : iframeSrc}
           className="absolute inset-0 w-full h-full pointer-events-none"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; web-share"
           allowFullScreen
@@ -723,6 +751,9 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
               <span className="text-white text-sm tabular-nums">
                 {formatTime(iframeElapsed)} / {formatTime(iframeDuration)}
               </span>
+              {driveId && driveProxyFailed && (
+                <span className="text-white/70 text-xs" title="Streaming via Google Drive embed">Drive</span>
+              )}
               <span className="p-1.5 text-white/70" title="Volume controlled in video area" aria-label="Volume in video area">
                 <Volume2 className="w-5 h-5" />
               </span>
@@ -846,7 +877,7 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
         disableRemotePlayback
         controlsList="nodownload nofullscreen noplaybackrate"
         onContextMenu={(e) => e.preventDefault()}
-        onError={handleVideoError}
+        onError={() => handleVideoError(driveId)}
         onLoadedMetadata={(e) => {
           const el = e.currentTarget;
           if (typeof el.duration === 'number' && Number.isFinite(el.duration)) setVideoDuration(el.duration);
