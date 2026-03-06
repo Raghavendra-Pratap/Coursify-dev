@@ -137,7 +137,7 @@ function parseCsv(text: string): string[][] {
 
 function getHeaderIndex(headers: string[], name: string): number {
   const lower = name.toLowerCase();
-  return headers.findIndex((h) => h.trim().toLowerCase() === lower);
+  return headers.findIndex((h) => (h ?? '').trim().replace(BOM, '').toLowerCase() === lower);
 }
 
 /** Parse "H:MM:SS" or "M:SS" or plain seconds number to seconds. Returns 0 if invalid. */
@@ -159,9 +159,12 @@ function getCell(row: string[], headers: string[], name: string): string {
   return (row[i] ?? '').trim();
 }
 
+const BOM = '\uFEFF';
+
 export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | null; errors: ValidationError[] } {
   const errors: ValidationError[] = [];
-  const rawRows = parseCsv(csvText);
+  const normalizedText = csvText.startsWith(BOM) ? csvText.slice(BOM.length) : csvText;
+  const rawRows = parseCsv(normalizedText);
   if (rawRows.length < 2) {
     errors.push({ row: 1, message: 'CSV must have at least a header row and one data row.' });
     return { data: null, errors };
@@ -169,7 +172,8 @@ export function parseCourseSheet(csvText: string): { data: ParsedCourseSheet | n
 
   // Support both formats: (1) row0=course, row1=headers, row2+=data  OR  (2) row0=headers, row1+=data
   const firstRow = rawRows[0] ?? [];
-  const hasHeaderInFirstRow = firstRow.some((c) => (c ?? '').trim().toLowerCase() === 'course_title');
+  const firstCell = (firstRow[0] ?? '').trim().replace(BOM, '').toLowerCase();
+  const hasHeaderInFirstRow = firstCell === 'course_title' || firstRow.some((c) => (c ?? '').trim().replace(BOM, '').toLowerCase() === 'course_title');
   let courseRow: string[];
   let headerRow: string[];
   let dataRows: string[][];
