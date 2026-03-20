@@ -85,12 +85,22 @@ export async function POST(
       const { data: lesRow, error: lesErr } = await db.from('lessons').insert({
         module_id: moduleId,
         title: les.title ?? `Lesson ${li + 1}`,
+        description: (les as { description?: string | null }).description ?? null,
         order_index: les.order ?? li,
         duration_seconds: durationSec,
       }).select('id').single()
       if (lesErr) return NextResponse.json({ error: 'Failed to insert lesson', details: lesErr.message }, { status: 500 })
       const lessonId = (lesRow as { id: string } | null)?.id
-      if (!lessonId) continue
+      if (!lessonId || typeof lessonId !== 'string') continue
+
+      // Ensure the lesson is visible before inserting content_items to avoid FK violation
+      const { data: lessonCheck, error: checkErr } = await db.from('lessons').select('id').eq('id', lessonId).single()
+      if (checkErr || !lessonCheck) {
+        return NextResponse.json({
+          error: 'Lesson not found after insert',
+          details: checkErr?.message ?? 'Lesson row missing; possible transaction or RLS issue.',
+        }, { status: 500 })
+      }
 
       for (let ci = 0; ci < (les.content ?? []).length; ci++) {
         const item = les.content[ci]
@@ -99,7 +109,13 @@ export async function POST(
           content_type: item.type ?? 'video',
           order_index: item.order ?? ci,
         }).select('id').single()
-        if (itemErr) return NextResponse.json({ error: 'Failed to insert content item', details: itemErr.message }, { status: 500 })
+        if (itemErr) {
+          return NextResponse.json({
+            error: 'Failed to insert content item',
+            details: itemErr.message,
+            context: `module ${mi + 1}, lesson ${li + 1}, content ${ci + 1}`,
+          }, { status: 500 })
+        }
         const contentItemId = (itemRow as { id: string } | null)?.id
         if (!contentItemId) continue
 

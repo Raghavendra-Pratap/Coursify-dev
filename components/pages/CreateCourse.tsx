@@ -199,6 +199,38 @@ function getGoogleDriveEmbedUrl(fileId: string, startSeconds?: number): string {
   return base;
 }
 
+function isSharePointOrOneDriveVideoUrl(url: string): boolean {
+  if (!url?.trim()) return false;
+  try {
+    const u = new URL(url.trim());
+    const host = u.hostname.toLowerCase();
+    return host.endsWith('.sharepoint.com') || host.includes('onedrive.live.com') || host === '1drv.ms';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Normalize external video URLs for iframe usage.
+ * For SharePoint/OneDrive, force web/embed mode and keep start hint when possible.
+ */
+function getExternalVideoEmbedUrl(url: string, startSeconds?: number): string {
+  const raw = url.trim();
+  if (!raw) return raw;
+  if (!isSharePointOrOneDriveVideoUrl(raw)) return raw;
+  try {
+    const u = new URL(raw);
+    if (!u.searchParams.has('web')) u.searchParams.set('web', '1');
+    if (!u.searchParams.has('download')) u.searchParams.set('download', '0');
+    if (startSeconds != null && startSeconds > 0 && !u.searchParams.has('t')) {
+      u.searchParams.set('t', String(Math.floor(startSeconds)));
+    }
+    return u.toString();
+  } catch {
+    return raw;
+  }
+}
+
 /** Proxy URL for Google Drive so we can play in <video> and read currentTime in Add New Content modal */
 function getDriveProxyVideoUrl(fileId: string): string {
   const driveDirect = `https://drive.google.com/uc?export=download&id=${fileId}`;
@@ -1374,9 +1406,11 @@ function onFormSubmit(e) {
         });
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          const msg = (errData as { error?: string; details?: string })?.error || res.statusText || 'Failed to update course structure';
+          const msg = (errData as { error?: string })?.error || res.statusText || 'Failed to update course structure';
           const details = (errData as { details?: string })?.details;
-          throw new Error(details ? `${msg}: ${details}` : msg);
+          const context = (errData as { context?: string })?.context;
+          const full = [msg, details, context].filter(Boolean).join(' — ');
+          throw new Error(full);
         }
         finalCourseId = savedCourseId;
       } else {
@@ -2068,7 +2102,9 @@ function onFormSubmit(e) {
                       const useYtSegmentPlayer = ytId && seg.endTimestamp != null && seg.endTimestamp > 0;
                       const embedUrl = ytId && !useYtSegmentPlayer
                         ? getYouTubeEmbedUrl(ytId, seg.startTimestamp ?? undefined, seg.endTimestamp ?? undefined)
-                        : driveId ? getGoogleDriveEmbedUrl(driveId, seg.startTimestamp ?? undefined) : externalUrl;
+                        : driveId
+                          ? getGoogleDriveEmbedUrl(driveId, seg.startTimestamp ?? undefined)
+                          : (externalUrl ? getExternalVideoEmbedUrl(externalUrl, seg.startTimestamp ?? undefined) : null);
                       return (
                         <>
                           {lessonPreviewMode === 'combined' && (ytIdCombined || driveIdCombined) && currentSegmentInCombined?.videoSegment ? (
@@ -2234,7 +2270,7 @@ function onFormSubmit(e) {
                   ? getYouTubeEmbedUrl(ytId, segStartSec, segEndSec)
                   : driveId
                     ? getGoogleDriveEmbedUrl(driveId, segStartSec)
-                    : externalUrl;
+                    : (externalUrl ? getExternalVideoEmbedUrl(externalUrl, segStartSec) : null);
                 // Combined preview: steps = all lesson content (segment, document, form, etc.)
                 const contentList = currentLessonData?.content ?? [];
                 const totalSteps = contentList.length;
@@ -2846,14 +2882,24 @@ function onFormSubmit(e) {
                           </>
                         )}
                         {detectVideoLinkType(unifiedVideoUrl) === 'external_url' && (
-                          <video
-                            ref={linkPreviewVideoRef}
-                            src={unifiedVideoUrl}
-                            controls
-                            className="w-full h-full"
-                            crossOrigin="anonymous"
-                            onCanPlay={() => setExternalPreviewReady(true)}
-                          />
+                          isSharePointOrOneDriveVideoUrl(unifiedVideoUrl) ? (
+                            <iframe
+                              title="SharePoint/OneDrive video preview"
+                              src={getExternalVideoEmbedUrl(unifiedVideoUrl, parseHHMMSSToSeconds(startTime.trim()) ?? 0)}
+                              className="w-full h-full"
+                              allow="autoplay; fullscreen; encrypted-media"
+                              allowFullScreen
+                            />
+                          ) : (
+                            <video
+                              ref={linkPreviewVideoRef}
+                              src={unifiedVideoUrl}
+                              controls
+                              className="w-full h-full"
+                              crossOrigin="anonymous"
+                              onCanPlay={() => setExternalPreviewReady(true)}
+                            />
+                          )
                         )}
                       </div>
                       {detectVideoLinkType(unifiedVideoUrl) === 'google_drive' && drivePreviewReady && (

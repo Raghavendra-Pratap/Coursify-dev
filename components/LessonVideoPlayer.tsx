@@ -35,6 +35,34 @@ function getGoogleDriveEmbedUrl(fileId: string, startSeconds?: number): string {
   return base;
 }
 
+function isSharePointOrOneDriveVideoUrl(url: string): boolean {
+  if (!url?.trim()) return false;
+  try {
+    const u = new URL(url.trim());
+    const host = u.hostname.toLowerCase();
+    return host.endsWith('.sharepoint.com') || host.includes('onedrive.live.com') || host === '1drv.ms';
+  } catch {
+    return false;
+  }
+}
+
+function getExternalVideoEmbedUrl(url: string, startSeconds?: number): string {
+  const raw = url.trim();
+  if (!raw) return raw;
+  if (!isSharePointOrOneDriveVideoUrl(raw)) return raw;
+  try {
+    const u = new URL(raw);
+    if (!u.searchParams.has('web')) u.searchParams.set('web', '1');
+    if (!u.searchParams.has('download')) u.searchParams.set('download', '0');
+    if (startSeconds != null && startSeconds > 0 && !u.searchParams.has('t')) {
+      u.searchParams.set('t', String(Math.floor(startSeconds)));
+    }
+    return u.toString();
+  } catch {
+    return raw;
+  }
+}
+
 /** Build our proxy URL for a Drive file so we can play it in <video> with full control (play/pause/seek in sync with timer). */
 function getDriveProxyVideoUrl(fileId: string): string {
   const driveDirect = `https://drive.google.com/uc?export=download&id=${fileId}`;
@@ -663,7 +691,7 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   if (useIframeForPlayback) {
     const iframeSrc = driveId
       ? getGoogleDriveEmbedUrl(driveId, start > 0 ? start : undefined)
-      : videoUrl!;
+      : getExternalVideoEmbedUrl(videoUrl!, start > 0 ? start : undefined);
     const iframeDuration = segmentDuration > 0 ? segmentDuration : 60;
     const iframeProgress = iframeDuration > 0 ? Math.min(1, iframeElapsed / iframeDuration) : 0;
     const handleIframeFullscreen = () => {
