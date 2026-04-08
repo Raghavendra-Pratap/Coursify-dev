@@ -28,11 +28,18 @@ function getGoogleDriveFileId(url: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Build Google Drive embed URL with optional start time (used only as fallback) */
-function getGoogleDriveEmbedUrl(fileId: string, startSeconds?: number): string {
+/** Build Google Drive embed URL with optional start time and autoplay (autoplay may work after a user click). */
+function getGoogleDriveEmbedUrl(
+  fileId: string,
+  startSeconds?: number,
+  opts?: { autoplay?: boolean }
+): string {
   const base = `https://drive.google.com/file/d/${fileId}/preview`;
-  if (startSeconds != null && startSeconds > 0) return `${base}?t=${Math.floor(startSeconds)}`;
-  return base;
+  const params = new URLSearchParams();
+  if (startSeconds != null && startSeconds > 0) params.set('t', String(Math.floor(startSeconds)));
+  if (opts?.autoplay) params.set('autoplay', '1');
+  const q = params.toString();
+  return q ? `${base}?${q}` : base;
 }
 
 function isSharePointOrOneDriveVideoUrl(url: string): boolean {
@@ -158,10 +165,13 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   const [iframeElapsed, setIframeElapsed] = useState(0);
   const [iframeReplayCount, setIframeReplayCount] = useState(0);
   const [iframeTimerStarted, setIframeTimerStarted] = useState(false);
+  /** After user clicks Play, remount Drive iframe with autoplay=1 (same user gesture). */
+  const [drivePlaybackRequested, setDrivePlaybackRequested] = useState(false);
   useEffect(() => {
     setIframeSegmentComplete(false);
     setIframeElapsed(0);
     setIframeTimerStarted(false);
+    setDrivePlaybackRequested(false);
     setDriveProxyFailed(false);
     setErrorDriveId(null);
   }, [segment.id]);
@@ -709,10 +719,10 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
     );
   }
 
-  // Iframe-based playback (Drive or other external URL): same overlay + control bar
+  // Iframe-based playback (Drive or other external URL): clicks must reach the embed; one bar control starts segment timer + Drive autoplay remount.
   if (useIframeForPlayback) {
     const iframeSrc = driveId
-      ? getGoogleDriveEmbedUrl(driveId, start > 0 ? start : undefined)
+      ? getGoogleDriveEmbedUrl(driveId, start > 0 ? start : undefined, { autoplay: drivePlaybackRequested })
       : getExternalVideoEmbedUrl(videoUrl!, start > 0 ? start : undefined);
     const iframeDuration = segmentDuration > 0 ? segmentDuration : 60;
     const iframeProgress = iframeDuration > 0 ? Math.min(1, iframeElapsed / iframeDuration) : 0;
@@ -732,10 +742,15 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
       setIframeSegmentComplete(false);
       setIframeElapsed(0);
       setIframeTimerStarted(false);
+      setDrivePlaybackRequested(false);
       setIframeReplayCount((c) => c + 1);
     };
-    const handleOverlayClick = () => {
-      setIframeTimerStarted((prev) => !prev);
+    /** One control: start/pause segment timer; first Play also remounts Drive with autoplay (user gesture). */
+    const handleIframePlayPause = () => {
+      setIframeTimerStarted((wasStarted) => {
+        if (!wasStarted && driveId) setDrivePlaybackRequested(true);
+        return !wasStarted;
+      });
     };
     return wrapper(
       `${segment.id}-iframe`,
@@ -745,39 +760,22 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
         style={{ aspectRatio: '16/9' }}
         onContextMenu={(e) => e.preventDefault()}
       >
-        {/* Iframe: pointer-events-none so only our overlay/control bar receive clicks — one trigger only, native controls disabled. */}
         <iframe
+          key={`${segment.id}-ifr-${iframeReplayCount}-${drivePlaybackRequested ? 'p' : 'n'}`}
           title={segment.name}
           src={(completed || iframeSegmentComplete) ? 'about:blank' : iframeSrc}
-          className="absolute inset-0 w-full h-full pointer-events-none"
+          className="absolute inset-0 z-0 w-full h-full pointer-events-auto"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; web-share"
           allowFullScreen
         />
-        {/* Top bar: hide host controls */}
         <div
           className="absolute top-0 left-0 right-0 h-10 z-10 bg-gradient-to-b from-black/90 to-transparent pointer-events-none"
           aria-hidden
         />
-        {/* Single play/pause trigger: overlay + bar use same handler. Timer never auto-starts — only on user click. */}
         {!(completed || iframeSegmentComplete) && (
-        <div
-          className="absolute inset-0 z-10 flex flex-col justify-end cursor-pointer"
-          onContextMenu={(e) => e.preventDefault()}
-          onClick={handleOverlayClick}
-          aria-label={iframeTimerStarted ? 'Pause' : 'Play'}
-        >
-          {!iframeTimerStarted && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 pointer-events-none">
-              <div className="w-20 h-20 rounded-full bg-white/20 flex items-center justify-center">
-                <Play className="w-10 h-10 text-white ml-1" fill="currentColor" />
-              </div>
-              <span className="text-white font-medium mt-3">Click to play</span>
-            </div>
-          )}
-          {/* Custom control bar only — stopPropagation so bar clicks don't double-toggle */}
           <div
-            className="bg-gradient-to-t from-black/90 to-transparent px-3 py-2 flex flex-col gap-1.5 cursor-default"
-            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/90 to-transparent px-3 py-2 flex flex-col gap-1.5 pointer-events-auto"
+            onContextMenu={(e) => e.preventDefault()}
           >
             <input
               type="range"
@@ -792,32 +790,36 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
             <div className="flex items-center justify-between gap-2">
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); handleOverlayClick(); }}
-                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors"
-                aria-label={iframeTimerStarted ? 'Pause' : 'Play'}
+                onClick={handleIframePlayPause}
+                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors shrink-0"
+                aria-label={iframeTimerStarted ? 'Pause segment timer' : 'Play — start video and segment timer'}
               >
                 {iframeTimerStarted ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
               </button>
-              <span className="text-white text-sm tabular-nums">
+              <span className="text-white text-sm tabular-nums min-w-0">
                 {formatTime(iframeElapsed)} / {formatTime(iframeDuration)}
               </span>
               {driveId && (
-                <span className="text-white/70 text-xs" title="Streaming via Google Drive">Drive</span>
+                <span className="text-white/70 text-xs shrink-0 hidden sm:inline" title="Use controls inside the video to pause or seek">Drive</span>
               )}
-              <span className="p-1.5 text-white/70" title="Volume controlled in video area" aria-label="Volume in video area">
+              <span className="p-1.5 text-white/70 shrink-0" title="Use the player inside the frame for volume" aria-hidden>
                 <Volume2 className="w-5 h-5" />
               </span>
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); handleIframeFullscreen(); }}
-                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors"
+                onClick={handleIframeFullscreen}
+                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors shrink-0"
                 aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
               >
                 {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
               </button>
             </div>
+            {driveId && !iframeTimerStarted && (
+              <p className="text-white/80 text-xs text-center -mt-1 pb-0.5">
+                Press play — starts the segment timer and loads the video (use on-screen controls if needed).
+              </p>
+            )}
           </div>
-        </div>
         )}
         {(completed || iframeSegmentComplete) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/50 rounded-xl z-20">
