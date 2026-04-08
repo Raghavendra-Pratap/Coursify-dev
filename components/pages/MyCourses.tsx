@@ -407,13 +407,27 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
       return;
     }
     try {
-      const { data: newRow, error } = await (supabase as any).from('courses').insert({
-        title: `${course.title} (Copy)`,
-        description: course.description,
-        status: 'draft',
-        created_by: userId
-      }).select('id, title, description, status, created_at, updated_at').single();
-      if (error) throw error;
+      const newRes = await fetch('/api/instructor/courses/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          title: `${course.title} (Copy)`,
+          description: course.description ?? '',
+        }),
+      });
+      if (!newRes.ok) {
+        const errData = await newRes.json().catch(() => ({}));
+        throw new Error((errData as { error?: string }).error || newRes.statusText || 'Failed to create copy');
+      }
+      const { id: newId } = (await newRes.json()) as { id?: string };
+      if (!newId) throw new Error('No course id from server');
+      const { data: newRow, error: selErr } = await (supabase as any)
+        .from('courses')
+        .select('id, title, description, status, created_at, updated_at')
+        .eq('id', newId)
+        .single();
+      if (selErr || !newRow) throw selErr || new Error('Could not load new course');
       const newCourse: CourseRow = {
         id: (newRow as { id: string }).id,
         title: (newRow as { title: string }).title,

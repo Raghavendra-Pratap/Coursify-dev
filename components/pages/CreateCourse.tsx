@@ -1470,8 +1470,9 @@ function onFormSubmit(e) {
       let msg = err?.message || 'Failed to save course.';
       if (typeof err?.details === 'string') msg += ` (${err.details})`;
       if (msg.includes('row-level security') || msg.includes('RLS') || msg.includes('policy')) {
-        if (msg.toLowerCase().includes('courses')) {
-          msg += ' For course RLS, run database/FIX_COURSES_INSERT_RLS.sql in Supabase. New saves use the server API (set SUPABASE_SERVICE_ROLE_KEY on Vercel). Stay signed in when saving.';
+        const mentionsCoursesTable = /table\s+[`'"]?courses[`'"]?/i.test(msg) || /\bcourses\b/i.test(msg) && msg.toLowerCase().includes('row-level security');
+        if (mentionsCoursesTable) {
+          msg += ' For course RLS, run database/FIX_COURSES_INSERT_RLS.sql in Supabase (or apply migration fix_courses_insert_rls_policy). Ensure the latest app is deployed: new saves use POST /api/instructor/courses/new (requires SUPABASE_SERVICE_ROLE_KEY). Stay signed in when saving.';
         } else {
           msg += ' Run database/FIX_LESSONS_RLS.sql in Supabase SQL Editor. Stay signed in to the app when saving (so your session is sent). For more help run database/DEBUG_LESSONS_RLS.sql.';
         }
