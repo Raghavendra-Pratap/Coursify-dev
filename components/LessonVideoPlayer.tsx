@@ -134,6 +134,7 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   const driveId = videoUrl ? getGoogleDriveFileId(videoUrl) : null;
   // Drive: stream via our proxy and play in <video> so we have full control (one button, timer + video in sync). No iframe.
   const videoUrlForPlayback = driveId ? getDriveProxyVideoUrl(driveId) : videoUrl;
+  const isSharePointLink = !!videoUrl && isSharePointOrOneDriveVideoUrl(videoUrl);
   const useIframe = !!videoUrl && !driveId && !isDirectVideoUrl(videoUrl);
   /** Use iframe for external URLs or for Drive (Drive iframe avoids proxy <video> and prevents React #185 update loop). */
   const useIframeForPlayback = useIframe || !!driveId;
@@ -683,6 +684,27 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
       `${segment.id}-nourl`,
       <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-4 text-amber-800 dark:text-amber-200 text-sm">
         No playable URL for this segment. Add a video link in the course editor.
+      </div>
+    );
+  }
+
+  // SharePoint/OneDrive commonly blocks iframe embedding with frame-ancestors/X-Frame-Options.
+  // Open in a new tab so the learner can still watch.
+  if (isSharePointLink) {
+    return wrapper(
+      `${segment.id}-sharepoint`,
+      <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-4">
+        <p className="text-sm text-amber-900 dark:text-amber-100 mb-3">
+          This SharePoint/OneDrive video cannot be embedded inside the app due to Microsoft security policy.
+        </p>
+        <a
+          href={videoUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center px-3 py-2 rounded-md bg-amber-600 text-white hover:bg-amber-700 text-sm font-medium"
+        >
+          Open video in new tab
+        </a>
       </div>
     );
   }

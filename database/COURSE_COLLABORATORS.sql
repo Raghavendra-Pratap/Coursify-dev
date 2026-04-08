@@ -53,6 +53,11 @@ DROP POLICY IF EXISTS "Users can delete their own courses" ON courses;
 CREATE POLICY "Only course owner can delete course" ON courses
   FOR DELETE USING (EXISTS (SELECT 1 FROM courses c WHERE c.id = courses.id AND c.created_by = auth.uid()));
 
+-- New course creation (browser client or any direct insert): keep explicit INSERT policy
+DROP POLICY IF EXISTS "Users can create their own courses" ON courses;
+CREATE POLICY "Users can create their own courses" ON courses
+  FOR INSERT WITH CHECK (auth.uid() = created_by);
+
 -- Modules: allow collaborator to select/create/update/delete
 DROP POLICY IF EXISTS "Users can view modules of accessible courses" ON modules;
 CREATE POLICY "Users can view modules of accessible courses" ON modules

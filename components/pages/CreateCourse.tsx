@@ -1391,129 +1391,50 @@ function onFormSubmit(e) {
       }
       // Supabase generated types may omit schema tables
       const db = supabase as any;
+      const wasNewCourse = !savedCourseId;
       let finalCourseId: string;
       if (savedCourseId) {
-        // Replace full structure server-side so module/lesson counts stay correct (avoids RLS blocking deletes).
-        const res = await fetch(`/api/instructor/courses/${savedCourseId}/structure`, {
+        finalCourseId = savedCourseId;
+      } else {
+        const newRes = await fetch('/api/instructor/courses/new', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({
             title: courseData.title,
             description: courseData.description,
-            modules: courseData.modules,
           }),
         });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          const msg = (errData as { error?: string })?.error || res.statusText || 'Failed to update course structure';
+        if (!newRes.ok) {
+          const errData = await newRes.json().catch(() => ({}));
+          const msg = (errData as { error?: string })?.error || newRes.statusText || 'Failed to create course';
           const details = (errData as { details?: string })?.details;
-          const context = (errData as { context?: string })?.context;
-          const full = [msg, details, context].filter(Boolean).join(' — ');
-          throw new Error(full);
+          throw new Error(details ? `${msg}: ${details}` : msg);
         }
-        finalCourseId = savedCourseId;
-      } else {
-        const { data: courseRow, error: courseErr } = await db.from('courses').insert({
-          title: courseData.title,
-          description: courseData.description,
-          status: 'draft',
-          created_by: userId
-        }).select('id').single();
-        if (courseErr) throw courseErr;
-        const courseId = (courseRow as { id?: string } | null)?.id;
-        if (!courseId) throw new Error('No course id');
+        const newBody = (await newRes.json()) as { id?: string };
+        const courseId = newBody.id;
+        if (!courseId) throw new Error('Course created but no id returned');
         setSavedCourseId(courseId);
         finalCourseId = courseId;
       }
-      // Insert modules/lessons/content only for new courses; existing courses are updated via structure API above.
-      if (!savedCourseId) {
-      for (let mi = 0; mi < courseData.modules.length; mi++) {
-        const mod = courseData.modules[mi];
-        const { data: modRow, error: modErr } = await db.from('modules').insert({
-          course_id: finalCourseId,
-          title: mod.title,
-          order_index: mod.order
-        }).select('id').single();
-        if (modErr) throw modErr;
-        const moduleId = modRow?.id;
-        if (!moduleId) continue;
-        for (let li = 0; li < mod.lessons.length; li++) {
-          const les = mod.lessons[li];
-          const durationSec = parseTimeToSecondsForSave(les.duration) || les.content
-            .filter(c => c.type === 'video' && c.videoSegment)
-            .reduce((acc, c) => acc + parseTimeToSecondsForSave(c.videoSegment?.duration || '0'), 0);
-          const { data: lesRow, error: lesErr } = await db.from('lessons').insert({
-            module_id: moduleId,
-            title: les.title,
-            order_index: les.order,
-            duration_seconds: durationSec
-          }).select('id').single();
-          if (lesErr) throw lesErr;
-          const lessonId = lesRow?.id;
-          if (!lessonId) continue;
-          for (let ci = 0; ci < les.content.length; ci++) {
-            const item = les.content[ci];
-            const { data: itemRow, error: itemErr } = await db.from('content_items').insert({
-              lesson_id: lessonId,
-              content_type: item.type,
-              order_index: item.order
-            }).select('id').single();
-            if (itemErr) throw itemErr;
-            const contentItemId = itemRow?.id;
-            if (!contentItemId) continue;
-            if (item.type === 'reading' && item.reading) {
-              await (db as any).from('reading_materials').insert({
-                content_item_id: contentItemId,
-                title: item.reading.title || 'Reading',
-                type: item.reading.type,
-                url: item.reading.type === 'url' ? (item.reading.url || null) : null,
-                body: item.reading.type === 'native' ? (item.reading.body || null) : null,
-                format: item.reading.type === 'native' ? (item.reading.format || 'plain') : null
-              });
-            }
-            if (item.type === 'video' && item.videoSegment) {
-              const vs = item.videoSegment;
-              const startSec = vs.startTimestamp ?? parseTimeToSecondsForSave(vs.startTime || '0:00');
-              const endSec = vs.endTimestamp ?? parseTimeToSecondsForSave(vs.endTime || vs.duration || '0:00');
-              const videoUrl = vs.sourceUrl ?? '';
-              const storageType = vs.source === 'google_drive' ? 'google_drive' : (vs.source === 'youtube' || vs.source === 'external_url' ? 'external_url' : 'supabase');
-              await db.from('video_segments').insert({
-                lesson_id: lessonId,
-                segment_index: item.order,
-                video_url: videoUrl,
-                start_time: startSec,
-                end_time: endSec,
-                storage_type: storageType,
-                storage_path: videoUrl || null,
-                content_item_id: contentItemId,
-                name: vs.name ?? 'Video',
-                duration_seconds: endSec - startSec || 0,
-                start_time_seconds: startSec,
-                end_time_seconds: endSec,
-                source: vs.source || 'upload',
-                source_url: vs.sourceUrl || null
-              });
-            }
-            if (item.type === 'quiz' && item.quiz) {
-              await db.from('quizzes').insert({
-                content_item_id: contentItemId,
-                title: item.quiz.title,
-                passing_score: item.quiz.passingScore ?? 70,
-                form_url: item.quiz.formUrl || null,
-                form_entry_id_webhook: item.quiz.formEntryIdWebhook?.trim() || null
-              });
-            }
-            if (item.type === 'form' && item.form) {
-              await db.from('forms').insert({
-                content_item_id: contentItemId,
-                title: item.form.title || 'Form',
-                form_url: item.form.formUrl || null
-              });
-            }
-          }
-        }
-      }
+
+      const structRes = await fetch(`/api/instructor/courses/${finalCourseId}/structure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          title: courseData.title,
+          description: courseData.description,
+          modules: courseData.modules,
+        }),
+      });
+      if (!structRes.ok) {
+        const errData = await structRes.json().catch(() => ({}));
+        const msg = (errData as { error?: string })?.error || structRes.statusText || 'Failed to save course structure';
+        const details = (errData as { details?: string })?.details;
+        const context = (errData as { context?: string })?.context;
+        const full = [msg, details, context].filter(Boolean).join(' — ');
+        throw new Error(full);
       }
       // Record version history (lesson/module level tracking)
       try {
@@ -1543,13 +1464,17 @@ function onFormSubmit(e) {
         // course_versions table or RLS may not exist; save still succeeded
       }
       setCourseData(prev => ({ ...prev, lastEdited: 'Just now' }));
-      showSaveMessage(savedCourseId ? 'Course updated.' : 'Course saved to database.');
+      showSaveMessage(wasNewCourse ? 'Course saved to database.' : 'Course updated.');
     } catch (e: unknown) {
       const err = e as { message?: string; code?: string; details?: string };
       let msg = err?.message || 'Failed to save course.';
       if (typeof err?.details === 'string') msg += ` (${err.details})`;
       if (msg.includes('row-level security') || msg.includes('RLS') || msg.includes('policy')) {
-        msg += ' Run database/FIX_LESSONS_RLS.sql in Supabase SQL Editor. Stay signed in to the app when saving (so your session is sent). For more help run database/DEBUG_LESSONS_RLS.sql.';
+        if (msg.toLowerCase().includes('courses')) {
+          msg += ' For course RLS, run database/FIX_COURSES_INSERT_RLS.sql in Supabase. New saves use the server API (set SUPABASE_SERVICE_ROLE_KEY on Vercel). Stay signed in when saving.';
+        } else {
+          msg += ' Run database/FIX_LESSONS_RLS.sql in Supabase SQL Editor. Stay signed in to the app when saving (so your session is sent). For more help run database/DEBUG_LESSONS_RLS.sql.';
+        }
       }
       if (msg.toLowerCase().includes('video_segments')) {
         msg += ' Run database/FIX_VIDEO_SEGMENTS_RLS.sql in Supabase SQL Editor so video links and timestamps can be saved.';
@@ -2883,13 +2808,17 @@ function onFormSubmit(e) {
                         )}
                         {detectVideoLinkType(unifiedVideoUrl) === 'external_url' && (
                           isSharePointOrOneDriveVideoUrl(unifiedVideoUrl) ? (
-                            <iframe
-                              title="SharePoint/OneDrive video preview"
-                              src={getExternalVideoEmbedUrl(unifiedVideoUrl, parseHHMMSSToSeconds(startTime.trim()) ?? 0)}
-                              className="w-full h-full"
-                              allow="autoplay; fullscreen; encrypted-media"
-                              allowFullScreen
-                            />
+                            <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 text-gray-100 p-4 text-center">
+                              <p className="text-sm mb-3">SharePoint/OneDrive may block in-app embedding.</p>
+                              <a
+                                href={unifiedVideoUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
+                              >
+                                Open link in new tab
+                              </a>
+                            </div>
                           ) : (
                             <video
                               ref={linkPreviewVideoRef}
@@ -2927,7 +2856,7 @@ function onFormSubmit(e) {
                               else setEndTimeError(null);
                             }
                           }}
-                          disabled={detectVideoLinkType(unifiedVideoUrl) === 'youtube' ? !ytPreviewReady : detectVideoLinkType(unifiedVideoUrl) === 'external_url' ? !externalPreviewReady : detectVideoLinkType(unifiedVideoUrl) === 'google_drive' ? !drivePreviewReady : true}
+                          disabled={detectVideoLinkType(unifiedVideoUrl) === 'youtube' ? !ytPreviewReady : detectVideoLinkType(unifiedVideoUrl) === 'external_url' ? (isSharePointOrOneDriveVideoUrl(unifiedVideoUrl) ? false : !externalPreviewReady) : detectVideoLinkType(unifiedVideoUrl) === 'google_drive' ? !drivePreviewReady : true}
                           className="px-3 py-1.5 text-sm font-medium rounded-lg border border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-600 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Set start from current position
@@ -2953,7 +2882,7 @@ function onFormSubmit(e) {
                               else setStartTimeError(null);
                             }
                           }}
-                          disabled={detectVideoLinkType(unifiedVideoUrl) === 'youtube' ? !ytPreviewReady : detectVideoLinkType(unifiedVideoUrl) === 'external_url' ? !externalPreviewReady : detectVideoLinkType(unifiedVideoUrl) === 'google_drive' ? !drivePreviewReady : true}
+                          disabled={detectVideoLinkType(unifiedVideoUrl) === 'youtube' ? !ytPreviewReady : detectVideoLinkType(unifiedVideoUrl) === 'external_url' ? (isSharePointOrOneDriveVideoUrl(unifiedVideoUrl) ? false : !externalPreviewReady) : detectVideoLinkType(unifiedVideoUrl) === 'google_drive' ? !drivePreviewReady : true}
                           className="px-3 py-1.5 text-sm font-medium rounded-lg border border-violet-500 bg-violet-50 dark:bg-violet-900/20 dark:border-violet-600 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Set end from current position
@@ -2983,7 +2912,7 @@ function onFormSubmit(e) {
                               setDuration('');
                             }
                           }}
-                          disabled={detectVideoLinkType(unifiedVideoUrl) === 'youtube' ? !ytPreviewReady : detectVideoLinkType(unifiedVideoUrl) === 'external_url' ? !externalPreviewReady : false}
+                          disabled={detectVideoLinkType(unifiedVideoUrl) === 'youtube' ? !ytPreviewReady : detectVideoLinkType(unifiedVideoUrl) === 'external_url' ? (isSharePointOrOneDriveVideoUrl(unifiedVideoUrl) ? false : !externalPreviewReady) : false}
                           className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Full video
