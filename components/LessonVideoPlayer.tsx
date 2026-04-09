@@ -750,7 +750,7 @@ export function LessonVideoPlayer({
       `${segment.id}-drive-proxy-failed`,
       <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-4 text-amber-900 dark:text-amber-100">
         <p className="text-sm mb-2">
-          Google Drive direct streaming failed for this video. To keep source UI hidden, the app does not show Drive's embedded player.
+          Google Drive direct streaming failed for this video. To keep source UI hidden, the app does not show Drive&apos;s embedded player.
         </p>
         <p className="text-xs opacity-80">
           Re-add this video as YouTube or a direct MP4 URL for in-app playback.
