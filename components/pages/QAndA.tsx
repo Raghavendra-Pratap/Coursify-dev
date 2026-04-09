@@ -42,6 +42,13 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
   const [answerText, setAnswerText] = useState<Record<string, string>>({});
   const [answeringId, setAnsweringId] = useState<string | null>(null);
 
+  const displayName = (name: string | null | undefined, fallbackId?: string | null) => {
+    const n = (name ?? '').trim();
+    if (n) return n;
+    if (fallbackId && fallbackId.length >= 8) return `User ${fallbackId.slice(0, 8)}`;
+    return 'Unknown user';
+  };
+
   const fetchThreads = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
@@ -227,13 +234,13 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
                     {/* Root Q & A */}
                     <div className="pl-2">
                       <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                        Question — {thread.askedByName || 'Learner'}
+                        Question — {displayName(thread.askedByName, thread.asked_by)}
                       </p>
                       <p className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">{thread.question_text}</p>
                       {thread.answer_text ? (
                         <div className="mt-3 pl-3 border-l-2 border-blue-400 dark:border-blue-500">
                           <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-1">
-                            Answer — {thread.answeredByName || 'Instructor'}
+                            Answer — {displayName(thread.answeredByName, thread.answered_by)}
                           </p>
                           <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{thread.answer_text}</p>
                           <div className="mt-1 flex items-center justify-between gap-2">
@@ -279,13 +286,13 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
                     {(thread.followUps ?? []).map((f) => (
                       <div key={f.id} className="pl-4 border-l-2 border-gray-200 dark:border-gray-600 space-y-1">
                         <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                          Follow-up — {f.askedByName || 'Learner'}
+                          Follow-up — {displayName(f.askedByName, f.asked_by)}
                         </p>
                         <p className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">{f.question_text}</p>
                         {f.answer_text ? (
                           <div className="mt-2 pl-3 border-l-2 border-blue-400 dark:border-blue-500">
                             <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-1">
-                              Answer — {f.answeredByName || 'Instructor'}
+                              Answer — {displayName(f.answeredByName, f.answered_by)}
                             </p>
                             <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{f.answer_text}</p>
                             <div className="mt-1 flex items-center justify-between gap-2">

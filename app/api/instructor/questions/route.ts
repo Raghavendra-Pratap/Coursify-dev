@@ -64,15 +64,15 @@ export async function GET(request: Request) {
     courseTitle: courseTitleBy.get(r.course_id) ?? 'Course',
     lessonTitle: r.lesson_id ? (lessonTitleBy.get(r.lesson_id) ?? 'Lesson') : 'Lesson',
     courseCreatorId: courseCreatorBy.get(r.course_id) ?? null,
-    askedByName: userNameBy.get(r.asked_by) ?? 'Learner',
-    answeredByName: r.answered_by ? (userNameBy.get(r.answered_by) ?? 'Instructor') : null,
+    askedByName: userNameBy.get(r.asked_by) ?? null,
+    answeredByName: r.answered_by ? (userNameBy.get(r.answered_by) ?? null) : null,
     followUps: (byParent.get(r.id) ?? []).map((f: { course_id: string; lesson_id: string | null; asked_by: string; answered_by: string | null }) => ({
       ...f,
       courseTitle: courseTitleBy.get(f.course_id) ?? 'Course',
       lessonTitle: f.lesson_id ? (lessonTitleBy.get(f.lesson_id) ?? 'Lesson') : 'Lesson',
       courseCreatorId: courseCreatorBy.get(f.course_id) ?? null,
-      askedByName: userNameBy.get(f.asked_by) ?? 'Learner',
-      answeredByName: f.answered_by ? (userNameBy.get(f.answered_by) ?? 'Instructor') : null,
+      askedByName: userNameBy.get(f.asked_by) ?? null,
+      answeredByName: f.answered_by ? (userNameBy.get(f.answered_by) ?? null) : null,
     })),
   }));
   return NextResponse.json({ threads });

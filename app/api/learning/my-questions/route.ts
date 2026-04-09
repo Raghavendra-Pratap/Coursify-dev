@@ -37,18 +37,35 @@ export async function GET(request: Request) {
   }
   const courseIds = Array.from(new Set(questions.map((q: { course_id: string }) => q.course_id)));
   const lessonIds = Array.from(new Set(questions.map((q: { lesson_id: string | null }) => q.lesson_id).filter(Boolean)));
-  const { data: courses } = await db.from('courses').select('id, title').in('id', courseIds);
+  const { data: courses } = await db.from('courses').select('id, title, created_by').in('id', courseIds);
   const { data: lessons } = lessonIds.length ? await db.from('lessons').select('id, title').in('id', lessonIds) : { data: [] };
+  const userIds = Array.from(new Set(
+    questions
+      .flatMap((q: { asked_by: string; answered_by: string | null }) => [q.asked_by, q.answered_by])
+      .filter(Boolean)
+  ));
+  const { data: profiles } = userIds.length
+    ? await db.from('user_profiles').select('id, full_name').in('id', userIds as string[])
+    : { data: [] };
+
   const courseTitleBy = new Map((courses ?? []).map((c: { id: string; title: string }) => [c.id, c.title]));
+  const courseCreatorBy = new Map((courses ?? []).map((c: { id: string; created_by: string }) => [c.id, c.created_by]));
+  const userNameBy = new Map((profiles ?? []).map((u: { id: string; full_name: string | null }) => [u.id, u.full_name || null]));
   const lessonTitleBy = new Map((lessons ?? []).map((l: { id: string; title: string }) => [l.id, l.title]));
-  const threads = roots.map((r: { id: string; course_id: string; lesson_id: string | null }) => ({
+  const threads = roots.map((r: { id: string; course_id: string; lesson_id: string | null; asked_by: string; answered_by: string | null }) => ({
     ...r,
     courseTitle: courseTitleBy.get(r.course_id) ?? 'Course',
     lessonTitle: r.lesson_id ? (lessonTitleBy.get(r.lesson_id) ?? 'Lesson') : 'Lesson',
-    followUps: (byParent.get(r.id) ?? []).map((f: { course_id: string; lesson_id: string | null }) => ({
+    courseCreatorId: courseCreatorBy.get(r.course_id) ?? null,
+    askedByName: userNameBy.get(r.asked_by) ?? null,
+    answeredByName: r.answered_by ? (userNameBy.get(r.answered_by) ?? null) : null,
+    followUps: (byParent.get(r.id) ?? []).map((f: { course_id: string; lesson_id: string | null; asked_by: string; answered_by: string | null }) => ({
       ...f,
       courseTitle: courseTitleBy.get(f.course_id) ?? 'Course',
       lessonTitle: f.lesson_id ? (lessonTitleBy.get(f.lesson_id) ?? 'Lesson') : 'Lesson',
+      courseCreatorId: courseCreatorBy.get(f.course_id) ?? null,
+      askedByName: userNameBy.get(f.asked_by) ?? null,
+      answeredByName: f.answered_by ? (userNameBy.get(f.answered_by) ?? null) : null,
     })),
   }));
   return NextResponse.json({ threads });
