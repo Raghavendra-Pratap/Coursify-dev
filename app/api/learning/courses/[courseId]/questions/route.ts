@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { createServerClient as createServiceClient } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import { getNotificationPreferencesMap } from '@/lib/notification-preferences';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -73,5 +74,34 @@ export async function POST(request: Request, { params }: { params: Promise<{ cou
   }
   const { data: question, error } = await db.from('course_questions').insert(insertPayload).select(SELECT_COLS).single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Notify course creator/collaborators about learner questions.
+  try {
+    const { data: c } = await db.from('courses').select('title, created_by').eq('id', courseId).maybeSingle();
+    const courseTitle = (c as { title?: string | null } | null)?.title || 'Course';
+    const creatorId = (c as { created_by?: string } | null)?.created_by;
+    const { data: collabs } = await db.from('course_collaborators').select('user_id').eq('course_id', courseId);
+    const recipientIds = Array.from(new Set([creatorId, ...((collabs ?? []).map((r: { user_id: string }) => r.user_id))].filter(Boolean))) as string[];
+    const notifyIds = recipientIds.filter((id) => id !== user.id);
+    if (notifyIds.length > 0) {
+      const prefs = await getNotificationPreferencesMap(notifyIds);
+      const targetIds = notifyIds.filter((id) => (prefs.get(id)?.notify_new_questions ?? true));
+      if (targetIds.length > 0) {
+        await db.from('user_notifications').insert(
+          targetIds.map((uid) => ({
+            user_id: uid,
+            type: 'question_asked',
+            title: 'New learner question',
+            body: `A learner asked a question in ${courseTitle}.`,
+            link: `/`,
+            related_id: courseId,
+          }))
+        );
+      }
+    }
+  } catch {
+    // Do not fail the question flow for notification errors.
+  }
+
   return NextResponse.json({ question });
 }

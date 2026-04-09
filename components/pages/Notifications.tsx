@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Bell, BookOpen, Award, RefreshCw, CheckCheck, ChevronRight } from 'lucide-react';
+import { Bell, BookOpen, Award, RefreshCw, CheckCheck, ChevronRight, MessageSquare, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 export type NotificationRow = {
@@ -13,6 +13,21 @@ export type NotificationRow = {
   related_id: string | null;
   read_at: string | null;
   created_at: string;
+};
+
+
+type NotificationPreferences = {
+  notify_course_updates: boolean;
+  notify_question_answers: boolean;
+  notify_new_questions: boolean;
+  notify_enrollments: boolean;
+};
+
+const defaultNotificationPreferences: NotificationPreferences = {
+  notify_course_updates: true,
+  notify_question_answers: true,
+  notify_new_questions: true,
+  notify_enrollments: true,
 };
 
 interface NotificationsProps {
@@ -29,6 +44,11 @@ function iconForType(type: string) {
       return <BookOpen className="w-5 h-5 text-emerald-500 flex-shrink-0" />;
     case 'certificate':
       return <Award className="w-5 h-5 text-amber-500 flex-shrink-0" />;
+    case 'question_answered':
+    case 'question_asked':
+      return <MessageSquare className="w-5 h-5 text-purple-500 flex-shrink-0" />;
+    case 'new_enrollment':
+      return <UserPlus className="w-5 h-5 text-indigo-500 flex-shrink-0" />;
     default:
       return <Bell className="w-5 h-5 text-gray-500 flex-shrink-0" />;
   }
@@ -41,6 +61,9 @@ export default function Notifications({ setCurrentView, onOpenCourse }: Notifica
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [preferences, setPreferences] = useState<NotificationPreferences>(defaultNotificationPreferences);
+  const [prefSaving, setPrefSaving] = useState<string | null>(null);
+  const [prefError, setPrefError] = useState<string | null>(null);
 
   const fetchNotifications = useCallback(async () => {
     if (!userId) return;
@@ -68,6 +91,58 @@ export default function Notifications({ setCurrentView, onOpenCourse }: Notifica
   useEffect(() => {
     fetchNotifications();
   }, [fetchNotifications]);
+
+
+  const fetchPreferences = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch('/api/notification-preferences', { credentials: 'include', cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      const p = data?.preferences as Partial<NotificationPreferences> | undefined;
+      if (p) {
+        setPreferences({
+          notify_course_updates: p.notify_course_updates ?? true,
+          notify_question_answers: p.notify_question_answers ?? true,
+          notify_new_questions: p.notify_new_questions ?? true,
+          notify_enrollments: p.notify_enrollments ?? true,
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    fetchPreferences();
+  }, [fetchPreferences]);
+
+
+  const updatePreference = async (key: keyof NotificationPreferences, value: boolean) => {
+    setPrefError(null);
+    setPrefSaving(key);
+    const prev = preferences;
+    const next = { ...preferences, [key]: value };
+    setPreferences(next);
+    try {
+      const res = await fetch('/api/notification-preferences', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: value }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setPreferences(prev);
+        setPrefError((body as { error?: string })?.error || 'Failed to save notification settings.');
+      }
+    } catch {
+      setPreferences(prev);
+      setPrefError('Failed to save notification settings.');
+    } finally {
+      setPrefSaving(null);
+    }
+  };
 
   const markRead = async (id: string) => {
     try {
@@ -105,7 +180,7 @@ export default function Notifications({ setCurrentView, onOpenCourse }: Notifica
 
   const handleNotificationClick = (n: NotificationRow) => {
     if (!n.read_at) markRead(n.id);
-    if (n.related_id && onOpenCourse && (n.type === 'course_update' || n.type === 'course_completion')) {
+    if (n.related_id && onOpenCourse) {
       onOpenCourse(n.related_id);
     }
   };
@@ -150,6 +225,31 @@ export default function Notifications({ setCurrentView, onOpenCourse }: Notifica
         </div>
       )}
 
+
+      <div className="mb-6 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+        <p className="text-sm font-semibold text-gray-900 dark:text-white">Notification settings</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Control which in-app alerts you receive.</p>
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
+            <span className="text-gray-700 dark:text-gray-300">Course updates</span>
+            <input type="checkbox" checked={preferences.notify_course_updates} disabled={prefSaving === 'notify_course_updates'} onChange={(e) => updatePreference('notify_course_updates', e.target.checked)} className="w-4 h-4" />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
+            <span className="text-gray-700 dark:text-gray-300">Answers to my questions</span>
+            <input type="checkbox" checked={preferences.notify_question_answers} disabled={prefSaving === 'notify_question_answers'} onChange={(e) => updatePreference('notify_question_answers', e.target.checked)} className="w-4 h-4" />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
+            <span className="text-gray-700 dark:text-gray-300">New learner questions</span>
+            <input type="checkbox" checked={preferences.notify_new_questions} disabled={prefSaving === 'notify_new_questions'} onChange={(e) => updatePreference('notify_new_questions', e.target.checked)} className="w-4 h-4" />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
+            <span className="text-gray-700 dark:text-gray-300">New enrollments</span>
+            <input type="checkbox" checked={preferences.notify_enrollments} disabled={prefSaving === 'notify_enrollments'} onChange={(e) => updatePreference('notify_enrollments', e.target.checked)} className="w-4 h-4" />
+          </label>
+        </div>
+        {prefError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{prefError}</p>}
+      </div>
+
       {loading ? (
         <p className="text-gray-500 dark:text-gray-400">Loading…</p>
       ) : notifications.length === 0 ? (
@@ -190,7 +290,7 @@ export default function Notifications({ setCurrentView, onOpenCourse }: Notifica
                     {new Date(n.created_at).toLocaleString()}
                   </p>
                 </div>
-                {(n.type === 'course_update' || n.type === 'course_completion') && n.related_id && onOpenCourse && (
+                {n.related_id && onOpenCourse && (
                   <span className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 font-medium flex-shrink-0">
                     Open course
                     <ChevronRight className="w-4 h-4" />

@@ -35,6 +35,21 @@ type SettingsState = {
   showLearningProgress: boolean;
 };
 
+
+type NotificationPreferences = {
+  notify_course_updates: boolean;
+  notify_question_answers: boolean;
+  notify_new_questions: boolean;
+  notify_enrollments: boolean;
+};
+
+const defaultNotificationPreferences: NotificationPreferences = {
+  notify_course_updates: true,
+  notify_question_answers: true,
+  notify_new_questions: true,
+  notify_enrollments: true,
+};
+
 const defaultSettings: SettingsState = {
   theme: 'dark',
   language: 'en',
@@ -78,11 +93,49 @@ export default function AccountSettings() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(defaultNotificationPreferences);
+  const [notifPrefLoading, setNotifPrefLoading] = useState(true);
+  const [notifPrefSaving, setNotifPrefSaving] = useState<string | null>(null);
+  const [notifPrefError, setNotifPrefError] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', settings.theme === 'dark');
   }, [settings.theme]);
+
+
+  useEffect(() => {
+    let mounted = true;
+    const loadNotificationPreferences = async () => {
+      setNotifPrefLoading(true);
+      setNotifPrefError(null);
+      try {
+        const res = await fetch('/api/notification-preferences', { credentials: 'include', cache: 'no-store' });
+        if (!res.ok) {
+          if (mounted) setNotifPrefError('Failed to load in-app notification settings.');
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        const prefs = (data as { preferences?: Partial<NotificationPreferences> }).preferences;
+        if (mounted && prefs) {
+          setNotificationPreferences({
+            notify_course_updates: prefs.notify_course_updates ?? true,
+            notify_question_answers: prefs.notify_question_answers ?? true,
+            notify_new_questions: prefs.notify_new_questions ?? true,
+            notify_enrollments: prefs.notify_enrollments ?? true,
+          });
+        }
+      } catch {
+        if (mounted) setNotifPrefError('Failed to load in-app notification settings.');
+      } finally {
+        if (mounted) setNotifPrefLoading(false);
+      }
+    };
+    loadNotificationPreferences();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const update = (patch: Partial<SettingsState>) => {
     setSettings((prev) => {
@@ -90,6 +143,33 @@ export default function AccountSettings() {
       saveStored(patch);
       return next;
     });
+  };
+
+
+  const updateNotificationPreference = async (key: keyof NotificationPreferences, value: boolean) => {
+    const prev = notificationPreferences;
+    const next = { ...notificationPreferences, [key]: value };
+    setNotifPrefError(null);
+    setNotifPrefSaving(key);
+    setNotificationPreferences(next);
+    try {
+      const res = await fetch('/api/notification-preferences', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: value }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setNotificationPreferences(prev);
+        setNotifPrefError((data as { error?: string }).error || 'Failed to save in-app notification settings.');
+      }
+    } catch {
+      setNotificationPreferences(prev);
+      setNotifPrefError('Failed to save in-app notification settings.');
+    } finally {
+      setNotifPrefSaving(null);
+    }
   };
 
   const handleClearCache = () => {
@@ -172,7 +252,7 @@ export default function AccountSettings() {
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Account Settings</h2>
         <p className="text-gray-600 dark:text-gray-400 mt-1">Manage your account preferences and security</p>
         <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
-          Theme and Clear Cache work now. Password change works. Other options are saved locally and will apply when we add those features.
+          Theme and password change work now. In-app notification settings are saved to your account. Other options are saved locally.
         </p>
       </div>
 
@@ -249,7 +329,7 @@ export default function AccountSettings() {
       </Section>
 
       <Section icon={Bell} title="Notifications">
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Saved locally; email/reminders will use these when available.</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Email/reminder options are local for now. In-app notification controls below are saved to your account.</p>
         <Row
           label="Email Notifications"
           description="Receive updates via email"
@@ -298,6 +378,62 @@ export default function AccountSettings() {
             />
           }
         />
+
+
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 mb-2">In-app notifications (saved to account)</p>
+        <Row
+          label="Course Updates"
+          description="Notify me when enrolled courses are updated"
+          action={
+            <input
+              type="checkbox"
+              checked={notificationPreferences.notify_course_updates}
+              onChange={(e) => updateNotificationPreference('notify_course_updates', e.target.checked)}
+              disabled={notifPrefLoading || notifPrefSaving === 'notify_course_updates'}
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-60"
+            />
+          }
+        />
+        <Row
+          label="Answers to My Questions"
+          description="Notify me when my course question gets an answer"
+          action={
+            <input
+              type="checkbox"
+              checked={notificationPreferences.notify_question_answers}
+              onChange={(e) => updateNotificationPreference('notify_question_answers', e.target.checked)}
+              disabled={notifPrefLoading || notifPrefSaving === 'notify_question_answers'}
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-60"
+            />
+          }
+        />
+        <Row
+          label="New Learner Questions"
+          description="Notify me when learners ask questions on my courses"
+          action={
+            <input
+              type="checkbox"
+              checked={notificationPreferences.notify_new_questions}
+              onChange={(e) => updateNotificationPreference('notify_new_questions', e.target.checked)}
+              disabled={notifPrefLoading || notifPrefSaving === 'notify_new_questions'}
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-60"
+            />
+          }
+        />
+        <Row
+          label="New Enrollments"
+          description="Notify me when someone enrolls in my courses"
+          action={
+            <input
+              type="checkbox"
+              checked={notificationPreferences.notify_enrollments}
+              onChange={(e) => updateNotificationPreference('notify_enrollments', e.target.checked)}
+              disabled={notifPrefLoading || notifPrefSaving === 'notify_enrollments'}
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-60"
+            />
+          }
+        />
+        {notifPrefError && <p className="text-xs text-red-600 dark:text-red-400 mt-2">{notifPrefError}</p>}
       </Section>
 
       <Section icon={BookOpen} title="Learning Preferences">

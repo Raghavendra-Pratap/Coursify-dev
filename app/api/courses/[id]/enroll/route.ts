@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient as createServiceClient } from '@/lib/supabase'
+import { getNotificationPreferencesMap } from '@/lib/notification-preferences'
 
 export async function POST(
   request: NextRequest,
@@ -69,5 +70,34 @@ export async function POST(
   if (error) {
     return NextResponse.json({ error: error.message || 'Enrollment failed' }, { status: 500 })
   }
+
+  // Notify creator/collaborators when someone enrolls.
+  try {
+    const { data: c } = await admin.from('courses').select('title, created_by').eq('id', courseId).maybeSingle()
+    const courseTitle = (c as { title?: string | null } | null)?.title || 'Course'
+    const creatorId = (c as { created_by?: string } | null)?.created_by
+    const { data: collabs } = await admin.from('course_collaborators').select('user_id').eq('course_id', courseId)
+    const recipients = Array.from(new Set([creatorId, ...((collabs ?? []).map((r: { user_id: string }) => r.user_id))].filter(Boolean))) as string[]
+    const notifyIds = recipients.filter((id) => id !== userId)
+    if (notifyIds.length > 0) {
+      const prefs = await getNotificationPreferencesMap(notifyIds)
+      const targetIds = notifyIds.filter((id) => (prefs.get(id)?.notify_enrollments ?? true))
+      if (targetIds.length > 0) {
+        await admin.from('user_notifications').insert(
+          targetIds.map((uid) => ({
+            user_id: uid,
+            type: 'new_enrollment',
+            title: 'New enrollment',
+            body: `A learner enrolled in ${courseTitle}.`,
+            link: '/',
+            related_id: courseId,
+          }))
+        )
+      }
+    }
+  } catch {
+    // Keep enrollment success even if notification insert fails.
+  }
+
   return NextResponse.json({ enrolled: true }, { status: 200 })
 }

@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { createServerClient as createServiceClient } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import { getNotificationPreferencesMap } from '@/lib/notification-preferences';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -29,14 +30,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ cou
   const title = course?.title ?? 'Course';
   const { data: enrollments } = await db.from('enrollments').select('user_id').eq('course_id', courseId);
   if (!enrollments?.length) return NextResponse.json({ notified: 0 });
-  const inserts = enrollments.map((e: { user_id: string }) => ({
-    user_id: e.user_id,
-    type: 'course_update',
-    title: 'Course updated',
-    body: `${title} was republished. Check the updated or new modules.`,
-    link: `/`,
-    related_id: courseId,
-  }));
+  const recipientIds = enrollments.map((e: { user_id: string }) => e.user_id);
+  const prefs = await getNotificationPreferencesMap(recipientIds);
+  const inserts = enrollments
+    .filter((e: { user_id: string }) => (prefs.get(e.user_id)?.notify_course_updates ?? true))
+    .map((e: { user_id: string }) => ({
+      user_id: e.user_id,
+      type: 'course_update',
+      title: 'Course updated',
+      body: `${title} was republished. Check the updated or new modules.`,
+      link: `/`,
+      related_id: courseId,
+    }));
+  if (inserts.length === 0) return NextResponse.json({ notified: 0 });
   const { error } = await db.from('user_notifications').insert(inserts);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ notified: inserts.length });

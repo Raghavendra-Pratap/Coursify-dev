@@ -1516,8 +1516,30 @@ function onFormSubmit(e) {
       } catch (_) {
         // course_versions table or RLS may not exist; save still succeeded
       }
+      let notifiedCount: number | null = null;
+      if (courseData.status === 'published') {
+        try {
+          const notifyRes = await fetch(`/api/instructor/courses/${finalCourseId}/notify-update`, {
+            method: 'POST',
+            credentials: 'include',
+          });
+          if (notifyRes.ok) {
+            const body = await notifyRes.json().catch(() => ({}));
+            notifiedCount = typeof (body as { notified?: number }).notified === 'number' ? (body as { notified: number }).notified : null;
+          }
+        } catch {
+          // Save should remain successful if notifications fail.
+        }
+      }
+
       setCourseData(prev => ({ ...prev, lastEdited: 'Just now' }));
-      showSaveMessage(wasNewCourse ? 'Course saved to database.' : 'Course updated.');
+      const baseMsg = wasNewCourse ? 'Course saved to database.' : 'Course updated.';
+      const notifyMsg = notifiedCount === null
+        ? ''
+        : notifiedCount > 0
+          ? ` Notified ${notifiedCount} learner${notifiedCount === 1 ? '' : 's'}.`
+          : ' No enrolled learners to notify yet.';
+      showSaveMessage(baseMsg + notifyMsg);
     } catch (e: unknown) {
       const err = e as { message?: string; code?: string; details?: string };
       let msg = err?.message || 'Failed to save course.';
@@ -1554,8 +1576,26 @@ function onFormSubmit(e) {
     if (savedCourseId) {
       try {
         await (supabase as any).from('courses').update({ status: 'published', updated_at: new Date().toISOString() }).eq('id', savedCourseId);
+        let notifiedCount: number | null = null;
+        try {
+          const notifyRes = await fetch(`/api/instructor/courses/${savedCourseId}/notify-update`, {
+            method: 'POST',
+            credentials: 'include',
+          });
+          if (notifyRes.ok) {
+            const body = await notifyRes.json().catch(() => ({}));
+            notifiedCount = typeof (body as { notified?: number }).notified === 'number' ? (body as { notified: number }).notified : null;
+          }
+        } catch {
+          // Publish should remain successful if notifications fail.
+        }
         setCourseData(prev => ({ ...prev, status: 'published', lastEdited: 'Just now' }));
-        showSaveMessage('Course published.');
+        const notifyMsg = notifiedCount === null
+          ? ''
+          : notifiedCount > 0
+            ? ` Notified ${notifiedCount} learner${notifiedCount === 1 ? '' : 's'}.`
+            : ' No enrolled learners to notify yet.';
+        showSaveMessage('Course published.' + notifyMsg);
         return;
       } catch (e: unknown) {
         showSaveMessage(e instanceof Error ? e.message : 'Failed to publish.');

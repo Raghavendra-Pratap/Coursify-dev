@@ -63,7 +63,7 @@ export async function POST(
         ignoreDuplicates: false,
       }
     )
-    .select("id, rating, review, created_at, updated_at")
+    .select("rating, review, created_at, updated_at")
     .single()
 
   if (error) {

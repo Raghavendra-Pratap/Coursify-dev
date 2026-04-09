@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { createServerClient as createServiceClient } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import { getNotificationPreferencesMap } from '@/lib/notification-preferences';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -49,6 +50,29 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ co
   const { data: question, error } = await db.from('course_questions').update({ answer_text: answerText || null, answered_by: user.id, answered_at: new Date().toISOString() }).eq('id', questionId).eq('course_id', courseId).select('id, course_id, module_id, lesson_id, asked_by, question_text, answer_text, answered_by, answered_at, created_at').single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!question) return NextResponse.json({ error: 'Question not found' }, { status: 404 });
+
+  // Notify learner that their question was answered.
+  try {
+    const askedBy = (question as { asked_by?: string | null }).asked_by ?? null;
+    if (answerText && askedBy && askedBy !== user.id) {
+      const prefs = await getNotificationPreferencesMap([askedBy]);
+      if (prefs.get(askedBy)?.notify_question_answers ?? true) {
+        const { data: c } = await db.from('courses').select('title').eq('id', courseId).maybeSingle();
+        const courseTitle = (c as { title?: string | null } | null)?.title || 'Course';
+        await db.from('user_notifications').insert({
+          user_id: askedBy,
+          type: 'question_answered',
+          title: 'Your question was answered',
+          body: `You received an answer in ${courseTitle}.`,
+          link: `/`,
+          related_id: courseId,
+        });
+      }
+    }
+  } catch {
+    // Do not fail answer flow for notification errors.
+  }
+
   return NextResponse.json({ question });
 }
 
