@@ -672,7 +672,7 @@ function onFormSubmit(e) {
 
   // Edit load state: when opening a course by initialCourseId
   const [courseLoadState, setCourseLoadState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
-  const restoredDraftRef = useRef(false);
+  const restoredDraftKeyRef = useRef<string | null>(null);
 
   const getDraftStorageKey = useCallback(() => {
     const keyId = initialCourseId || savedCourseId || 'new';
@@ -681,10 +681,11 @@ function onFormSubmit(e) {
 
   // Restore unsaved editor draft (prevents data loss on remount/tab restore/sidebar transitions).
   useEffect(() => {
-    if (restoredDraftRef.current) return;
     if (typeof window === 'undefined') return;
+    const draftKey = getDraftStorageKey();
+    if (restoredDraftKeyRef.current === draftKey) return;
     try {
-      const raw = localStorage.getItem(getDraftStorageKey());
+      const raw = localStorage.getItem(draftKey);
       if (!raw) return;
       const parsed = JSON.parse(raw) as {
         courseData?: { title: string; description: string; lastEdited: string; status: 'draft' | 'published'; modules: Module[] };
@@ -694,13 +695,22 @@ function onFormSubmit(e) {
         savedCourseId?: string | null;
       };
       if (parsed?.courseData?.modules && Array.isArray(parsed.courseData.modules)) {
+        const isEditingExistingCourse = !!initialCourseId;
+        const draftMatchesCourse = parsed.savedCourseId === initialCourseId;
+        const hasAnyStructure = parsed.courseData.modules.length > 0;
+
+        // For existing courses, avoid restoring empty/stale drafts that hide real DB structure.
+        if (isEditingExistingCourse && (!draftMatchesCourse || !hasAnyStructure)) {
+          return;
+        }
+
         setCourseData(parsed.courseData);
         setCurrentModule(typeof parsed.currentModule === 'number' ? parsed.currentModule : 0);
         setCurrentLesson(typeof parsed.currentLesson === 'number' ? parsed.currentLesson : 0);
         setSelectedContent(typeof parsed.selectedContent === 'number' ? parsed.selectedContent : 0);
         if (typeof parsed.savedCourseId === 'string' && parsed.savedCourseId) setSavedCourseId(parsed.savedCourseId);
         setCourseLoadState('loaded');
-        restoredDraftRef.current = true;
+        restoredDraftKeyRef.current = draftKey;
       }
     } catch {
       // ignore invalid local draft
@@ -727,7 +737,8 @@ function onFormSubmit(e) {
 
   // Load existing course when editing from My Courses
   useEffect(() => {
-    if (restoredDraftRef.current) return;
+    const draftKey = getDraftStorageKey();
+    if (restoredDraftKeyRef.current === draftKey) return;
     if (!initialCourseId || !process.env.NEXT_PUBLIC_SUPABASE_URL) {
       setCourseLoadState('idle');
       return;
@@ -810,7 +821,7 @@ function onFormSubmit(e) {
         setCourseLoadState('error');
       }
     })();
-  }, [initialCourseId]);
+  }, [initialCourseId, getDraftStorageKey]);
 
   const currentModuleData = courseData.modules[currentModule];
   const currentLessonData = currentModuleData?.lessons[currentLesson];
@@ -1526,6 +1537,10 @@ function onFormSubmit(e) {
           if (notifyRes.ok) {
             const body = await notifyRes.json().catch(() => ({}));
             notifiedCount = typeof (body as { notified?: number }).notified === 'number' ? (body as { notified: number }).notified : null;
+          } else {
+            const body = await notifyRes.json().catch(() => ({}));
+            const apiError = (body as { error?: string })?.error;
+            showSaveMessage(`Course saved, but notifications failed${apiError ? `: ${apiError}` : '.'}`);
           }
         } catch {
           // Save should remain successful if notifications fail.
@@ -1585,6 +1600,10 @@ function onFormSubmit(e) {
           if (notifyRes.ok) {
             const body = await notifyRes.json().catch(() => ({}));
             notifiedCount = typeof (body as { notified?: number }).notified === 'number' ? (body as { notified: number }).notified : null;
+          } else {
+            const body = await notifyRes.json().catch(() => ({}));
+            const apiError = (body as { error?: string })?.error;
+            showSaveMessage(`Course published, but notifications failed${apiError ? `: ${apiError}` : '.'}`);
           }
         } catch {
           // Publish should remain successful if notifications fail.

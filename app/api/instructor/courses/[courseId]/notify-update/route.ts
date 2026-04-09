@@ -24,8 +24,26 @@ export async function POST(request: Request, { params }: { params: Promise<{ cou
   const { data: { user } } = await supabaseAuth.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const db = createServiceClient();
-  const { data: canPublish } = await db.rpc('is_course_owner_or_collaborator', { cid: courseId });
-  if (!canPublish) return NextResponse.json({ error: 'Only course owner or collaborator can notify' }, { status: 403 });
+  // IMPORTANT: avoid auth.uid()-based RPC checks with service-role clients.
+  const { data: ownerRow, error: ownerErr } = await db
+    .from('courses')
+    .select('id')
+    .eq('id', courseId)
+    .eq('created_by', user.id)
+    .maybeSingle();
+  if (ownerErr) return NextResponse.json({ error: ownerErr.message }, { status: 500 });
+  let canNotify = !!ownerRow;
+  if (!canNotify) {
+    const { data: collabRow, error: collabErr } = await db
+      .from('course_collaborators')
+      .select('id')
+      .eq('course_id', courseId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (collabErr) return NextResponse.json({ error: collabErr.message }, { status: 500 });
+    canNotify = !!collabRow;
+  }
+  if (!canNotify) return NextResponse.json({ error: 'Only course owner or collaborator can notify' }, { status: 403 });
   const { data: course } = await db.from('courses').select('title').eq('id', courseId).single();
   const title = course?.title ?? 'Course';
   const { data: enrollments } = await db.from('enrollments').select('user_id').eq('course_id', courseId);
