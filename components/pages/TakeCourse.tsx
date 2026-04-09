@@ -845,8 +845,9 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
                         {!step ? null : step.type === 'video' ? (
                           <div className="flex flex-col flex-1 min-h-0">
                             {/* Dark video area: 16:9 player fills available width and scales with window */}
-                            <div className="flex-1 min-h-0 flex items-center justify-center p-2 sm:p-4 overflow-hidden bg-gray-900 dark:bg-black">
-                              <div className="aspect-video w-full max-w-full rounded-lg overflow-hidden bg-black shrink-0 select-none max-h-[calc(100vh-12rem)]">
+                            {/* No overflow-hidden / duplicate aspect-video here: they clipped LessonVideoPlayer's bottom bar (play, timer, fullscreen). */}
+                            <div className="flex-1 min-h-0 flex items-start justify-center p-2 sm:p-4 overflow-y-auto bg-gray-900 dark:bg-black">
+                              <div className="w-full max-w-full rounded-lg bg-black shrink-0 select-none min-w-0 min-h-0">
                                 <LessonVideoPlayer
                                   segment={step.segment}
                                   onSegmentComplete={() => {

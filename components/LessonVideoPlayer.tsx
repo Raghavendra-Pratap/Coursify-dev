@@ -180,14 +180,15 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
     setVideoDuration(0);
     videoElReadyTrackRef.current = null;
   }, [segment.id]);
+  /** Fallback 60s when segment bounds missing — must match iframe branch or timer never runs (bug was segmentDuration<=0 guard). */
   const iframeDurationSeconds = segmentDuration > 0 ? segmentDuration : 60;
   useEffect(() => {
-    if (source === 'youtube' || !useIframeForPlayback || segmentDuration <= 0 || !iframeTimerStarted) return;
+    if (source === 'youtube' || !useIframeForPlayback || !iframeTimerStarted || iframeDurationSeconds <= 0) return;
     const id = setInterval(() => {
       setIframeElapsed((prev) => Math.min(prev + 1, iframeDurationSeconds));
     }, 1000);
     return () => clearInterval(id);
-  }, [source, useIframeForPlayback, segmentDuration, iframeTimerStarted, iframeDurationSeconds]);
+  }, [source, useIframeForPlayback, iframeTimerStarted, iframeDurationSeconds]);
   const iframeCompletedFiredRef = useRef(false);
   useEffect(() => {
     if (!useIframeForPlayback || iframeElapsed < iframeDurationSeconds) return;
@@ -787,7 +788,7 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
               className="w-full h-1.5 accent-blue-500 cursor-default"
               aria-label="Segment progress"
             />
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={handleIframePlayPause}
@@ -796,14 +797,20 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
               >
                 {iframeTimerStarted ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
               </button>
-              <span className="text-white text-sm tabular-nums min-w-0">
+              <span className="text-white text-sm tabular-nums min-w-0 flex-1 text-center sm:text-left">
                 {formatTime(iframeElapsed)} / {formatTime(iframeDuration)}
               </span>
               {driveId && (
-                <span className="text-white/70 text-xs shrink-0 hidden sm:inline" title="Use controls inside the video to pause or seek">Drive</span>
+                <span className="text-white/70 text-xs shrink-0" title="Google Drive — pause/seek/volume use the player inside the video">
+                  Drive
+                </span>
               )}
-              <span className="p-1.5 text-white/70 shrink-0" title="Use the player inside the frame for volume" aria-hidden>
-                <Volume2 className="w-5 h-5" />
+              <span
+                className="flex items-center gap-1 text-white/80 text-xs shrink-0 max-w-[8rem]"
+                title="Volume and mute are on the embedded player above"
+              >
+                <Volume2 className="w-4 h-4 shrink-0" aria-hidden />
+                <span className="hidden sm:inline">In player</span>
               </span>
               <button
                 type="button"
