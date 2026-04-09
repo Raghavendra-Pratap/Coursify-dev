@@ -25,10 +25,81 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ co
   const body = await request.json().catch(() => ({}));
   const answerText = typeof body.answer_text === 'string' ? body.answer_text.trim() : '';
   const db = createServiceClient();
-  const { data: canAnswer } = await db.rpc('is_course_owner_or_collaborator', { cid: courseId });
+  // IMPORTANT: do not use is_course_owner_or_collaborator() with service role DB client here,
+  // because auth.uid() is null in that context and permission check becomes false.
+  const { data: ownerRow, error: ownerErr } = await db
+    .from('courses')
+    .select('id')
+    .eq('id', courseId)
+    .eq('created_by', user.id)
+    .maybeSingle();
+  if (ownerErr) return NextResponse.json({ error: ownerErr.message }, { status: 500 });
+  let canAnswer = !!ownerRow;
+  if (!canAnswer) {
+    const { data: collabRow, error: collabErr } = await db
+      .from('course_collaborators')
+      .select('id')
+      .eq('course_id', courseId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (collabErr) return NextResponse.json({ error: collabErr.message }, { status: 500 });
+    canAnswer = !!collabRow;
+  }
   if (!canAnswer) return NextResponse.json({ error: 'Only creator or collaborator can answer' }, { status: 403 });
   const { data: question, error } = await db.from('course_questions').update({ answer_text: answerText || null, answered_by: user.id, answered_at: new Date().toISOString() }).eq('id', questionId).eq('course_id', courseId).select('id, course_id, module_id, lesson_id, asked_by, question_text, answer_text, answered_by, answered_at, created_at').single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!question) return NextResponse.json({ error: 'Question not found' }, { status: 404 });
+  return NextResponse.json({ question });
+}
+
+
+export async function DELETE(request: Request, { params }: { params: Promise<{ courseId: string; questionId: string }> }) {
+  const { courseId, questionId } = await params;
+  const supabaseAuth = createAuthClient(request);
+  const { data: { user } } = await supabaseAuth.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const db = createServiceClient();
+  // Only course creator can remove answers.
+  const { data: courseOwner, error: ownerErr } = await db
+    .from('courses')
+    .select('id')
+    .eq('id', courseId)
+    .eq('created_by', user.id)
+    .maybeSingle();
+  if (ownerErr) return NextResponse.json({ error: ownerErr.message }, { status: 500 });
+  if (!courseOwner) return NextResponse.json({ error: 'Only course creator can delete answers' }, { status: 403 });
+
+  const { data: currentQuestion, error: qErr } = await db
+    .from('course_questions')
+    .select('id, course_id, answered_by, answer_text')
+    .eq('id', questionId)
+    .eq('course_id', courseId)
+    .maybeSingle();
+  if (qErr) return NextResponse.json({ error: qErr.message }, { status: 500 });
+  if (!currentQuestion) return NextResponse.json({ error: 'Question not found' }, { status: 404 });
+
+  const answeredBy = (currentQuestion as { answered_by?: string | null }).answered_by ?? null;
+  if (answeredBy && answeredBy !== user.id) {
+    const { data: collabRow, error: collabErr } = await db
+      .from('course_collaborators')
+      .select('id')
+      .eq('course_id', courseId)
+      .eq('user_id', answeredBy)
+      .maybeSingle();
+    if (collabErr) return NextResponse.json({ error: collabErr.message }, { status: 500 });
+    if (!collabRow) {
+      return NextResponse.json({ error: 'Creator can delete only their or collaborator answers' }, { status: 403 });
+    }
+  }
+
+  const { data: question, error } = await db
+    .from('course_questions')
+    .update({ answer_text: null, answered_by: null, answered_at: null })
+    .eq('id', questionId)
+    .eq('course_id', courseId)
+    .select('id, course_id, module_id, lesson_id, asked_by, question_text, answer_text, answered_by, answered_at, created_at')
+    .single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ question });
 }

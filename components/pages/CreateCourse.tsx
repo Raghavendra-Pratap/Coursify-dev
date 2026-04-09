@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Play, Pause, Plus, Clock, Video, ChevronRight, Edit, X, Save, Zap, Folder, Upload, Eye, RotateCcw,
   Trash2, CheckCircle, Info, ChevronDown, ChevronUp, Download, Copy, FileText, Menu,
@@ -672,9 +672,62 @@ function onFormSubmit(e) {
 
   // Edit load state: when opening a course by initialCourseId
   const [courseLoadState, setCourseLoadState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
+  const restoredDraftRef = useRef(false);
+
+  const getDraftStorageKey = useCallback(() => {
+    const keyId = initialCourseId || savedCourseId || 'new';
+    return `create_course_draft_${keyId}`;
+  }, [initialCourseId, savedCourseId]);
+
+  // Restore unsaved editor draft (prevents data loss on remount/tab restore/sidebar transitions).
+  useEffect(() => {
+    if (restoredDraftRef.current) return;
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(getDraftStorageKey());
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as {
+        courseData?: { title: string; description: string; lastEdited: string; status: 'draft' | 'published'; modules: Module[] };
+        currentModule?: number;
+        currentLesson?: number;
+        selectedContent?: number;
+        savedCourseId?: string | null;
+      };
+      if (parsed?.courseData?.modules && Array.isArray(parsed.courseData.modules)) {
+        setCourseData(parsed.courseData);
+        setCurrentModule(typeof parsed.currentModule === 'number' ? parsed.currentModule : 0);
+        setCurrentLesson(typeof parsed.currentLesson === 'number' ? parsed.currentLesson : 0);
+        setSelectedContent(typeof parsed.selectedContent === 'number' ? parsed.selectedContent : 0);
+        if (typeof parsed.savedCourseId === 'string' && parsed.savedCourseId) setSavedCourseId(parsed.savedCourseId);
+        setCourseLoadState('loaded');
+        restoredDraftRef.current = true;
+      }
+    } catch {
+      // ignore invalid local draft
+    }
+  }, [getDraftStorageKey]);
+
+  // Persist unsaved editor draft frequently to avoid losing work.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const payload = JSON.stringify({
+        courseData,
+        currentModule,
+        currentLesson,
+        selectedContent,
+        savedCourseId,
+        updatedAt: Date.now(),
+      });
+      localStorage.setItem(getDraftStorageKey(), payload);
+    } catch {
+      // ignore storage errors
+    }
+  }, [courseData, currentModule, currentLesson, selectedContent, savedCourseId, getDraftStorageKey]);
 
   // Load existing course when editing from My Courses
   useEffect(() => {
+    if (restoredDraftRef.current) return;
     if (!initialCourseId || !process.env.NEXT_PUBLIC_SUPABASE_URL) {
       setCourseLoadState('idle');
       return;

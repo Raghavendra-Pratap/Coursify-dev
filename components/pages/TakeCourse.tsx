@@ -195,6 +195,11 @@ function noteStorageKey(userId: string | null, courseId: string, lessonId: strin
   return `${NOTES_STORAGE_PREFIX}${userId}_${courseId}_${lessonId}`;
 }
 
+function takeUiStorageKey(userId: string | null, courseId: string): string | null {
+  if (!userId) return null;
+  return `take_course_ui_${userId}_${courseId}`;
+}
+
 export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initialLessonId = null }: TakeCourseProps) {
   const { user } = useAuth();
   const userId = user?.id ?? null;
@@ -268,7 +273,22 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
       setModules(Array.isArray(data.modules) ? data.modules : []);
       setCompletedLessonIds(new Set(Array.isArray(data.completedLessonIds) ? data.completedLessonIds : []));
       const firstLesson = data.modules?.[0]?.lessons?.[0];
-      if (firstLesson?.id) setSelectedLessonId(firstLesson.id);
+      let selectedFromState: string | null = null;
+      try {
+        const key = takeUiStorageKey(userId, courseId);
+        const raw = key && typeof window !== 'undefined' ? sessionStorage.getItem(key) : null;
+        if (raw) {
+          const parsed = JSON.parse(raw) as { selectedLessonId?: string };
+          if (parsed?.selectedLessonId) {
+            const exists = (data.modules ?? []).some((m: { lessons?: { id: string }[] }) => (m.lessons ?? []).some((l) => l.id === parsed.selectedLessonId));
+            if (exists) selectedFromState = parsed.selectedLessonId;
+          }
+        }
+      } catch {
+        // ignore invalid UI state
+      }
+      if (selectedFromState) setSelectedLessonId(selectedFromState);
+      else if (firstLesson?.id) setSelectedLessonId(firstLesson.id);
       setExpandedModules(new Set((data.modules ?? []).map((m: { id: string }) => m.id)));
     } catch {
       setCourse(null);
@@ -277,7 +297,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
     } finally {
       setLoading(false);
     }
-  }, [courseId]);
+  }, [courseId, userId]);
 
   const hasAutoSelectedRef = useRef(false);
 
@@ -336,8 +356,43 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
 
   // Reset step index only when lesson changes (single dep avoids update loops / React #185)
   useEffect(() => {
-    setCurrentStepIndex(0);
-  }, [selectedLessonId]);
+    if (!selectedLessonId) {
+      setCurrentStepIndex(0);
+      return;
+    }
+    try {
+      const key = takeUiStorageKey(userId, courseId);
+      const raw = key && typeof window !== 'undefined' ? sessionStorage.getItem(key) : null;
+      if (!raw) {
+        setCurrentStepIndex(0);
+        return;
+      }
+      const parsed = JSON.parse(raw) as { selectedLessonId?: string; currentStepIndex?: number };
+      if (parsed.selectedLessonId === selectedLessonId && typeof parsed.currentStepIndex === 'number' && parsed.currentStepIndex >= 0) {
+        setCurrentStepIndex(parsed.currentStepIndex);
+      } else {
+        setCurrentStepIndex(0);
+      }
+    } catch {
+      setCurrentStepIndex(0);
+    }
+  }, [selectedLessonId, userId, courseId]);
+
+  // Persist lesson/step UI state to survive tab switches and sidebar remounts.
+  useEffect(() => {
+    if (!selectedLessonId) return;
+    try {
+      const key = takeUiStorageKey(userId, courseId);
+      if (!key || typeof window === 'undefined') return;
+      sessionStorage.setItem(key, JSON.stringify({
+        selectedLessonId,
+        currentStepIndex,
+        updatedAt: Date.now(),
+      }));
+    } catch {
+      // ignore storage errors
+    }
+  }, [selectedLessonId, currentStepIndex, userId, courseId]);
 
   // Remount lesson error boundary when lesson changes so a previous crash doesn't block the new lesson
   useEffect(() => {
@@ -830,6 +885,18 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
                     const segmentSec = end != null && end > start ? end - start : (dur != null ? dur : 0);
                     return acc + Math.max(0, segmentSec);
                   }, 0);
+                  const getSegmentDurationSec = (s: {
+                    segment: {
+                      start_time_seconds?: number;
+                      end_time_seconds?: number;
+                      duration_seconds?: number;
+                    };
+                  }) => {
+                    const st = s.segment.start_time_seconds ?? 0;
+                    const en = s.segment.end_time_seconds;
+                    const d = s.segment.duration_seconds;
+                    return Math.max(0, en != null && en > st ? en - st : (d ?? 0));
+                  };
 
                   return (
                     <div className="flex flex-col gap-4 flex-1 min-h-0">
@@ -845,9 +912,8 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
                         {!step ? null : step.type === 'video' ? (
                           <div className="flex flex-col flex-1 min-h-0">
                             {/* Dark video area: 16:9 player fills available width and scales with window */}
-                            {/* No overflow-hidden / duplicate aspect-video here: they clipped LessonVideoPlayer's bottom bar (play, timer, fullscreen). */}
-                            <div className="flex-1 min-h-0 flex items-start justify-center p-2 sm:p-4 overflow-y-auto bg-gray-900 dark:bg-black">
-                              <div className="w-full max-w-full rounded-lg bg-black shrink-0 select-none min-w-0 min-h-0">
+                            <div className="flex-1 min-h-0 flex items-center justify-center p-2 sm:p-4 overflow-hidden bg-gray-900 dark:bg-black">
+                              <div className="relative w-full h-full max-w-full max-h-[min(calc(100vh-12rem),85vh)] rounded-lg overflow-hidden bg-black shrink-0 select-none flex flex-col min-h-0">
                                 <LessonVideoPlayer
                                   segment={step.segment}
                                   onSegmentComplete={() => {
@@ -856,7 +922,39 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
                                   }}
                                   completionThreshold={0.95}
                                   onProgress={onVideoProgress}
+                                  combinedElapsedSeconds={(() => {
+                                    const videoSteps = steps.filter((s) => s.type === 'video');
+                                    const currentVideoIdx = videoSteps.findIndex((s) => s.segmentId === step.segmentId);
+                                    const elapsedBefore = (currentVideoIdx > 0 ? videoSteps.slice(0, currentVideoIdx) : []).reduce((acc, s) => acc + getSegmentDurationSec(s), 0);
+                                    const currentDuration = getSegmentDurationSec(step);
+                                    return elapsedBefore + currentDuration * Math.min(1, Math.max(0, currentVideoProgress));
+                                  })()}
+                                  combinedDurationSeconds={totalLessonDurationSec}
                                 />
+                                {/* Lesson combined progress (inside player) */}
+                                <div className="absolute left-3 right-3 bottom-14 sm:bottom-16 z-20">
+                                  <div className="flex gap-1 w-full h-2 rounded-full overflow-hidden bg-black/25 backdrop-blur-sm">
+                                    {Array.from({ length: totalSteps }).map((_, i) => {
+                                      const isCompleted = i < currentStepIndex;
+                                      const isCurrent = i === currentStepIndex;
+                                      const fillPct = isCurrent ? Math.min(1, Math.max(0, currentVideoProgress)) * 100 : isCompleted ? 100 : 0;
+                                      return (
+                                        <div
+                                          key={i}
+                                          className="h-full rounded-full overflow-hidden flex-1 min-w-0 flex bg-white/25"
+                                        >
+                                          <div
+                                            className="h-full bg-blue-500 transition-all duration-150 shrink-0"
+                                            style={{ width: `${fillPct}%` }}
+                                          />
+                                          <div
+                                            className={`h-full flex-1 min-w-0 ${isCompleted ? 'bg-blue-500' : isCurrent ? 'bg-white/40' : 'bg-white/25'}`}
+                                          />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
                               </div>
                             </div>
                             {/* Bottom bar: title left, total lesson duration right */}
@@ -870,35 +968,13 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
                                   : `${Math.round(totalLessonDurationSec)} sec`}
                               </span>
                             </div>
-                            {/* Segmented progress bar: blue (completed/current), white (remaining), grey (upcoming) with gaps */}
-                            <div className="flex-shrink-0 px-4 pb-3">
-                              <div className="flex gap-1 w-full h-2.5 rounded-full overflow-hidden">
-                                {Array.from({ length: totalSteps }).map((_, i) => {
-                                  const isCompleted = i < currentStepIndex;
-                                  const isCurrent = i === currentStepIndex;
-                                  const fillPct = isCurrent ? Math.min(1, Math.max(0, currentVideoProgress)) * 100 : isCompleted ? 100 : 0;
-                                  return (
-                                    <div
-                                      key={i}
-                                      className="h-full rounded-full overflow-hidden flex-1 min-w-0 flex bg-gray-600 dark:bg-gray-600"
-                                    >
-                                      <div
-                                        className="h-full bg-blue-500 transition-all duration-150 shrink-0"
-                                        style={{ width: `${fillPct}%` }}
-                                      />
-                                      <div
-                                        className={`h-full flex-1 min-w-0 ${isCompleted ? 'bg-blue-500' : isCurrent ? 'bg-white/20' : 'bg-gray-600 dark:bg-gray-600'}`}
-                                      />
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                              {completedSegments.has(step.segmentId) && (
+                            {completedSegments.has(step.segmentId) && (
+                              <div className="flex-shrink-0 px-4 pb-3">
                                 <p className="text-xs text-emerald-400 mt-1.5 flex items-center gap-1">
                                   <CheckCircle className="w-3.5 h-3.5" /> Watched
                                 </p>
-                              )}
-                            </div>
+                              </div>
+                            )}
                           </div>
                         ) : step.type === 'reading' ? (
                           <div className="flex flex-col flex-1 min-h-0">

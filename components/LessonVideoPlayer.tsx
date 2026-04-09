@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, RotateCcw } from 'lucide-react';
 
 function getYouTubeVideoId(url: string): string | null {
@@ -28,18 +28,11 @@ function getGoogleDriveFileId(url: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Build Google Drive embed URL with optional start time and autoplay (autoplay may work after a user click). */
-function getGoogleDriveEmbedUrl(
-  fileId: string,
-  startSeconds?: number,
-  opts?: { autoplay?: boolean }
-): string {
+/** Build Google Drive embed URL with optional start time (used only as fallback) */
+function getGoogleDriveEmbedUrl(fileId: string, startSeconds?: number): string {
   const base = `https://drive.google.com/file/d/${fileId}/preview`;
-  const params = new URLSearchParams();
-  if (startSeconds != null && startSeconds > 0) params.set('t', String(Math.floor(startSeconds)));
-  if (opts?.autoplay) params.set('autoplay', '1');
-  const q = params.toString();
-  return q ? `${base}?${q}` : base;
+  if (startSeconds != null && startSeconds > 0) return `${base}?t=${Math.floor(startSeconds)}`;
+  return base;
 }
 
 function isSharePointOrOneDriveVideoUrl(url: string): boolean {
@@ -105,11 +98,20 @@ interface LessonVideoPlayerProps {
   completionThreshold?: number;
   /** Optional: report progress 0–1 and duration in seconds for parent (e.g. segmented progress bar) */
   onProgress?: (progress: number, durationSeconds: number) => void;
+  /** Optional: when provided, display combined elapsed/total instead of per-segment time. */
+  combinedElapsedSeconds?: number;
+  combinedDurationSeconds?: number;
 }
 
-export function LessonVideoPlayer({ segment, onSegmentComplete, completionThreshold = 0.95, onProgress }: LessonVideoPlayerProps) {
+export function LessonVideoPlayer({
+  segment,
+  onSegmentComplete,
+  completionThreshold = 0.95,
+  onProgress,
+  combinedElapsedSeconds,
+  combinedDurationSeconds,
+}: LessonVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const videoElReadyTrackRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [completed, setCompleted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -139,12 +141,12 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   segmentBoundsRef.current = { start, end, segmentDuration };
   const videoUrl = url || (segment.storage_path && /^https?:\/\//i.test(String(segment.storage_path)) ? segment.storage_path : null);
   const driveId = videoUrl ? getGoogleDriveFileId(videoUrl) : null;
-  // Drive: stream via our proxy and play in <video> so we have full control (one button, timer + video in sync). No iframe.
+  // Drive: prefer proxy + <video> (no Google pop-out / source UI). Iframe preview only if proxy fails (e.g. CORS/size).
   const videoUrlForPlayback = driveId ? getDriveProxyVideoUrl(driveId) : videoUrl;
   const isSharePointLink = !!videoUrl && isSharePointOrOneDriveVideoUrl(videoUrl);
   const useIframe = !!videoUrl && !driveId && !isDirectVideoUrl(videoUrl);
-  /** Use iframe for external URLs or for Drive (Drive iframe avoids proxy <video> and prevents React #185 update loop). */
-  const useIframeForPlayback = useIframe || !!driveId;
+  /** Non-Drive external embeds use iframe. Drive uses iframe only after proxy error (driveProxyFailed). */
+  const useIframeForPlayback = useIframe || (!!driveId && driveProxyFailed);
 
   const markComplete = useCallback(() => {
     setCompleted(true);
@@ -164,39 +166,61 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   const [iframeSegmentComplete, setIframeSegmentComplete] = useState(false);
   const [iframeElapsed, setIframeElapsed] = useState(0);
   const [iframeReplayCount, setIframeReplayCount] = useState(0);
+  const iframeReplayKey = `${segment.id}-${iframeReplayCount}`;
   const [iframeTimerStarted, setIframeTimerStarted] = useState(false);
-  /** After user clicks Play, remount Drive iframe with autoplay=1 (same user gesture). */
-  const [drivePlaybackRequested, setDrivePlaybackRequested] = useState(false);
   useEffect(() => {
     setIframeSegmentComplete(false);
     setIframeElapsed(0);
     setIframeTimerStarted(false);
-    setDrivePlaybackRequested(false);
     setDriveProxyFailed(false);
     setErrorDriveId(null);
   }, [segment.id]);
   useEffect(() => {
     setYtDuration(0);
     setVideoDuration(0);
-    videoElReadyTrackRef.current = null;
   }, [segment.id]);
-  /** Fallback 60s when segment bounds missing — must match iframe branch or timer never runs (bug was segmentDuration<=0 guard). */
   const iframeDurationSeconds = segmentDuration > 0 ? segmentDuration : 60;
+  /** For Google Drive we cannot read iframe currentTime; use wall clock and completionThreshold. */
+  const iframeMarkCompleteAtSeconds = useMemo(() => {
+    if (!useIframeForPlayback) return iframeDurationSeconds;
+    if (!driveId) return iframeDurationSeconds;
+    const base = segmentDuration > 0 ? segmentDuration : iframeDurationSeconds;
+    const atThreshold = Math.max(1, Math.floor(base * completionThreshold));
+    return Math.min(iframeDurationSeconds, atThreshold);
+  }, [useIframeForPlayback, driveId, segmentDuration, completionThreshold, iframeDurationSeconds]);
+
   useEffect(() => {
-    if (source === 'youtube' || !useIframeForPlayback || !iframeTimerStarted || iframeDurationSeconds <= 0) return;
+    if (!driveId || !driveProxyFailed) return;
+    setIframeTimerStarted(true);
+  }, [driveId, driveProxyFailed, segment.id]);
+
+  useEffect(() => {
+    if (source === 'youtube' || !useIframeForPlayback || !iframeTimerStarted) return;
+    if (!driveId && segmentDuration <= 0) return;
     const id = setInterval(() => {
       setIframeElapsed((prev) => Math.min(prev + 1, iframeDurationSeconds));
     }, 1000);
     return () => clearInterval(id);
-  }, [source, useIframeForPlayback, iframeTimerStarted, iframeDurationSeconds]);
+  }, [source, useIframeForPlayback, driveId, segmentDuration, iframeTimerStarted, iframeDurationSeconds]);
+
+  useEffect(() => {
+    if (!useIframeForPlayback || source === 'youtube') return;
+    const report = onProgressRef.current;
+    if (typeof report !== 'function' || iframeDurationSeconds <= 0) return;
+    report(
+      Math.min(1, Math.max(0, iframeElapsed / iframeDurationSeconds)),
+      iframeDurationSeconds
+    );
+  }, [useIframeForPlayback, source, iframeElapsed, iframeDurationSeconds]);
+
   const iframeCompletedFiredRef = useRef(false);
   useEffect(() => {
-    if (!useIframeForPlayback || iframeElapsed < iframeDurationSeconds) return;
+    if (!useIframeForPlayback || iframeElapsed < iframeMarkCompleteAtSeconds) return;
     if (iframeCompletedFiredRef.current) return;
     iframeCompletedFiredRef.current = true;
     setIframeSegmentComplete(true);
     markComplete();
-  }, [useIframeForPlayback, iframeElapsed, iframeDurationSeconds, markComplete]);
+  }, [useIframeForPlayback, iframeElapsed, iframeMarkCompleteAtSeconds, markComplete]);
   useEffect(() => {
     iframeCompletedFiredRef.current = false;
   }, [segment.id]);
@@ -215,7 +239,6 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   const [videoPlaying, setVideoPlaying] = useState(false);
   const [videoMuted, setVideoMuted] = useState(false);
   const [videoVolume, setVideoVolume] = useState(100);
-  const [videoElReady, setVideoElReady] = useState(0);
 
   // YouTube: load with controls=0; we use a mirror overlay + custom controls
   useEffect(() => {
@@ -468,10 +491,10 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
       clearInterval(pollId);
       clearInterval(progressReportId);
     };
-  }, [source, useIframe, url, start, end, completed, markComplete, completionThreshold, videoElReady]);
+  }, [source, useIframe, url, start, end, completed, markComplete, completionThreshold]);
 
   // Stable key per segment + player mode so React unmounts/remounts when switching (avoids removeChild DOM error)
-  const playerMode = error ? 'error' : (source === 'youtube' && url) ? 'youtube' : !videoUrl ? 'nourl' : useIframeForPlayback ? 'iframe' : 'video';
+  const playerMode = error ? 'error' : (source === 'youtube' && url) ? 'youtube' : !videoUrl ? 'nourl' : driveId && driveProxyFailed ? 'drive' : useIframeForPlayback ? 'iframe' : 'video';
   const wrapper = (key: string, children: React.ReactNode) => (
     <div className="w-full h-full min-w-0 min-h-0" data-player-root>
       <div key={key} className="w-full h-full min-w-0 min-h-0">{children}</div>
@@ -720,11 +743,35 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
     );
   }
 
-  // Iframe-based playback (Drive or other external URL): clicks must reach the embed; one bar control starts segment timer + Drive autoplay remount.
+  // Google Drive fallback: keep source hidden by avoiding Drive iframe UI (no pop-out).
+  // If proxy streaming fails, ask user to switch source instead of rendering Google controls.
+  if (driveId && driveProxyFailed) {
+    return wrapper(
+      `${segment.id}-drive-proxy-failed`,
+      <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-4 text-amber-900 dark:text-amber-100">
+        <p className="text-sm mb-2">
+          Google Drive direct streaming failed for this video. To keep source UI hidden, the app does not show Drive's embedded player.
+        </p>
+        <p className="text-xs opacity-80">
+          Re-add this video as YouTube or a direct MP4 URL for in-app playback.
+        </p>
+        {videoUrl && (
+          <a
+            href={videoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex mt-3 items-center px-3 py-2 rounded-md bg-amber-600 text-white hover:bg-amber-700 text-sm font-medium"
+          >
+            Open source link
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  // Other iframe URLs (non-Drive): overlay + simulated timer — still no cross-origin control
   if (useIframeForPlayback) {
-    const iframeSrc = driveId
-      ? getGoogleDriveEmbedUrl(driveId, start > 0 ? start : undefined, { autoplay: drivePlaybackRequested })
-      : getExternalVideoEmbedUrl(videoUrl!, start > 0 ? start : undefined);
+    const iframeSrc = getExternalVideoEmbedUrl(videoUrl!, start > 0 ? start : undefined);
     const iframeDuration = segmentDuration > 0 ? segmentDuration : 60;
     const iframeProgress = iframeDuration > 0 ? Math.min(1, iframeElapsed / iframeDuration) : 0;
     const handleIframeFullscreen = () => {
@@ -743,15 +790,10 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
       setIframeSegmentComplete(false);
       setIframeElapsed(0);
       setIframeTimerStarted(false);
-      setDrivePlaybackRequested(false);
       setIframeReplayCount((c) => c + 1);
     };
-    /** One control: start/pause segment timer; first Play also remounts Drive with autoplay (user gesture). */
-    const handleIframePlayPause = () => {
-      setIframeTimerStarted((wasStarted) => {
-        if (!wasStarted && driveId) setDrivePlaybackRequested(true);
-        return !wasStarted;
-      });
+    const handleOverlayClick = () => {
+      setIframeTimerStarted((prev) => !prev);
     };
     return wrapper(
       `${segment.id}-iframe`,
@@ -762,10 +804,10 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
         onContextMenu={(e) => e.preventDefault()}
       >
         <iframe
-          key={`${segment.id}-ifr-${iframeReplayCount}-${drivePlaybackRequested ? 'p' : 'n'}`}
+          key={iframeReplayKey}
           title={segment.name}
           src={(completed || iframeSegmentComplete) ? 'about:blank' : iframeSrc}
-          className="absolute inset-0 z-0 w-full h-full pointer-events-auto"
+          className="absolute inset-0 w-full h-full pointer-events-none"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; web-share"
           allowFullScreen
         />
@@ -774,9 +816,23 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
           aria-hidden
         />
         {!(completed || iframeSegmentComplete) && (
+        <div
+          className="absolute inset-0 z-10 flex flex-col justify-end cursor-pointer"
+          onContextMenu={(e) => e.preventDefault()}
+          onClick={handleOverlayClick}
+          aria-label={iframeTimerStarted ? 'Pause' : 'Play'}
+        >
+          {!iframeTimerStarted && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 pointer-events-none">
+              <div className="w-20 h-20 rounded-full bg-white/20 flex items-center justify-center">
+                <Play className="w-10 h-10 text-white ml-1" fill="currentColor" />
+              </div>
+              <span className="text-white font-medium mt-3">Click to play</span>
+            </div>
+          )}
           <div
-            className="absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/90 to-transparent px-3 py-2 flex flex-col gap-1.5 pointer-events-auto"
-            onContextMenu={(e) => e.preventDefault()}
+            className="bg-gradient-to-t from-black/90 to-transparent px-3 py-2 flex flex-col gap-1.5 cursor-default"
+            onClick={(e) => e.stopPropagation()}
           >
             <input
               type="range"
@@ -788,45 +844,32 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
               className="w-full h-1.5 accent-blue-500 cursor-default"
               aria-label="Segment progress"
             />
-            <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center justify-between gap-2">
               <button
                 type="button"
-                onClick={handleIframePlayPause}
-                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors shrink-0"
-                aria-label={iframeTimerStarted ? 'Pause segment timer' : 'Play — start video and segment timer'}
+                onClick={(e) => { e.stopPropagation(); handleOverlayClick(); }}
+                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors"
+                aria-label={iframeTimerStarted ? 'Pause' : 'Play'}
               >
                 {iframeTimerStarted ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
               </button>
-              <span className="text-white text-sm tabular-nums min-w-0 flex-1 text-center sm:text-left">
+              <span className="text-white text-sm tabular-nums">
                 {formatTime(iframeElapsed)} / {formatTime(iframeDuration)}
               </span>
-              {driveId && (
-                <span className="text-white/70 text-xs shrink-0" title="Google Drive — pause/seek/volume use the player inside the video">
-                  Drive
-                </span>
-              )}
-              <span
-                className="flex items-center gap-1 text-white/80 text-xs shrink-0 max-w-[8rem]"
-                title="Volume and mute are on the embedded player above"
-              >
-                <Volume2 className="w-4 h-4 shrink-0" aria-hidden />
-                <span className="hidden sm:inline">In player</span>
+              <span className="p-1.5 text-white/70" title="Volume controlled in video area" aria-label="Volume in video area">
+                <Volume2 className="w-5 h-5" />
               </span>
               <button
                 type="button"
-                onClick={handleIframeFullscreen}
-                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors shrink-0"
+                onClick={(e) => { e.stopPropagation(); handleIframeFullscreen(); }}
+                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors"
                 aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
               >
                 {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
               </button>
             </div>
-            {driveId && !iframeTimerStarted && (
-              <p className="text-white/80 text-xs text-center -mt-1 pb-0.5">
-                Press play — starts the segment timer and loads the video (use on-screen controls if needed).
-              </p>
-            )}
           </div>
+        </div>
         )}
         {(completed || iframeSegmentComplete) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/50 rounded-xl z-20">
@@ -857,6 +900,13 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
   const segmentProgress = effectiveDuration > 0
     ? Math.min(1, Math.max(0, (videoCurrentTime - start) / effectiveDuration))
     : 0;
+  const showInternalProgressBar = !driveId;
+  const displayElapsed = combinedElapsedSeconds != null
+    ? Math.max(0, combinedElapsedSeconds)
+    : Math.max(0, videoCurrentTime - start);
+  const displayTotal = combinedDurationSeconds != null && combinedDurationSeconds > 0
+    ? combinedDurationSeconds
+    : effectiveDuration;
 
   const handleVideoPlayPause = () => {
     const el = videoRef.current;
@@ -915,19 +965,11 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
     `${segment.id}-video`,
     <div
       ref={containerRef}
-      className="relative w-full rounded-xl overflow-hidden bg-black"
-      style={{ aspectRatio: '16/9' }}
+      className="relative w-full h-full min-h-0 rounded-xl overflow-hidden bg-black"
       onContextMenu={(e) => e.preventDefault()}
     >
       <video
-        ref={(el) => {
-          (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current = el;
-          if (el && videoElReadyTrackRef.current !== el) {
-            videoElReadyTrackRef.current = el;
-            setVideoElReady((r) => r + 1);
-          }
-          if (!el) videoElReadyTrackRef.current = null;
-        }}
+        ref={videoRef}
         src={videoUrlForPlayback ?? ''}
         className="w-full h-full object-contain"
         preload="metadata"
@@ -959,16 +1001,18 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
           className="bg-gradient-to-t from-black/90 to-transparent px-3 py-2 flex flex-col gap-1.5 cursor-default"
           onClick={(e) => e.stopPropagation()}
         >
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.001}
-            value={segmentProgress}
-            onChange={handleVideoSeek}
-            className="w-full h-1.5 accent-blue-500 cursor-pointer"
-            aria-label="Seek within segment"
-          />
+          {showInternalProgressBar && (
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.001}
+              value={segmentProgress}
+              onChange={handleVideoSeek}
+              className="w-full h-1.5 accent-blue-500 cursor-pointer"
+              aria-label="Seek within segment"
+            />
+          )}
           <div className="flex items-center justify-between gap-2">
             <button
               type="button"
@@ -979,7 +1023,7 @@ export function LessonVideoPlayer({ segment, onSegmentComplete, completionThresh
               {videoPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
             </button>
             <span className="text-white text-sm tabular-nums">
-              {formatTime(Math.max(0, videoCurrentTime - start))} / {formatTime(effectiveDuration)}
+              {formatTime(displayElapsed)} / {formatTime(displayTotal)}
             </span>
             <div className="flex items-center gap-1">
               <button

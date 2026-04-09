@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { HelpCircle, ChevronDown, ChevronRight, Send, BookOpen, MessageSquare } from 'lucide-react';
+import { HelpCircle, ChevronDown, ChevronRight, Send, BookOpen, MessageSquare, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 export type QuestionRow = {
@@ -17,6 +17,9 @@ export type QuestionRow = {
   created_at: string;
   courseTitle?: string;
   lessonTitle?: string;
+  courseCreatorId?: string | null;
+  askedByName?: string | null;
+  answeredByName?: string | null;
 };
 
 export type Thread = QuestionRow & { followUps: QuestionRow[] };
@@ -116,6 +119,26 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
     }
   };
 
+  const handleDeleteAnswer = async (courseId: string, questionId: string) => {
+    setAnsweringId(questionId);
+    try {
+      const res = await fetch(`/api/learning/courses/${courseId}/questions/${questionId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data?.error ?? 'Failed to delete answer');
+        return;
+      }
+      await fetchThreads();
+    } catch {
+      setError('Failed to delete answer');
+    } finally {
+      setAnsweringId(null);
+    }
+  };
+
   if (!userId) {
     return (
       <div className="p-8 max-w-3xl">
@@ -203,12 +226,31 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
                   <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-4">
                     {/* Root Q & A */}
                     <div className="pl-2">
-                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Question</p>
+                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                        Question — {thread.askedByName || 'Learner'}
+                      </p>
                       <p className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">{thread.question_text}</p>
                       {thread.answer_text ? (
                         <div className="mt-3 pl-3 border-l-2 border-blue-400 dark:border-blue-500">
-                          <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-1">Answer</p>
+                          <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-1">
+                            Answer — {thread.answeredByName || 'Instructor'}
+                          </p>
                           <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{thread.answer_text}</p>
+                          <div className="mt-1 flex items-center justify-between gap-2">
+                            <span />
+                            {sessionMode === 'instructor' && userId && thread.courseCreatorId === userId && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteAnswer(thread.course_id, thread.id)}
+                                disabled={answeringId === thread.id}
+                                className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-600 disabled:opacity-50"
+                                title="Delete answer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                {answeringId === thread.id ? 'Deleting…' : 'Delete answer'}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       ) : sessionMode === 'instructor' && (
                         <div className="mt-3">
@@ -236,12 +278,31 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
                     {/* Follow-ups */}
                     {(thread.followUps ?? []).map((f) => (
                       <div key={f.id} className="pl-4 border-l-2 border-gray-200 dark:border-gray-600 space-y-1">
-                        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Follow-up</p>
+                        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                          Follow-up — {f.askedByName || 'Learner'}
+                        </p>
                         <p className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">{f.question_text}</p>
                         {f.answer_text ? (
                           <div className="mt-2 pl-3 border-l-2 border-blue-400 dark:border-blue-500">
-                            <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-1">Answer</p>
+                            <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-1">
+                              Answer — {f.answeredByName || 'Instructor'}
+                            </p>
                             <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{f.answer_text}</p>
+                            <div className="mt-1 flex items-center justify-between gap-2">
+                              <span />
+                              {sessionMode === 'instructor' && userId && f.courseCreatorId === userId && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteAnswer(f.course_id, f.id)}
+                                  disabled={answeringId === f.id}
+                                  className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-600 disabled:opacity-50"
+                                  title="Delete answer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  {answeringId === f.id ? 'Deleting…' : 'Delete answer'}
+                                </button>
+                              )}
+                            </div>
                           </div>
                         ) : sessionMode === 'instructor' && (
                           <div className="mt-2">
