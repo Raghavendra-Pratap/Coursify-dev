@@ -254,8 +254,14 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
     return () => document.removeEventListener('fullscreenchange', onFullScreenChange);
   }, []);
 
+  const hasAutoSelectedRef = useRef(false);
+  const courseLoadedRef = useRef(false);
+  const selectedLessonIdRef = useRef<string | null>(null);
+  selectedLessonIdRef.current = selectedLessonId;
+
   const loadCourse = useCallback(async () => {
-    setLoading(true);
+    const isRefresh = courseLoadedRef.current;
+    if (!isRefresh) setLoading(true);
     try {
       const opts = { credentials: 'include' as RequestCredentials, cache: 'no-store' as RequestCache };
       const [contentRes] = await Promise.all([
@@ -287,19 +293,20 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
       } catch {
         // ignore invalid UI state
       }
-      if (selectedFromState) setSelectedLessonId(selectedFromState);
-      else if (firstLesson?.id) setSelectedLessonId(firstLesson.id);
+      if (!selectedLessonIdRef.current) {
+        if (selectedFromState) setSelectedLessonId(selectedFromState);
+        else if (firstLesson?.id) setSelectedLessonId(firstLesson.id);
+      }
       setExpandedModules(new Set((data.modules ?? []).map((m: { id: string }) => m.id)));
+      courseLoadedRef.current = true;
     } catch {
       setCourse(null);
       setModules([]);
       setCompletedLessonIds(new Set());
     } finally {
-      setLoading(false);
+      if (!isRefresh) setLoading(false);
     }
   }, [courseId, userId]);
-
-  const hasAutoSelectedRef = useRef(false);
 
   useEffect(() => {
     loadCourse();
@@ -311,6 +318,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
     if (loading || modules.length === 0) return;
     if (hasAutoSelectedRef.current) return;
     hasAutoSelectedRef.current = true;
+    if (selectedLessonIdRef.current) return;
     if (initialLessonId) {
       const exists = modules.some((m) => m.lessons?.some((l: { id: string }) => l.id === initialLessonId));
       if (exists) {
@@ -331,8 +339,11 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
     setCompleteError(null);
     setCompleteSuccess(false);
     const load = async () => {
-      setContentLoading(true);
-      setCompletedSegments(new Set());
+      const keepPrevious = lessonContent?.lesson?.id === selectedLessonId;
+      if (!keepPrevious) {
+        setContentLoading(true);
+        setCompletedSegments(new Set());
+      }
       try {
         const res = await fetch(`/api/learning/courses/${courseId}/lessons/${selectedLessonId}`, {
           credentials: 'include',
@@ -567,6 +578,63 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
   );
   const completedCount = completedLessonIds.size;
 
+  const lessonSteps = useMemo((): LessonStep[] => {
+    if (!lessonContent) return [];
+    const contentItems = lessonContent.contentItems ?? [];
+    const sortedItems = [...contentItems].sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
+    const steps: LessonStep[] = [];
+    let stepNum = 0;
+    for (const item of sortedItems) {
+      if (item.content_type === 'video' && item.videoSegments?.length) {
+        for (const seg of item.videoSegments) {
+          if (seg == null) continue;
+          const segId = seg.id != null ? String(seg.id) : `seg-${stepNum}`;
+          stepNum += 1;
+          const segAny = seg as Record<string, unknown>;
+          steps.push({
+            type: 'video',
+            segmentId: segId,
+            segment: {
+              id: segId,
+              name: String(seg.name ?? 'Video'),
+              source: (seg.source ?? segAny.source) as string | undefined,
+              source_url: (seg.source_url ?? segAny.sourceUrl ?? segAny.video_url) as string | null | undefined,
+              storage_path: (seg.storage_path ?? segAny.storage_path) as string | null | undefined,
+              start_time_seconds: seg.start_time_seconds ?? (segAny.start_time_seconds as number | undefined),
+              end_time_seconds: seg.end_time_seconds ?? (segAny.end_time_seconds as number | undefined),
+              duration_seconds: seg.duration_seconds ?? (segAny.duration_seconds as number | undefined),
+            },
+            stepLabel: `Segment ${stepNum}`,
+          });
+        }
+      } else if (item.content_type === 'reading' && item.readingMaterial) {
+        stepNum += 1;
+        steps.push({ type: 'reading', item, stepLabel: `Reading: ${item.readingMaterial?.title ?? 'Reading'}` });
+      } else if (item.content_type === 'quiz' && item.quiz) {
+        stepNum += 1;
+        steps.push({ type: 'quiz', item, stepLabel: `Quiz: ${item.quiz?.title ?? 'Quiz'}` });
+      } else if (item.content_type === 'form' && item.form) {
+        stepNum += 1;
+        steps.push({ type: 'form', item, stepLabel: `Form: ${item.form?.title ?? 'Form'}` });
+      }
+    }
+    return steps;
+  }, [lessonContent]);
+
+  const totalLessonDurationSec = useMemo(
+    () =>
+      lessonSteps.reduce((acc, s) => {
+        if (s.type !== 'video') return acc;
+        const seg = s.segment;
+        const start = seg.start_time_seconds ?? 0;
+        const end = seg.end_time_seconds ?? undefined;
+        const dur = seg.duration_seconds;
+        const segmentSec = end != null && end > start ? end - start : (dur != null ? dur : 0);
+        return acc + Math.max(0, segmentSec);
+      }, 0),
+    [lessonSteps]
+  );
+
   const requiredSegmentIds = useMemo(() => {
     if (!lessonContent) return [];
     const items = lessonContent.contentItems ?? [];
@@ -658,18 +726,35 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
   };
 
   /** Count steps in current lesson (video segments + reading/quiz/form items) */
-  const currentLessonStepCount = (() => {
-    const items = lessonContent?.contentItems ?? [];
-    const sorted = [...items].sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
-    let n = 0;
-    for (const item of sorted) {
-      if (item.content_type === 'video' && item.videoSegments?.length) n += item.videoSegments.length;
-      else if (item.content_type === 'reading' && item.readingMaterial) n += 1;
-      else if (item.content_type === 'quiz' && item.quiz) n += 1;
-      else if (item.content_type === 'form') n += 1;
-    }
-    return n;
-  })();
+  const currentLessonStepCount = lessonSteps.length;
+  const totalSteps = lessonSteps.length;
+  const step = lessonSteps[currentStepIndex] ?? null;
+  const isLastStep = currentStepIndex >= totalSteps - 1;
+
+  const getSegmentDurationSec = (s: {
+    segment: {
+      start_time_seconds?: number;
+      end_time_seconds?: number;
+      duration_seconds?: number;
+    };
+  }) => {
+    const st = s.segment.start_time_seconds ?? 0;
+    const en = s.segment.end_time_seconds;
+    const d = s.segment.duration_seconds;
+    return Math.max(0, en != null && en > st ? en - st : (d ?? 0));
+  };
+
+  const combinedElapsedSeconds = useMemo(() => {
+    if (!step || step.type !== 'video') return 0;
+    const videoSteps = lessonSteps.filter((s) => s.type === 'video');
+    const currentVideoIdx = videoSteps.findIndex((s) => s.segmentId === step.segmentId);
+    const elapsedBefore = (currentVideoIdx > 0 ? videoSteps.slice(0, currentVideoIdx) : []).reduce(
+      (acc, s) => acc + getSegmentDurationSec(s),
+      0
+    );
+    const currentDuration = getSegmentDurationSec(step);
+    return elapsedBefore + currentDuration * Math.min(1, Math.max(0, currentVideoProgress));
+  }, [step, lessonSteps, currentVideoProgress]);
 
   /** Continue: next step in lesson → else next lesson → else next module's first lesson */
   const handleContinue = useCallback(() => {
@@ -804,7 +889,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
         <div data-take-course-layout className="flex-1 min-h-0 flex w-full mx-auto px-4 sm:px-6 py-4 overflow-hidden">
           {/* Lesson area */}
           <main className="flex-1 min-h-0 min-w-0 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
-          {contentLoading ? (
+          {contentLoading && !lessonContent ? (
             <div className="flex-1 flex items-center justify-center p-8 text-gray-500 dark:text-gray-400">
               Loading lesson…
             </div>
@@ -834,71 +919,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
               <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-6 flex flex-col">
                 {(lessonContent.contentItems ?? []).length === 0 ? (
                   <p className="text-gray-500 dark:text-gray-400">No content in this lesson yet.</p>
-                ) : (() => {
-                  const contentItems = lessonContent.contentItems ?? [];
-                  const sortedItems = [...contentItems].sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
-                  const steps: LessonStep[] = [];
-                  let stepNum = 0;
-                  for (const item of sortedItems) {
-                    if (item.content_type === 'video' && item.videoSegments?.length) {
-                      for (const seg of item.videoSegments) {
-                        if (seg == null) continue;
-                        const segId = seg.id != null ? String(seg.id) : `seg-${stepNum}`;
-                        stepNum += 1;
-                        const segAny = seg as Record<string, unknown>;
-                        steps.push({
-                          type: 'video',
-                          segmentId: segId,
-                          segment: {
-                            id: segId,
-                            name: String(seg.name ?? 'Video'),
-                            source: (seg.source ?? segAny.source) as string | undefined,
-                            source_url: (seg.source_url ?? segAny.sourceUrl ?? segAny.video_url) as string | null | undefined,
-                            storage_path: (seg.storage_path ?? segAny.storage_path) as string | null | undefined,
-                            start_time_seconds: seg.start_time_seconds ?? (segAny.start_time_seconds as number | undefined),
-                            end_time_seconds: seg.end_time_seconds ?? (segAny.end_time_seconds as number | undefined),
-                            duration_seconds: seg.duration_seconds ?? (segAny.duration_seconds as number | undefined),
-                          },
-                          stepLabel: `Segment ${stepNum}`,
-                        });
-                      }
-                    } else if (item.content_type === 'reading' && item.readingMaterial) {
-                      stepNum += 1;
-                      steps.push({ type: 'reading', item, stepLabel: `Reading: ${item.readingMaterial?.title ?? 'Reading'}` });
-                    } else if (item.content_type === 'quiz' && item.quiz) {
-                      stepNum += 1;
-                      steps.push({ type: 'quiz', item, stepLabel: `Quiz: ${item.quiz?.title ?? 'Quiz'}` });
-                    } else if (item.content_type === 'form' && item.form) {
-                      stepNum += 1;
-                      steps.push({ type: 'form', item, stepLabel: `Form: ${item.form?.title ?? 'Form'}` });
-                    }
-                  }
-                  const totalSteps = steps.length;
-                  const step = steps[currentStepIndex];
-                  const isLastStep = currentStepIndex >= totalSteps - 1;
-                  const totalLessonDurationSec = steps.reduce((acc, s) => {
-                    if (s.type !== 'video') return acc;
-                    const seg = s.segment;
-                    const start = seg.start_time_seconds ?? 0;
-                    const end = seg.end_time_seconds ?? undefined;
-                    const dur = seg.duration_seconds;
-                    const segmentSec = end != null && end > start ? end - start : (dur != null ? dur : 0);
-                    return acc + Math.max(0, segmentSec);
-                  }, 0);
-                  const getSegmentDurationSec = (s: {
-                    segment: {
-                      start_time_seconds?: number;
-                      end_time_seconds?: number;
-                      duration_seconds?: number;
-                    };
-                  }) => {
-                    const st = s.segment.start_time_seconds ?? 0;
-                    const en = s.segment.end_time_seconds;
-                    const d = s.segment.duration_seconds;
-                    return Math.max(0, en != null && en > st ? en - st : (d ?? 0));
-                  };
-
-                  return (
+                ) : (
                     <div className="flex flex-col gap-4 flex-1 min-h-0">
                       <div className="flex items-center justify-between flex-shrink-0">
                         <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -915,6 +936,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
                             <div className="flex-1 min-h-0 flex items-center justify-center p-2 sm:p-4 overflow-hidden bg-gray-900 dark:bg-black">
                               <div className="relative w-full h-full max-w-full max-h-[min(calc(100vh-12rem),85vh)] rounded-lg overflow-hidden bg-black shrink-0 select-none flex flex-col min-h-0">
                                 <LessonVideoPlayer
+                                  key={step.segmentId}
                                   segment={step.segment}
                                   onSegmentComplete={() => {
                                     onSegmentComplete(String(step.segmentId));
@@ -922,13 +944,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
                                   }}
                                   completionThreshold={0.95}
                                   onProgress={onVideoProgress}
-                                  combinedElapsedSeconds={(() => {
-                                    const videoSteps = steps.filter((s) => s.type === 'video');
-                                    const currentVideoIdx = videoSteps.findIndex((s) => s.segmentId === step.segmentId);
-                                    const elapsedBefore = (currentVideoIdx > 0 ? videoSteps.slice(0, currentVideoIdx) : []).reduce((acc, s) => acc + getSegmentDurationSec(s), 0);
-                                    const currentDuration = getSegmentDurationSec(step);
-                                    return elapsedBefore + currentDuration * Math.min(1, Math.max(0, currentVideoProgress));
-                                  })()}
+                                  combinedElapsedSeconds={combinedElapsedSeconds}
                                   combinedDurationSeconds={totalLessonDurationSec}
                                 />
                                 {/* Lesson combined progress (inside player) */}
@@ -1173,8 +1189,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
                         </div>
                       )}
                     </div>
-                  );
-                })()}
+                )}
 
                 {/* Complete lesson section */}
                 {!(lessonContent.contentItems ?? []).length ? null : completedLessonIds.has(selectedLessonId!) ? (
