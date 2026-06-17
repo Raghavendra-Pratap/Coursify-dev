@@ -1,5 +1,18 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createServerClient } from '@supabase/ssr';
+
+function createAuthClient(request: Request, url: string, anonKey: string) {
+  return createServerClient(url, anonKey, {
+    cookies: {
+      get(name: string) {
+        return request.headers.get('cookie')?.split(';').find((c) => c.trim().startsWith(name + '='))?.split('=')[1] ?? undefined;
+      },
+      set() {},
+      remove() {},
+    },
+  });
+}
 
 export async function POST(req: Request) {
   try {
@@ -10,9 +23,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Server configuration missing' }, { status: 500 });
     }
 
-    const anon = createClient(url, anonKey);
-    const { data: { session } } = await anon.auth.getSession();
-    if (!session?.user?.id) {
+    const supabaseAuth = createAuthClient(req, url, anonKey);
+    const { data: { user } } = await supabaseAuth.auth.getUser();
+    if (!user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -23,26 +36,35 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'courseId and email required' }, { status: 400 });
     }
 
-    const { data: course } = await anon.from('courses').select('id, created_by').eq('id', courseId).maybeSingle();
-    if (!course || (course as { created_by: string }).created_by !== session.user.id) {
+    const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+
+    const { data: course } = await admin.from('courses').select('id, created_by').eq('id', courseId).maybeSingle();
+    if (!course || (course as { created_by: string }).created_by !== user.id) {
       return NextResponse.json({ error: 'Course not found or you are not the owner' }, { status: 403 });
     }
 
-    const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-    const { data: { users } } = await admin.auth.admin.listUsers({ page: 1, perPage: 50 });
-    const invitee = users?.find((u) => u.email?.toLowerCase() === email) ?? null;
+    // Search all pages because listUsers is paginated.
+    let invitee: { id: string; email?: string | null } | null = null;
+    for (let page = 1; page <= 20; page++) {
+      const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      const users = data?.users ?? [];
+      invitee = users.find((u) => u.email?.toLowerCase() === email) ?? null;
+      if (invitee || users.length < 200) break;
+    }
+
     if (!invitee?.id) {
       return NextResponse.json({ error: 'No account found with this email' }, { status: 404 });
     }
 
-    if (invitee.id === session.user.id) {
+    if (invitee.id === user.id) {
       return NextResponse.json({ error: 'You cannot add yourself as a collaborator' }, { status: 400 });
     }
 
     const { error: insertError } = await admin.from('course_collaborators').insert({
       course_id: courseId,
       user_id: invitee.id,
-      invited_by: session.user.id,
+      invited_by: user.id,
     });
     if (insertError) {
       if (insertError.code === '23505') {
