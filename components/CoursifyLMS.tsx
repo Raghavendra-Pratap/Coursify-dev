@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import AccountSettings from './pages/AccountSettings';
 import MyLearning from './pages/MyLearning';
+import NotificationsDropdown from './NotificationsDropdown';
 
 const SESSION_MODE_KEY = 'coursify_session_mode';
 type SessionMode = 'instructor' | 'learner' | null;
@@ -61,152 +62,162 @@ const Reports = dynamic(() => import('./pages/Reports'), { loading: pageLoading,
 const TakeCourse = dynamic(() => import('./pages/TakeCourse'), { loading: pageLoading, ssr: false });
 const MyNotes = dynamic(() => import('./pages/MyNotes'), { loading: pageLoading, ssr: false });
 const QAndA = dynamic(() => import('./pages/QAndA'), { loading: pageLoading, ssr: false });
-const Notifications = dynamic(() => import('./pages/Notifications'), { loading: pageLoading, ssr: false });
 
 type UserDisplay = { displayName: string; email?: string; initials: string; role?: string };
 
-/** Stable module-level layout so sidebar toggles do not remount TakeCourse / video player. */
-function SidebarNavItem({
+/** Stable module-level layout so nav changes do not remount TakeCourse / video player. */
+function TopNavItem({
   icon: Icon,
   label,
   view,
   currentView,
-  sidebarOpen,
   onNavigate,
+  onAfterNavigate,
 }: {
   icon: React.ElementType;
   label: string;
   view: string;
   currentView: string;
-  sidebarOpen: boolean;
   onNavigate: (view: string) => void;
+  onAfterNavigate?: () => void;
 }) {
+  const active = currentView === view;
   return (
     <button
       type="button"
-      onClick={() => onNavigate(view)}
-      className={`w-full flex items-center p-3 rounded-lg transition-all ${
-        currentView === view
-          ? 'bg-white text-blue-600 shadow-lg dark:bg-gray-700 dark:text-white dark:shadow-none'
-          : 'hover:bg-blue-500 dark:hover:bg-gray-700/80'
+      onClick={() => {
+        onNavigate(view);
+        onAfterNavigate?.();
+      }}
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+        active
+          ? 'bg-blue-600 text-white shadow-sm dark:bg-blue-500'
+          : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
       }`}
     >
-      <Icon className="w-5 h-5" />
-      {sidebarOpen && <span className="ml-3 font-semibold">{label}</span>}
+      <Icon className="w-4 h-4 flex-shrink-0" />
+      <span>{label}</span>
     </button>
   );
 }
 
 function CoursifyAppLayout({
-  sidebarOpen,
-  setSidebarOpen,
   currentView,
   sessionMode,
   userDisplay,
   onShowSignIn,
   onShowProfile,
-  onLogout,
   onNavigate,
+  onOpenCourse,
+  onOpenSettings,
   children,
 }: {
-  sidebarOpen: boolean;
-  setSidebarOpen: (open: boolean) => void;
   currentView: string;
   sessionMode: SessionMode;
   userDisplay: UserDisplay;
   onShowSignIn: () => void;
   onShowProfile: () => void;
-  onLogout: () => void;
   onNavigate: (view: string) => void;
+  onOpenCourse?: (courseId: string) => void;
+  onOpenSettings: () => void;
   children: React.ReactNode;
 }) {
-  if (currentView === 'take') {
-    return (
-      <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden">
-        {children}
-      </div>
-    );
-  }
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const isTakeView = currentView === 'take';
+
+  const learnerNav = (
+    <>
+      <TopNavItem icon={BookOpen} label="My learning" view="courses" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
+      <TopNavItem icon={StickyNote} label="My Notes" view="notes" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
+      <TopNavItem icon={HelpCircle} label="Q & A" view="qa" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
+    </>
+  );
+
+  const instructorNav = (
+    <>
+      <TopNavItem icon={Home} label="Dashboard" view="dashboard" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
+      <TopNavItem icon={Video} label="My Courses" view="courses" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
+      <TopNavItem icon={Users} label="Learners" view="learners" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
+      <TopNavItem icon={BarChart3} label="Analytics" view="analytics" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
+      <TopNavItem icon={FileText} label="Reports" view="reports" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
+      <TopNavItem icon={HelpCircle} label="Q & A" view="qa" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
+    </>
+  );
+
+  const navItems = sessionMode === 'learner' ? learnerNav : instructorNav;
+
+  const headerUserActions = (
+    <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+      {userDisplay.role === 'Sign in to save' ? (
+        <button
+          type="button"
+          onClick={onShowSignIn}
+          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
+        >
+          Sign In
+        </button>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={onShowProfile}
+            className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            title={userDisplay.displayName}
+          >
+            <div className="w-8 h-8 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm">
+              {userDisplay.initials}
+            </div>
+            <div className="hidden md:block text-left min-w-0">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[120px]">{userDisplay.displayName}</p>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{userDisplay.role}</p>
+            </div>
+          </button>
+          <NotificationsDropdown onOpenCourse={onOpenCourse} onOpenSettings={onOpenSettings} />
+        </>
+      )}
+      <button
+        type="button"
+        onClick={() => setMobileNavOpen((o) => !o)}
+        className="lg:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
+        aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
+        aria-expanded={mobileNavOpen}
+      >
+        {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+      </button>
+    </div>
+  );
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
-      <div className={`relative flex flex-col h-screen bg-gradient-to-b from-blue-600 to-blue-700 text-white transition-all flex-shrink-0 dark:from-gray-900 dark:to-gray-800 dark:border-r dark:border-gray-800 ${sidebarOpen ? 'w-64' : 'w-20'}`}>
-        <div className={`flex-shrink-0 border-b border-blue-500 dark:border-gray-700 flex items-center ${sidebarOpen ? 'p-4 justify-between' : 'p-2 flex-col gap-2'}`}>
-          <div className={`flex items-center ${sidebarOpen ? 'min-w-0 flex-1' : 'flex-col gap-1 w-full items-center'}`}>
-            <div className="w-10 h-10 flex-shrink-0 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center" title="Coursify LMS Platform">
-              <Video className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+      <header className="flex-shrink-0 z-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-sm overflow-visible">
+        <div className="flex items-center gap-3 px-4 sm:px-6 h-14 relative z-[60]">
+          <div className="flex items-center gap-2.5 flex-shrink-0 min-w-0">
+            <div className="w-9 h-9 flex-shrink-0 bg-blue-600 dark:bg-blue-500 rounded-lg flex items-center justify-center" title="Coursify">
+              <Video className="w-5 h-5 text-white" />
             </div>
-            {sidebarOpen ? (
-              <div className="ml-3 min-w-0">
-                <span className="font-bold text-lg block truncate">Coursify</span>
-                <p className="text-xs text-blue-200 dark:text-gray-400 truncate">LMS Platform</p>
-              </div>
-            ) : (
-              <div className="text-center w-full">
-                <span className="text-[10px] font-bold leading-tight block truncate text-white" title="Coursify LMS Platform">Coursify</span>
-                <span className="text-[9px] text-blue-200 dark:text-gray-400 block truncate" title="LMS Platform">LMS</span>
-              </div>
-            )}
+            <div className="min-w-0 hidden sm:block">
+              <span className="font-bold text-gray-900 dark:text-white block leading-tight text-lg">Coursify</span>
+            </div>
           </div>
-          <button type="button" onClick={() => setSidebarOpen(!sidebarOpen)} className={`flex-shrink-0 p-2 hover:bg-blue-500 dark:hover:bg-gray-700 rounded-lg ${!sidebarOpen ? 'self-center' : ''}`} title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}>
-            <Menu className="w-5 h-5" />
-          </button>
+          {headerUserActions}
         </div>
 
-        <nav className="flex-1 min-h-0 p-4 space-y-2 overflow-y-auto">
-            {sessionMode === 'learner' ? (
-              <>
-                <SidebarNavItem icon={BookOpen} label="My learning" view="courses" currentView={currentView} sidebarOpen={sidebarOpen} onNavigate={onNavigate} />
-                <SidebarNavItem icon={StickyNote} label="My Notes" view="notes" currentView={currentView} sidebarOpen={sidebarOpen} onNavigate={onNavigate} />
-                <SidebarNavItem icon={HelpCircle} label="Q & A" view="qa" currentView={currentView} sidebarOpen={sidebarOpen} onNavigate={onNavigate} />
-                <SidebarNavItem icon={Bell} label="Notifications" view="notifications" currentView={currentView} sidebarOpen={sidebarOpen} onNavigate={onNavigate} />
-              </>
-            ) : (
-              <>
-                <SidebarNavItem icon={Home} label="Dashboard" view="dashboard" currentView={currentView} sidebarOpen={sidebarOpen} onNavigate={onNavigate} />
-                <SidebarNavItem icon={Video} label="My Courses" view="courses" currentView={currentView} sidebarOpen={sidebarOpen} onNavigate={onNavigate} />
-                <SidebarNavItem icon={Users} label="Learners" view="learners" currentView={currentView} sidebarOpen={sidebarOpen} onNavigate={onNavigate} />
-                <SidebarNavItem icon={BarChart3} label="Analytics" view="analytics" currentView={currentView} sidebarOpen={sidebarOpen} onNavigate={onNavigate} />
-                <SidebarNavItem icon={FileText} label="Reports" view="reports" currentView={currentView} sidebarOpen={sidebarOpen} onNavigate={onNavigate} />
-                <SidebarNavItem icon={HelpCircle} label="Q & A" view="qa" currentView={currentView} sidebarOpen={sidebarOpen} onNavigate={onNavigate} />
-                <SidebarNavItem icon={Bell} label="Notifications" view="notifications" currentView={currentView} sidebarOpen={sidebarOpen} onNavigate={onNavigate} />
-              </>
-            )}
+        {!isTakeView && (
+          <nav className="hidden lg:flex items-center gap-1 px-4 sm:px-6 py-2 border-t border-gray-200 dark:border-gray-800 overflow-x-auto">
+            {navItems}
           </nav>
+        )}
 
-        <div className={`flex-shrink-0 border-t border-blue-500 dark:border-gray-700 bg-blue-700 dark:bg-gray-800/80 ${sidebarOpen ? 'p-4' : 'p-2 flex flex-col items-center gap-1'}`}>
-          {userDisplay.role === 'Sign in to save' ? (
-            <button type="button" onClick={onShowSignIn} className={sidebarOpen ? 'w-full flex items-center justify-center p-3 rounded-lg bg-white text-blue-600 hover:bg-blue-50 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600 font-semibold transition-all' : 'p-2 rounded-lg hover:bg-blue-600 dark:hover:bg-gray-700 transition-all'} title={sidebarOpen ? undefined : 'Sign In'}>
-              {sidebarOpen ? 'Sign In' : <User className="w-5 h-5" />}
-            </button>
-          ) : (
-            <>
-              <button type="button" onClick={onShowProfile} className={sidebarOpen ? 'w-full flex items-center p-2 rounded-lg hover:bg-blue-600 dark:hover:bg-gray-700 transition-all text-left' : 'p-2 rounded-lg hover:bg-blue-600 dark:hover:bg-gray-700 transition-all'} title={sidebarOpen ? undefined : userDisplay.displayName}>
-                <div className={`bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-bold shadow-lg ${sidebarOpen ? 'w-10 h-10 text-sm' : 'w-9 h-9 text-xs'}`}>
-                  {userDisplay.initials}
-                </div>
-                {sidebarOpen && (
-                  <>
-                    <div className="ml-3 flex-1">
-                      <p className="text-sm font-semibold">{userDisplay.displayName}</p>
-                      <p className="text-xs text-blue-200 dark:text-gray-400">{userDisplay.role}</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-blue-200 dark:text-gray-400" />
-                  </>
-                )}
-              </button>
-              <button type="button" onClick={onLogout} className={sidebarOpen ? 'w-full flex items-center p-2 rounded-lg hover:bg-blue-600 dark:hover:bg-gray-700 transition-all text-left mt-2' : 'p-2 rounded-lg hover:bg-blue-600 dark:hover:bg-gray-700 transition-all mt-1'} title={sidebarOpen ? undefined : 'Sign Out'}>
-                <LogOut className={sidebarOpen ? 'w-5 h-5 mr-3' : 'w-5 h-5'} />
-                {sidebarOpen && <span className="text-sm font-semibold">Sign Out</span>}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+        {mobileNavOpen && (
+          <nav className="lg:hidden border-t border-gray-200 dark:border-gray-800 px-3 py-3 flex flex-col gap-1 bg-white dark:bg-gray-900">
+            {navItems}
+          </nav>
+        )}
+      </header>
 
-      <div className="flex-1 overflow-auto dark:bg-gray-900">
+      <main className={`flex-1 min-h-0 dark:bg-gray-900 ${isTakeView ? 'overflow-hidden flex flex-col' : 'overflow-auto'}`}>
         {children}
-      </div>
+      </main>
     </div>
   );
 }
@@ -216,7 +227,6 @@ const CoursifyLMS = () => {
   const [sessionMode, setSessionMode] = useState<SessionMode>(null);
   const takeNavFromUrl = useRef(readTakeNavFromUrl());
   const [currentView, setCurrentView] = useState(() => takeNavFromUrl.current?.view ?? 'dashboard');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showSignInModal, setShowSignInModal] = useState(false);
   const [signInEmail, setSignInEmail] = useState('');
@@ -239,6 +249,13 @@ const CoursifyLMS = () => {
   useEffect(() => {
     syncTakeNavToUrl(currentView, learningCourseId, learningLessonId);
   }, [currentView, learningCourseId, learningLessonId]);
+
+  // Notifications are shown in the header dropdown; redirect legacy notifications view.
+  useEffect(() => {
+    if (currentView === 'notifications') {
+      setCurrentView(sessionMode === 'instructor' ? 'dashboard' : 'courses');
+    }
+  }, [currentView, sessionMode]);
 
   // Apply saved theme (dark/light) on load. Default is dark; users can switch to light in Settings.
   useEffect(() => {
@@ -543,23 +560,25 @@ const CoursifyLMS = () => {
 
   return (
     <CoursifyAppLayout
-      sidebarOpen={sidebarOpen}
-      setSidebarOpen={setSidebarOpen}
       currentView={currentView}
       sessionMode={sessionMode}
       userDisplay={userDisplay}
       onShowSignIn={() => { setShowSignInModal(true); setShowProfileModal(false); }}
       onShowProfile={() => setShowProfileModal(true)}
-      onLogout={handleLogout}
       onNavigate={setCurrentView}
+      onOpenCourse={(id) => {
+        setLearningLessonId(null);
+        setLearningCourseId(id);
+        setCurrentView('take');
+      }}
+      onOpenSettings={() => setCurrentView('settings')}
     >
-      {currentView === 'dashboard' && (Dashboard != null ? <Dashboard sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} setCurrentView={setCurrentView} /> : fallback)}
+      {currentView === 'dashboard' && (Dashboard != null ? <Dashboard setCurrentView={setCurrentView} /> : fallback)}
       {currentView === 'courses' && (MyCourses != null ? <MyCourses setCurrentView={setCurrentView} onEditCourse={(id) => { setEditingCourseId(id); setCurrentView('create'); }} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} sessionMode={sessionMode} learningCourseId={learningCourseId} /> : fallback)}
       {currentView === 'create' && (CreateCourse != null ? <CreateCourse setCurrentView={setCurrentView} initialCourseId={editingCourseId} onBackToCourses={() => { setEditingCourseId(null); setCurrentView('courses'); }} onImportSuccess={(id) => { setEditingCourseId(id); setCurrentView('create'); }} /> : fallback)}
       {currentView === 'take' && learningCourseId && (TakeCourse != null ? <TakeCourse courseId={learningCourseId} onBack={() => { setLearningCourseId(null); setLearningLessonId(null); setCurrentView('courses'); }} initialLessonId={learningLessonId} /> : fallback)}
       {currentView === 'notes' && (MyNotes != null ? <MyNotes setCurrentView={setCurrentView} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} onOpenLesson={(courseId, lessonId) => { setLearningCourseId(courseId); setLearningLessonId(lessonId); setCurrentView('take'); }} /> : fallback)}
       {currentView === 'qa' && (QAndA != null ? <QAndA setCurrentView={setCurrentView} sessionMode={sessionMode} onStartCourse={(id) => { setLearningCourseId(id); setCurrentView('take'); }} /> : fallback)}
-      {currentView === 'notifications' && (Notifications != null ? <Notifications setCurrentView={setCurrentView} onOpenCourse={(id) => { setLearningCourseId(id); setCurrentView('take'); }} /> : fallback)}
       {currentView === 'learners' && (Learners != null ? <Learners setCurrentView={setCurrentView} /> : fallback)}
       {currentView === 'analytics' && (Analytics != null ? <Analytics /> : fallback)}
       {currentView === 'reports' && (Reports != null ? <Reports /> : fallback)}

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Play, Pause, Plus, Clock, Video, ChevronRight, Edit, X, Save, Zap, Folder, Upload, Eye, RotateCcw,
   Trash2, CheckCircle, Info, ChevronDown, ChevronUp, Download, Copy, FileText, Menu,
-  Youtube, HelpCircle, Radio, AlertCircle, BookOpen, Link, FileSpreadsheet
+  Youtube, HelpCircle, Radio, AlertCircle, BookOpen, Link, FileSpreadsheet, Award
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { ReadingContentRenderer } from '@/components/ReadingContentRenderer';
@@ -1424,6 +1424,20 @@ function onFormSubmit(e) {
     setVersions(prev => prev.map(v => ({ ...v, isCurrent: v.id === versionId })));
   };
 
+  const handleDownloadVersion = async (versionId: string) => {
+    if (!savedCourseId) return;
+    const db = supabase as any;
+    const { data: ver } = await db.from('course_versions').select('version_number, changes_description, created_at, course_snapshot').eq('id', versionId).maybeSingle();
+    if (!ver) return;
+    const blob = new Blob([JSON.stringify(ver, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `course-${savedCourseId}-v${(ver as { version_number?: number }).version_number ?? versionId}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const connectGoogleDrive = () => {
     // Google Drive OAuth: Phase 1, Sprint 7-8. For now simulate connection; wire to GOOGLE_CLIENT_ID and redirect when ready.
     setTimeout(() => {
@@ -2112,6 +2126,13 @@ function onFormSubmit(e) {
                   Add Video
                 </button>
                 <button
+                  onClick={() => handleAddContent('quiz')}
+                  className="px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-semibold flex items-center transition-all shadow-lg"
+                >
+                  <Award className="w-5 h-5 mr-2" />
+                  Add Quiz
+                </button>
+                <button
                   onClick={() => handleAddContent('form')}
                   className="px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold flex items-center transition-all shadow-lg"
                 >
@@ -2723,7 +2744,7 @@ function onFormSubmit(e) {
                         Restore
                       </button>
                     )}
-                    <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg transition-all">
+                    <button type="button" onClick={() => handleDownloadVersion(version.id)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg transition-all">
                       <Download className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                     </button>
                   </div>

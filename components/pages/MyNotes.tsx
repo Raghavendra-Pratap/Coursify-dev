@@ -38,13 +38,45 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
       setEntries([]);
       return;
     }
-    try {
-      const raw = localStorage.getItem(`${NOTES_MANIFEST_KEY}_${userId}`);
-      const list: NoteEntry[] = raw ? JSON.parse(raw) : [];
-      setEntries(Array.isArray(list) ? list : []);
-    } catch {
-      setEntries([]);
-    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/learning/notes', { credentials: 'include', cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          const notes = Array.isArray(data.notes) ? data.notes : [];
+          if (!cancelled && notes.length > 0) {
+            const mapped = notes.map((n: { course_id: string; course_title: string; lesson_id: string; lesson_title: string; module_id?: string; module_title?: string; updated_at: string; content?: string }) => ({
+              courseId: n.course_id,
+              courseTitle: n.course_title,
+              lessonId: n.lesson_id,
+              lessonTitle: n.lesson_title,
+              moduleId: n.module_id,
+              moduleTitle: n.module_title,
+              updatedAt: new Date(n.updated_at).getTime(),
+            }));
+            setEntries(mapped);
+            const contents: Record<string, string> = {};
+            for (const n of notes) {
+              const key = userId ? `${NOTES_STORAGE_PREFIX}${userId}_${n.course_id}_${n.lesson_id}` : null;
+              if (key) contents[key] = n.content ?? '';
+            }
+            setNoteContents(contents);
+            return;
+          }
+        }
+      } catch {
+        // fall through
+      }
+      try {
+        const raw = localStorage.getItem(`${NOTES_MANIFEST_KEY}_${userId}`);
+        const list: NoteEntry[] = raw ? JSON.parse(raw) : [];
+        if (!cancelled) setEntries(Array.isArray(list) ? list : []);
+      } catch {
+        if (!cancelled) setEntries([]);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [userId]);
 
   const byCourse = useMemo(() => {

@@ -6,7 +6,6 @@ import {
   BookOpen,
   CheckCircle,
   FileText,
-  Video,
   HelpCircle,
   Lock,
   Circle,
@@ -27,6 +26,7 @@ import {
 import { LessonVideoPlayer, type VideoSegment } from '../LessonVideoPlayer';
 import { ReadingContentRenderer } from '@/components/ReadingContentRenderer';
 import { useAuth } from '@/contexts/AuthContext';
+import { recordActivity } from '@/lib/preference-loop';
 
 /** Catches render/effect errors (e.g. React #185) in lesson content and shows a fallback instead of crashing. */
 class LessonErrorBoundary extends Component<
@@ -407,20 +407,36 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
     setLessonErrorBoundaryKey((k) => k + 1);
   }, [selectedLessonId]);
 
-  // Load note for current lesson from localStorage
+  // Load note for current lesson (Supabase with localStorage fallback)
   useEffect(() => {
     if (!userId || !courseId || !selectedLessonId) {
       setNoteContent('');
       return;
     }
     const key = noteStorageKey(userId, courseId, selectedLessonId);
-    if (!key) return;
-    try {
-      const raw = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
-      setNoteContent(raw ?? '');
-    } catch {
-      setNoteContent('');
-    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/learning/notes?courseId=${encodeURIComponent(courseId)}&lessonId=${encodeURIComponent(selectedLessonId)}`, { credentials: 'include', cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled && data.note?.content != null) {
+            setNoteContent(data.note.content);
+            return;
+          }
+        }
+      } catch {
+        // fall through to localStorage
+      }
+      if (!key || cancelled) return;
+      try {
+        const raw = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+        if (!cancelled) setNoteContent(raw ?? '');
+      } catch {
+        if (!cancelled) setNoteContent('');
+      }
+    })();
+    return () => { cancelled = true; };
   }, [userId, courseId, selectedLessonId]);
 
   // Debounced save of note + update manifest (so My Notes can list all notes; titles stored so notes survive course delete; module ref for notebook)
@@ -457,6 +473,20 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
     } catch {
       // ignore
     }
+    fetch('/api/learning/notes', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        courseId: cid,
+        lessonId: lid,
+        courseTitle: ctitle,
+        lessonTitle: ltitle,
+        moduleId: moduleId ?? null,
+        moduleTitle: moduleTitle ?? null,
+        content,
+      }),
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -641,6 +671,24 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
     return steps;
   }, [lessonContent]);
 
+  const logLessonActivity = useCallback(async (lessonId: string) => {
+    if (!userId) return;
+    const items = lessonContent?.contentItems ?? [];
+    const types = new Set(items.map((i) => i.content_type));
+    const contentType = types.has('video') ? 'video' : types.has('reading') ? 'reading' : types.has('quiz') ? 'quiz' : types.has('form') ? 'form' : 'video';
+    try {
+      await recordActivity(userId, {
+        user_id: userId,
+        content_type: contentType as 'video' | 'reading' | 'quiz' | 'form',
+        entity_type: 'lesson',
+        entity_id: lessonId,
+        action: 'completed',
+      });
+    } catch {
+      // ignore
+    }
+  }, [userId, lessonContent]);
+
   const totalLessonDurationSec = useMemo(
     () =>
       lessonSteps.reduce((acc, s) => {
@@ -704,6 +752,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
         if (res.ok) {
           setCompletedLessonIds((prev) => new Set(prev).add(selectedLessonId));
           setCompleteSuccess(true);
+          void logLessonActivity(selectedLessonId);
         }
       } catch {
         submittedLessonForSegmentsRef.current = null;
@@ -729,6 +778,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
       }
       setCompleteSuccess(true);
       setCompletedLessonIds((prev) => new Set(prev).add(selectedLessonId));
+      void logLessonActivity(selectedLessonId);
     } catch {
       setCompleteError('Network error');
     } finally {
@@ -868,18 +918,9 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
 
   return (
     <div className="h-full max-h-full flex flex-col min-h-0 min-w-0">
-      {/* Top bar: brand + course nav + progress */}
+      {/* Course sub-header: back, title, progress */}
       <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/95 z-10 shadow-sm">
         <div className="px-4 sm:px-6 py-3">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 flex-shrink-0 bg-blue-600 dark:bg-blue-500 rounded-lg flex items-center justify-center" title="Coursify LMS Platform">
-              <Video className="w-5 h-5 text-white" />
-            </div>
-            <div className="min-w-0">
-              <span className="font-bold text-gray-900 dark:text-white block leading-tight">Coursify</span>
-              <span className="text-xs text-gray-500 dark:text-gray-400 block leading-tight">LMS Platform</span>
-            </div>
-          </div>
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-4 min-w-0">
               <button

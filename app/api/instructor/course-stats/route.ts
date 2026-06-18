@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     const collabIds = (collab ?? []).map((c: { course_id: string }) => c.course_id)
     courseIds = Array.from(new Set([...ownedIds, ...collabIds]))
   }
-  if (courseIds.length === 0) return NextResponse.json({ stats: {}, totalUniqueLearners: 0 })
+  if (courseIds.length === 0) return NextResponse.json({ stats: {}, extras: {}, totalUniqueLearners: 0 })
 
   const { data: enrollments } = await db
     .from('enrollments')
@@ -56,8 +56,58 @@ export async function GET(request: Request) {
     stats[id].avgCompletion = n ? Math.round(stats[id].avgCompletion / n) : 0
   })
 
+  const extras: Record<string, { avgRating: number; totalRatings: number; hasQuiz: boolean; views: number }> = {}
+  courseIds.forEach((id: string) => { extras[id] = { avgRating: 0, totalRatings: 0, hasQuiz: false, views: 0 } })
+
+  const [{ data: ratings }, { data: modules }, { data: lessons }, { data: viewEvents }] = await Promise.all([
+    db.from('course_ratings').select('course_id, rating').in('course_id', courseIds),
+    db.from('modules').select('id, course_id').in('course_id', courseIds),
+    courseIds.length
+      ? db.from('modules').select('id, course_id').in('course_id', courseIds).then(async ({ data: mods }) => {
+          const modIds = (mods ?? []).map((m: { id: string }) => m.id)
+          if (!modIds.length) return { data: [] as { id: string; module_id: string }[] }
+          return db.from('lessons').select('id, module_id').in('module_id', modIds)
+        })
+      : Promise.resolve({ data: [] as { id: string; module_id: string }[] }),
+    db.from("course_analytics").select("course_id").in("course_id", courseIds).eq("event_type", "view"),
+  ])
+
+  ;(ratings ?? []).forEach((r: { course_id: string; rating: number }) => {
+    const e = extras[r.course_id]
+    if (!e) return
+    e.totalRatings += 1
+    e.avgRating += r.rating ?? 0
+  })
+  Object.keys(extras).forEach((id) => {
+    const e = extras[id]
+    e.avgRating = e.totalRatings ? Math.round((e.avgRating / e.totalRatings) * 10) / 10 : 0
+  })
+
+  ;(viewEvents ?? []).forEach((v: { course_id: string }) => {
+    if (extras[v.course_id]) extras[v.course_id].views++
+  })
+
+  const lessonIds = (lessons ?? []).map((l: { id: string }) => l.id)
+  if (lessonIds.length) {
+    const { data: quizItems } = await db
+      .from('content_items')
+      .select('lesson_id, content_type')
+      .in('lesson_id', lessonIds)
+      .eq('content_type', 'quiz')
+    const modToCourse: Record<string, string> = {}
+    ;(modules ?? []).forEach((m: { id: string; course_id: string }) => { modToCourse[m.id] = m.course_id })
+    const lessonToCourse: Record<string, string> = {}
+    ;(lessons ?? []).forEach((l: { id: string; module_id: string }) => {
+      lessonToCourse[l.id] = modToCourse[l.module_id] ?? ''
+    })
+    ;(quizItems ?? []).forEach((item: { lesson_id: string }) => {
+      const cid = lessonToCourse[item.lesson_id]
+      if (cid && extras[cid]) extras[cid].hasQuiz = true
+    })
+  }
+
   return NextResponse.json(
-    { stats, totalUniqueLearners: uniqueUserIds.size },
+    { stats, extras, totalUniqueLearners: uniqueUserIds.size },
     { headers: { "Cache-Control": "private, max-age=15, stale-while-revalidate=30" } }
   )
 }

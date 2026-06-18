@@ -10,16 +10,13 @@ import {
 import { supabase } from '@/lib/supabase';
 
 interface DashboardProps {
-  sidebarOpen: boolean;
-  setSidebarOpen: (open: boolean) => void;
   setCurrentView: (view: string) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setCurrentView }) => {
+const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
   const [selectedPeriod, setSelectedPeriod] = useState('7days');
   const [selectedCourse, setSelectedCourse] = useState<number | string | null>(null);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState<{ id: number; type: string; title: string; message: string; time: string; read: boolean }[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [stats, setStats] = useState({
     learners: { current: 0, previous: 0, change: 0 },
@@ -40,7 +37,7 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
       }
       setConfigMissing(false);
       try {
-        const res = await fetch('/api/instructor/dashboard', { credentials: 'include', cache: 'no-store' });
+        const res = await fetch(`/api/instructor/dashboard?period=${selectedPeriod}`, { credentials: 'include', cache: 'no-store' });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           setConfigMissing(true);
@@ -55,7 +52,34 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
       }
     };
     load();
-  }, []);
+  }, [selectedPeriod]);
+
+  const filteredTopCourses = searchQuery.trim()
+    ? topCourses.filter((c) => c.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    : topCourses;
+
+  const filteredRecentActivity = searchQuery.trim()
+    ? recentActivity.filter(
+        (a) =>
+          a.user.toLowerCase().includes(searchQuery.trim().toLowerCase()) ||
+          a.course.toLowerCase().includes(searchQuery.trim().toLowerCase())
+      )
+    : recentActivity;
+
+  const exportDashboardCsv = () => {
+    const headers = ['Course', 'Learners', 'Completion %', 'Avg Time', 'Drop-off Point']
+    const rows = topCourses.map((c) => [c.name, c.learners, c.completion, c.avgTime, c.dropOffPoint])
+    const csv = [headers.join(',')].concat(
+      rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+    ).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `dashboard-${selectedPeriod}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  };
 
   const calculateChange = (current: number, previous: number) => {
     if (previous === 0) return '0';
@@ -70,16 +94,6 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
       case 'failure': return <XCircle className="w-5 h-5 text-red-600" />;
       default: return <AlertCircle className="w-5 h-5 text-gray-600" />;
     }
-  };
-
-  const markNotificationRead = (id: number) => {
-    setNotifications(notifications.map(n => 
-      n.id === id ? { ...n, read: true } : n
-    ));
-  };
-
-  const clearAllNotifications = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })));
   };
 
   const StatCard = ({ icon: Icon, title, current, previous, unit = '', color }: {
@@ -156,64 +170,10 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
               <input 
                 type="text" 
                 placeholder="Search courses, learners..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg w-80 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white transition-all" 
               />
-            </div>
-            <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all dark:text-gray-300">
-              <Filter className="w-6 h-6 text-gray-600 dark:text-gray-400" />
-            </button>
-            <div className="relative">
-              <button 
-                onClick={() => setShowNotifications(!showNotifications)}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg relative transition-all dark:text-gray-300"
-              >
-                <Bell className="w-6 h-6 text-gray-600 dark:text-gray-400" />
-                {notifications.filter(n => !n.read).length > 0 && (
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-                )}
-              </button>
-
-              {/* Notifications Dropdown */}
-              {showNotifications && (
-                <div className="absolute right-0 mt-2 w-96 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 z-50">
-                  <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                    <h3 className="font-bold text-lg text-gray-900 dark:text-white">Notifications</h3>
-                    <button 
-                      onClick={clearAllNotifications}
-                      className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold"
-                    >
-                      Mark all read
-                    </button>
-                  </div>
-                  <div className="max-h-96 overflow-y-auto">
-                    {notifications.length === 0 ? (
-                      <div className="p-6 text-center text-gray-500 dark:text-gray-400 text-sm">No notifications yet.</div>
-                    ) : notifications.map(notif => (
-                      <div 
-                        key={notif.id}
-                        onClick={() => markNotificationRead(notif.id)}
-                        className={`p-4 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-all ${!notif.read ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-2 mb-1">
-                              {notif.type === 'success' && <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />}
-                              {notif.type === 'warning' && <AlertCircle className="w-4 h-4 text-orange-600 dark:text-orange-400" />}
-                              {notif.type === 'info' && <Bell className="w-4 h-4 text-blue-600 dark:text-blue-400" />}
-                              <p className="font-semibold text-sm text-gray-900 dark:text-white">{notif.title}</p>
-                            </div>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">{notif.message}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">{notif.time}</p>
-                          </div>
-                          {!notif.read && (
-                            <div className="w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full"></div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -284,7 +244,7 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
                     >
                       <div className="opacity-0 group-hover:opacity-100 absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap transition-opacity pointer-events-none">
                         <p className="font-semibold">{data.week}</p>
-                        <p>{data.completions}% completion</p>
+                        <p>{data.completions} completions</p>
                         <p>{data.enrollments} enrollments</p>
                         <p>{data.avgTime}h avg time</p>
                       </div>
@@ -301,7 +261,7 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
                 <div className="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
                 <span className="text-sm text-gray-600 dark:text-gray-400">Completion Rate</span>
               </div>
-              <button className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold flex items-center">
+              <button type="button" onClick={exportDashboardCsv} className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold flex items-center">
                 <Download className="w-4 h-4 mr-1" />
                 Export Data
               </button>
@@ -320,9 +280,9 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
               </button>
             </div>
             <div className="space-y-4">
-              {topCourses.length === 0 ? (
+              {filteredTopCourses.length === 0 ? (
                 <div className="py-6 text-center text-gray-500 dark:text-gray-400 text-sm">No courses yet.</div>
-              ) : topCourses.map((course) => (
+              ) : filteredTopCourses.map((course) => (
                 <div 
                   key={course.id}
                   onClick={() => setSelectedCourse(course.id === selectedCourse ? null : course.id)}
@@ -402,9 +362,9 @@ const Dashboard: React.FC<DashboardProps> = ({ sidebarOpen, setSidebarOpen, setC
             </button>
           </div>
           <div className="space-y-1">
-            {recentActivity.length === 0 ? (
+            {filteredRecentActivity.length === 0 ? (
               <div className="py-8 text-center text-gray-500 dark:text-gray-400 text-sm">No recent activity yet.</div>
-            ) : recentActivity.map((activity) => (
+            ) : filteredRecentActivity.map((activity) => (
               <div 
                 key={activity.id}
                 className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-all cursor-pointer group"

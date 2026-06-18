@@ -69,6 +69,45 @@ const Analytics: React.FC = () => {
   type CoursePerformanceItem = { id: number | string; name: string; enrolled: number; completed: number; inProgress: number; completionRate: number; avgScore: number; avgTime: string; dropOffRate: number; satisfaction: number; trend: string; trendValue: number };
   const [coursePerformance, setCoursePerformance] = useState<CoursePerformanceItem[]>([]);
 
+type StatBlock = { current: number; previous: number; change: number; trend: 'up' | 'down' };
+
+  const [engagementStats, setEngagementStats] = useState<{
+    dailyActiveUsers: StatBlock;
+    avgSessionMinutes: StatBlock;
+    newEnrollments: StatBlock;
+    returnRate: StatBlock;
+  }>({
+    dailyActiveUsers: { current: 0, previous: 0, change: 0, trend: 'up' },
+    avgSessionMinutes: { current: 0, previous: 0, change: 0, trend: 'up' },
+    newEnrollments: { current: 0, previous: 0, change: 0, trend: 'up' },
+    returnRate: { current: 0, previous: 0, change: 0, trend: 'up' },
+  });
+  const [completionStats, setCompletionStats] = useState<{
+    totalCompletions: StatBlock;
+    completionRate: StatBlock;
+    certificatesIssued: StatBlock;
+    avgDaysToComplete: StatBlock;
+  }>({
+    totalCompletions: { current: 0, previous: 0, change: 0, trend: 'up' },
+    completionRate: { current: 0, previous: 0, change: 0, trend: 'up' },
+    certificatesIssued: { current: 0, previous: 0, change: 0, trend: 'up' },
+    avgDaysToComplete: { current: 0, previous: 0, change: 0, trend: 'up' },
+  });
+  const [performanceStats, setPerformanceStats] = useState<{
+    avgQuizScore: StatBlock;
+    passRate: StatBlock;
+    avgCompletion: StatBlock;
+    satisfaction: StatBlock;
+  }>({
+    avgQuizScore: { current: 0, previous: 0, change: 0, trend: 'up' },
+    passRate: { current: 0, previous: 0, change: 0, trend: 'up' },
+    avgCompletion: { current: 0, previous: 0, change: 0, trend: 'up' },
+    satisfaction: { current: 0, previous: 0, change: 0, trend: 'up' },
+  });
+  const [peakHours, setPeakHours] = useState<Array<{ hour: string; users: number }>>([]);
+  const [completionByCourse, setCompletionByCourse] = useState<Array<{ category: string; rate: number; courses: number; color: string }>>([]);
+  const [courseOptions, setCourseOptions] = useState<Array<{ id: string; name: string }>>([]);
+
   useEffect(() => {
     const load = async () => {
       if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
@@ -77,42 +116,53 @@ const Analytics: React.FC = () => {
       }
       setConfigMissing(false);
       try {
-        const res = await fetch('/api/instructor/analytics', { credentials: 'include', cache: 'no-store' });
+        const range = dateRange === 'year' ? '90days' : dateRange === 'custom' ? '30days' : dateRange;
+        const res = await fetch(`/api/instructor/analytics?range=${range}`, { credentials: 'include', cache: 'no-store' });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           setConfigMissing(true);
           return;
         }
-        const overview = data.overview ?? { totalLearners: 0, activeLearners: 0, coursesCompleted: 0, avgCompletionRate: 0 };
-        const coursePerformanceList = Array.isArray(data.coursePerformance) ? data.coursePerformance : [];
+        const overview = data.overview ?? {};
         setOverviewStats({
-          totalLearners: { current: overview.totalLearners ?? 0, previous: 0, change: 0, trend: 'up' },
-          activeLearners: { current: overview.activeLearners ?? 0, previous: 0, change: 0, trend: 'up' },
-          coursesCompleted: { current: overview.coursesCompleted ?? 0, previous: 0, change: 0, trend: 'up' },
-          avgCompletionRate: { current: overview.avgCompletionRate ?? 0, previous: 0, change: 0, trend: 'up' }
+          totalLearners: overview.totalLearners ?? { current: 0, previous: 0, change: 0, trend: 'up' },
+          activeLearners: overview.activeLearners ?? { current: 0, previous: 0, change: 0, trend: 'up' },
+          coursesCompleted: overview.coursesCompleted ?? { current: 0, previous: 0, change: 0, trend: 'up' },
+          avgCompletionRate: overview.avgCompletionRate ?? { current: 0, previous: 0, change: 0, trend: 'up' },
         });
-        setCoursePerformance(coursePerformanceList.map((c: { id: string | number; name: string; enrolled: number; completed: number; inProgress: number; completionRate: number }) => ({
-          id: c.id,
-          name: c.name,
-          enrolled: c.enrolled,
-          completed: c.completed,
-          inProgress: c.inProgress,
-          completionRate: c.completionRate ?? 0,
-          avgScore: 0,
-          avgTime: '—',
-          dropOffRate: 0,
-          satisfaction: 0,
-          trend: 'up',
-          trendValue: 0
-        })));
+        const coursePerformanceList = Array.isArray(data.coursePerformance) ? data.coursePerformance : [];
+        setCoursePerformance(coursePerformanceList);
+        if (data.engagement?.stats) setEngagementStats(data.engagement.stats);
+        if (Array.isArray(data.engagement?.peakHours)) setPeakHours(data.engagement.peakHours);
+        if (data.completion?.stats) setCompletionStats(data.completion.stats);
+        if (Array.isArray(data.completion?.byCourse)) setCompletionByCourse(data.completion.byCourse);
+        if (data.performance?.stats) setPerformanceStats(data.performance.stats);
+        if (Array.isArray(data.courseOptions)) setCourseOptions(data.courseOptions);
       } catch {
         setConfigMissing(true);
       }
     };
     load();
-  }, []);
+  }, [dateRange]);
 
-  const engagementData = { daily: [] as Array<{ date: string; active: number; newEnrollments: number; completions: number }>, peakHours: [] as Array<{ hour: string; users: number }> };
+  const filteredCoursePerformance = selectedCourse === 'all'
+    ? coursePerformance
+    : coursePerformance.filter((c) => String(c.id) === selectedCourse);
+
+  const exportAnalyticsCsv = () => {
+    const headers = ['Course', 'Enrolled', 'Completed', 'In Progress', 'Completion %', 'Avg Time', 'Drop-off Rate %'];
+    const rows = filteredCoursePerformance.map((c) => [c.name, c.enrolled, c.completed, c.inProgress, c.completionRate, c.avgTime, c.dropOffRate]);
+    const csv = [headers.join(',')].concat(rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `analytics-${dateRange}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const engagementData = { daily: [] as Array<{ date: string; active: number; newEnrollments: number; completions: number }>, peakHours };
 
   const departmentBreakdown: Array<{ name: string; learners: number; completion: number; avgScore: number; color: string }> = [];
   const completionFunnel: Array<{ stage: string; count: number; percentage: number; color: string }> = [];
@@ -135,7 +185,7 @@ const Analytics: React.FC = () => {
               <Calendar className="w-4 h-4 mr-2" />
               <span>Last updated: Just now</span>
               <span className="mx-2">•</span>
-              <span>Showing data for last 30 days</span>
+              <span>Showing data for {dateRange === '7days' ? 'last 7 days' : dateRange === '90days' ? 'last 90 days' : 'last 30 days'}</span>
             </div>
           </div>
           <div className="flex space-x-3">
@@ -155,7 +205,7 @@ const Analytics: React.FC = () => {
               <Filter className="w-4 h-4 mr-2" />
               Filters
             </button>
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center transition-all">
+            <button type="button" onClick={exportAnalyticsCsv} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center transition-all">
               <Download className="w-4 h-4 mr-2" />
               Export Report
             </button>
@@ -188,9 +238,9 @@ const Analytics: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="all">All Courses</option>
-                  <option value="1">Product Onboarding</option>
-                  <option value="2">Security Training</option>
-                  <option value="3">Sales Methodology</option>
+                  {courseOptions.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -498,7 +548,7 @@ const Analytics: React.FC = () => {
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                     {coursePerformance.length === 0 ? (
                       <tr><td colSpan={9} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400 text-sm">No courses yet.</td></tr>
-                    ) : coursePerformance.map((course) => (
+                    ) : filteredCoursePerformance.map((course) => (
                       <tr key={course.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all">
                         <td className="px-6 py-4">
                           <p className="font-semibold dark:text-white">{course.name}</p>
@@ -579,40 +629,40 @@ const Analytics: React.FC = () => {
             <div className="grid grid-cols-4 gap-6 mb-8">
               <StatCard 
                 title="Daily Active Users" 
-                current={334}
-                previous={289}
-                change={15.6}
-                trend="up"
+                current={engagementStats.dailyActiveUsers.current}
+                previous={engagementStats.dailyActiveUsers.previous}
+                change={engagementStats.dailyActiveUsers.change}
+                trend={engagementStats.dailyActiveUsers.trend}
                 icon={Activity}
                 color="blue"
                 comparisonMode={comparisonMode}
               />
               <StatCard 
                 title="Avg. Session Time" 
-                current="24m"
-                previous="19m"
-                change={26.3}
-                trend="up"
+                current={`${engagementStats.avgSessionMinutes.current}m`}
+                previous={`${engagementStats.avgSessionMinutes.previous}m`}
+                change={engagementStats.avgSessionMinutes.change}
+                trend={engagementStats.avgSessionMinutes.trend}
                 icon={Clock}
                 color="green"
                 comparisonMode={comparisonMode}
               />
               <StatCard 
                 title="New Enrollments" 
-                current={68}
-                previous={52}
-                change={30.8}
-                trend="up"
+                current={engagementStats.newEnrollments.current}
+                previous={engagementStats.newEnrollments.previous}
+                change={engagementStats.newEnrollments.change}
+                trend={engagementStats.newEnrollments.trend}
                 icon={Users}
                 color="purple"
                 comparisonMode={comparisonMode}
               />
               <StatCard 
                 title="Return Rate" 
-                current={82}
-                previous={76}
-                change={7.9}
-                trend="up"
+                current={engagementStats.returnRate.current}
+                previous={engagementStats.returnRate.previous}
+                change={engagementStats.returnRate.change}
+                trend={engagementStats.returnRate.trend}
                 icon={RefreshCw}
                 color="orange"
                 suffix="%"
@@ -700,20 +750,20 @@ const Analytics: React.FC = () => {
             <div className="grid grid-cols-4 gap-6 mb-8">
               <StatCard 
                 title="Total Completions" 
-                current={1543}
-                previous={1289}
-                change={19.7}
-                trend="up"
+                current={completionStats.totalCompletions.current}
+                previous={completionStats.totalCompletions.previous}
+                change={completionStats.totalCompletions.change}
+                trend={completionStats.totalCompletions.trend}
                 icon={CheckCircle}
                 color="green"
                 comparisonMode={comparisonMode}
               />
               <StatCard 
                 title="Completion Rate" 
-                current={78}
-                previous={63}
-                change={23.8}
-                trend="up"
+                current={completionStats.completionRate.current}
+                previous={completionStats.completionRate.previous}
+                change={completionStats.completionRate.change}
+                trend={completionStats.completionRate.trend}
                 icon={Percent}
                 color="blue"
                 suffix="%"
@@ -721,20 +771,20 @@ const Analytics: React.FC = () => {
               />
               <StatCard 
                 title="Certificates Issued" 
-                current={456}
-                previous={378}
-                change={20.6}
-                trend="up"
+                current={completionStats.certificatesIssued.current}
+                previous={completionStats.certificatesIssued.previous}
+                change={completionStats.certificatesIssued.change}
+                trend={completionStats.certificatesIssued.trend}
                 icon={Award}
                 color="purple"
                 comparisonMode={comparisonMode}
               />
               <StatCard 
                 title="Avg. Time to Complete" 
-                current="18d"
-                previous="24d"
-                change={-25.0}
-                trend="down"
+                current={`${completionStats.avgDaysToComplete.current}d`}
+                previous={`${completionStats.avgDaysToComplete.previous}d`}
+                change={completionStats.avgDaysToComplete.change}
+                trend={completionStats.avgDaysToComplete.trend}
                 icon={Clock}
                 color="orange"
                 comparisonMode={comparisonMode}
@@ -743,16 +793,11 @@ const Analytics: React.FC = () => {
 
             {/* Completion by Course Type */}
             <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
-              <h3 className="text-xl font-bold mb-6">Completion Rate by Course Category</h3>
+              <h3 className="text-xl font-bold mb-6">Completion Rate by Course</h3>
               <div className="grid grid-cols-2 gap-6">
-                {[
-                  { category: 'Onboarding', rate: 92, courses: 4, color: 'blue' },
-                  { category: 'Compliance', rate: 87, courses: 3, color: 'purple' },
-                  { category: 'Sales Training', rate: 84, courses: 5, color: 'green' },
-                  { category: 'Product Knowledge', rate: 81, courses: 6, color: 'orange' },
-                  { category: 'Soft Skills', rate: 76, courses: 4, color: 'pink' },
-                  { category: 'Technical Skills', rate: 72, courses: 7, color: 'indigo' }
-                ].map((cat, i) => {
+                {completionByCourse.length === 0 ? (
+                  <p className="text-sm text-gray-500 col-span-2">No completion data yet.</p>
+                ) : completionByCourse.map((cat, i) => {
                   const colorClasses: Record<string, string> = {
                     blue: 'bg-blue-500',
                     purple: 'bg-purple-500',
@@ -828,10 +873,10 @@ const Analytics: React.FC = () => {
             <div className="grid grid-cols-4 gap-6 mb-8">
               <StatCard 
                 title="Average Score" 
-                current={87}
-                previous={83}
-                change={4.8}
-                trend="up"
+                current={performanceStats.avgQuizScore.current}
+                previous={performanceStats.avgQuizScore.previous}
+                change={performanceStats.avgQuizScore.change}
+                trend={performanceStats.avgQuizScore.trend}
                 icon={Star}
                 color="blue"
                 suffix="%"
@@ -839,34 +884,35 @@ const Analytics: React.FC = () => {
               />
               <StatCard 
                 title="Quiz Pass Rate" 
-                current={91}
-                previous={85}
-                change={7.1}
-                trend="up"
+                current={performanceStats.passRate.current}
+                previous={performanceStats.passRate.previous}
+                change={performanceStats.passRate.change}
+                trend={performanceStats.passRate.trend}
                 icon={CheckCircle}
                 color="green"
                 suffix="%"
                 comparisonMode={comparisonMode}
               />
               <StatCard 
-                title="First Attempt Success" 
-                current={76}
-                previous={68}
-                change={11.8}
-                trend="up"
+                title="Avg Completion" 
+                current={performanceStats.avgCompletion.current}
+                previous={performanceStats.avgCompletion.previous}
+                change={performanceStats.avgCompletion.change}
+                trend={performanceStats.avgCompletion.trend}
                 icon={Zap}
                 color="purple"
                 suffix="%"
                 comparisonMode={comparisonMode}
               />
               <StatCard 
-                title="Avg. Quiz Attempts" 
-                current={1.4}
-                previous={1.8}
-                change={-22.2}
-                trend="down"
+                title="Satisfaction" 
+                current={performanceStats.satisfaction.current}
+                previous={performanceStats.satisfaction.previous}
+                change={performanceStats.satisfaction.change}
+                trend={performanceStats.satisfaction.trend}
                 icon={RefreshCw}
                 color="orange"
+                suffix="%"
                 comparisonMode={comparisonMode}
               />
             </div>

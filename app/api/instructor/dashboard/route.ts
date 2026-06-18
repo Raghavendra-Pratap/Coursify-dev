@@ -5,6 +5,15 @@ import { createServerClient as createServiceClient } from '@/lib/supabase'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
+function periodDays(period: string): number {
+  return period === '90days' ? 90 : period === '30days' ? 30 : 7
+}
+
+function pctChange(current: number, previous: number): number {
+  if (previous === 0) return current > 0 ? 100 : 0
+  return Math.round(((current - previous) / previous) * 1000) / 10
+}
+
 export async function GET(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) return NextResponse.json({ error: 'Server config missing' }, { status: 500 })
   const cookieHeader = request.headers.get('cookie') ?? ''
@@ -13,10 +22,18 @@ export async function GET(request: Request) {
   })
   const { data: { user } } = await supabaseAuth.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const url = new URL(request.url)
+  const period = url.searchParams.get('period') ?? '7days'
+  const periodDaysCount = periodDays(period)
+  const now = new Date()
+  const periodStart = new Date(now)
+  periodStart.setDate(periodStart.getDate() - periodDaysCount)
+  const prevStart = new Date(periodStart)
+  prevStart.setDate(prevStart.getDate() - periodDaysCount)
+
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY required' }, { status: 500 })
   const db = createServiceClient()
 
-  // Scope all data to instructor's courses (owned + collaborated); admin sees all courses
   const { data: profile } = await db.from('user_profiles').select('role').eq('id', user.id).maybeSingle()
   const isAdmin = (profile as { role?: string } | null)?.role === 'admin'
   let courseIds: string[]
@@ -26,50 +43,48 @@ export async function GET(request: Request) {
   } else {
     const { data: owned } = await db.from('courses').select('id').eq('created_by', user.id)
     const { data: collab } = await db.from('course_collaborators').select('course_id').eq('user_id', user.id)
-    const ownedIds = (owned ?? []).map((c: { id: string }) => c.id)
-    const collabIds = (collab ?? []).map((c: { course_id: string }) => c.course_id)
-    courseIds = Array.from(new Set([...ownedIds, ...collabIds]))
+    courseIds = Array.from(new Set([...(owned ?? []).map((c: { id: string }) => c.id), ...(collab ?? []).map((c: { course_id: string }) => c.course_id)]))
   }
 
-  if (courseIds.length === 0) {
-    return NextResponse.json({
-      stats: {
-        learners: { current: 0, previous: 0, change: 0 },
-        courses: { current: 0, previous: 0, change: 0 },
-        completion: { current: 0, previous: 0, change: 0 },
-        avgTime: { current: 0, previous: 0, change: 0 },
-      },
-      topCourses: [],
-      weeklyData: [],
-      recentActivity: [],
-    })
-  }
+  const empty = { stats: { learners: { current: 0, previous: 0, change: 0 }, courses: { current: 0, previous: 0, change: 0 }, completion: { current: 0, previous: 0, change: 0 }, avgTime: { current: 0, previous: 0, change: 0 } }, topCourses: [], weeklyData: [], recentActivity: [] }
+  if (courseIds.length === 0) return NextResponse.json(empty)
 
-  const [enrollmentsRes, coursesListRes, progressRes] = await Promise.all([
-    db.from('enrollments').select('id, course_id, user_id, completed_at, progress_percentage').in('course_id', courseIds),
+  const [enrollmentsRes, coursesListRes, progressRes, modulesRes] = await Promise.all([
+    db.from('enrollments').select('id, course_id, user_id, completed_at, progress_percentage, enrolled_at').in('course_id', courseIds),
     db.from('courses').select('id, title, updated_at').in('id', courseIds).order('updated_at', { ascending: false }).limit(10),
-    db.from('progress').select('id, enrollment_id, completed_at, time_spent_seconds').eq('completed', true).order('completed_at', { ascending: false }).limit(500),
+    db.from('progress').select('id, enrollment_id, lesson_id, completed_at, time_spent_seconds, completed').limit(5000),
+    db.from('modules').select('id, course_id').in('course_id', courseIds),
   ])
 
   const allEnrollments = enrollmentsRes.data ?? []
   const myEnrollmentIds = new Set(allEnrollments.map((e: { id: string }) => e.id))
   const progressRows = (progressRes.data ?? []).filter((p: { enrollment_id: string }) => myEnrollmentIds.has(p.enrollment_id))
+  const inPeriod = (iso: string | null | undefined, start: Date, end: Date) => {
+    if (!iso) return false
+    const d = new Date(iso)
+    return d >= start && d <= end
+  }
 
-  // learnerCount = unique user_ids from enrollments in instructor's courses
+  const learnersCurrent = new Set(allEnrollments.filter((e: { enrolled_at?: string }) => inPeriod(e.enrolled_at, periodStart, now)).map((e: { user_id: string }) => e.user_id)).size
+  const learnersPrev = new Set(allEnrollments.filter((e: { enrolled_at?: string }) => inPeriod(e.enrolled_at, prevStart, periodStart)).map((e: { user_id: string }) => e.user_id)).size
   const learnerCount = new Set(allEnrollments.map((e: { user_id: string }) => e.user_id)).size
   const totalCourses = courseIds.length
   const totalEnrollments = allEnrollments.length
   const completedEnrollments = allEnrollments.filter((e: { completed_at: string | null }) => e.completed_at != null).length
   const completionRate = totalEnrollments > 0 ? Math.round((completedEnrollments / totalEnrollments) * 100) : 0
+  const completedPrev = allEnrollments.filter((e: { completed_at: string | null }) => inPeriod(e.completed_at, prevStart, periodStart)).length
+  const completedCurrent = allEnrollments.filter((e: { completed_at: string | null }) => inPeriod(e.completed_at, periodStart, now)).length
+  const completionPrevRate = totalEnrollments > 0 ? Math.round((completedPrev / totalEnrollments) * 100) : 0
 
-  let totalTimeSeconds = 0, timeCount = 0
-  progressRows.forEach((p: { time_spent_seconds?: number }) => {
+  let totalTimeSeconds = 0, timeCount = 0, prevTimeSeconds = 0, prevTimeCount = 0
+  progressRows.forEach((p: { time_spent_seconds?: number; completed_at?: string | null }) => {
     if (typeof p.time_spent_seconds === 'number' && p.time_spent_seconds > 0) {
-      totalTimeSeconds += p.time_spent_seconds
-      timeCount++
+      if (inPeriod(p.completed_at, periodStart, now)) { totalTimeSeconds += p.time_spent_seconds; timeCount++ }
+      if (inPeriod(p.completed_at, prevStart, periodStart)) { prevTimeSeconds += p.time_spent_seconds; prevTimeCount++ }
     }
   })
   const avgTimeHours = timeCount > 0 ? Math.round((totalTimeSeconds / timeCount / 3600) * 10) / 10 : 0
+  const avgTimePrev = prevTimeCount > 0 ? Math.round((prevTimeSeconds / prevTimeCount / 3600) * 10) / 10 : 0
 
   const enrollmentsByCourse: Record<string, { total: number; completed: number }> = {}
   allEnrollments.forEach((e: { course_id: string; completed_at: string | null }) => {
@@ -78,46 +93,76 @@ export async function GET(request: Request) {
     if (e.completed_at) enrollmentsByCourse[e.course_id].completed++
   })
 
+  const moduleIds = (modulesRes.data ?? []).map((m: { id: string }) => m.id)
+  const { data: lessons } = moduleIds.length ? await db.from('lessons').select('id, module_id, title').in('module_id', moduleIds) : { data: [] }
+  const modToCourse: Record<string, string> = {}
+  ;(modulesRes.data ?? []).forEach((m: { id: string; course_id: string }) => { modToCourse[m.id] = m.course_id })
+  const lessonCompletion: Record<string, number> = {}
+  progressRows.filter((p: { completed?: boolean }) => p.completed).forEach((p: { lesson_id: string }) => { lessonCompletion[p.lesson_id] = (lessonCompletion[p.lesson_id] ?? 0) + 1 })
+
+  const courseTime: Record<string, { sec: number; n: number }> = {}
+  progressRows.forEach((p: { enrollment_id: string; time_spent_seconds?: number }) => {
+    const enr = allEnrollments.find((e: { id: string; course_id: string }) => e.id === p.enrollment_id)
+    if (!enr || !p.time_spent_seconds) return
+    courseTime[enr.course_id] = courseTime[enr.course_id] ?? { sec: 0, n: 0 }
+    courseTime[enr.course_id].sec += p.time_spent_seconds
+    courseTime[enr.course_id].n++
+  })
+
   const topCourses = (coursesListRes.data ?? []).map((c: { id: string; title: string; updated_at: string }) => {
     const ec = enrollmentsByCourse[c.id] ?? { total: 0, completed: 0 }
+    const ct = courseTime[c.id]
+    const avgTimeStr = ct?.n ? `${Math.round((ct.sec / ct.n / 3600) * 10) / 10}h` : '-'
+    const courseLessons = (lessons ?? []).filter((l: { module_id: string }) => modToCourse[l.module_id] === c.id)
+    let dropOffPoint = '-'
+    if (courseLessons.length && ec.total) {
+      let minRate = 101
+      courseLessons.forEach((l: { id: string; title: string }) => {
+        const rate = Math.round(((lessonCompletion[l.id] ?? 0) / ec.total) * 100)
+        if (rate < minRate) { minRate = rate; dropOffPoint = l.title }
+      })
+    }
+    const completion = ec.total ? Math.round((ec.completed / ec.total) * 100) : 0
     return {
       id: c.id,
       name: c.title,
-      completion: ec.total ? Math.round((ec.completed / ec.total) * 100) : 0,
+      completion,
       learners: ec.total,
-      trend: 'up',
-      trendValue: 0,
-      avgTime: '—',
+      trend: completion >= 50 ? 'up' : 'down',
+      trendValue: completion,
+      avgTime: avgTimeStr,
       lastUpdated: new Date(c.updated_at).toLocaleDateString(),
       status: 'active',
-      dropOffPoint: '—',
+      dropOffPoint,
     }
   })
 
-  const completedByWeek: Record<string, number> = {}
-  const now = new Date()
-  for (let i = 0; i < 7; i++) {
+  const byDay: Record<string, { completions: number; enrollments: number; timeSec: number; timeN: number }> = {}
+  for (let i = 0; i < periodDaysCount; i++) {
     const d = new Date(now)
-    d.setDate(d.getDate() - (6 - i))
-    completedByWeek[d.toISOString().slice(0, 10)] = 0
+    d.setDate(d.getDate() - (periodDaysCount - 1 - i))
+    byDay[d.toISOString().slice(0, 10)] = { completions: 0, enrollments: 0, timeSec: 0, timeN: 0 }
   }
-  progressRows.forEach((p: { completed_at: string | null }) => {
-    if (p.completed_at && completedByWeek[p.completed_at.slice(0, 10)] !== undefined) {
-      completedByWeek[p.completed_at.slice(0, 10)]++
+  allEnrollments.forEach((e: { enrolled_at?: string }) => {
+    const key = e.enrolled_at?.slice(0, 10)
+    if (key && byDay[key]) byDay[key].enrollments++
+  })
+  progressRows.forEach((p: { completed_at: string | null; time_spent_seconds?: number }) => {
+    const key = p.completed_at?.slice(0, 10)
+    if (key && byDay[key]) {
+      byDay[key].completions++
+      if (p.time_spent_seconds) { byDay[key].timeSec += p.time_spent_seconds; byDay[key].timeN++ }
     }
   })
-  const weeklyData = Object.keys(completedByWeek)
-    .sort()
-    .map((week) => ({
-      week: new Date(week).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
-      completions: completedByWeek[week] ?? 0,
-      enrollments: 0,
-      avgTime: 0,
-    }))
+  const weeklyData = Object.keys(byDay).sort().map((day) => ({
+    week: new Date(day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+    completions: byDay[day].completions,
+    enrollments: byDay[day].enrollments,
+    avgTime: byDay[day].timeN ? Math.round((byDay[day].timeSec / byDay[day].timeN / 3600) * 10) / 10 : 0,
+  }))
 
   const enrollmentIds = Array.from(new Set(progressRows.map((p: { enrollment_id: string }) => p.enrollment_id)))
-  const { data: enrollmentsForActivity } =
-    enrollmentIds.length > 0 ? await db.from('enrollments').select('id, user_id, course_id').in('id', enrollmentIds) : { data: [] }
+  const { data: enrollmentsForActivity } = enrollmentIds.length > 0 ? await db.from('enrollments').select('id, user_id, course_id').in('id', enrollmentIds) : { data: [] }
   const enrollMap = new Map((enrollmentsForActivity ?? []).map((e: { id: string; user_id: string; course_id: string }) => [e.id, e]))
   const userIds = Array.from(new Set((enrollmentsForActivity ?? []).map((e: { user_id: string }) => e.user_id)))
   const { data: userProfiles } = userIds.length ? await db.from('user_profiles').select('id, full_name').in('id', userIds) : { data: [] }
@@ -126,28 +171,20 @@ export async function GET(request: Request) {
   const { data: courseTitles } = courseIdsForActivity.length ? await db.from('courses').select('id, title').in('id', courseIdsForActivity) : { data: [] }
   const courseMap = new Map((courseTitles ?? []).map((c: { id: string; title: string }) => [c.id, c.title]))
 
-  const recentActivity = progressRows.slice(0, 10).map((p: { enrollment_id: string; completed_at: string | null }, i: number) => {
+  const recentActivity = progressRows.filter((p: { completed_at: string | null }) => p.completed_at).sort((a: { completed_at: string }, b: { completed_at: string }) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()).slice(0, 10).map((p: { enrollment_id: string; completed_at: string | null }, i: number) => {
     const enr = enrollMap.get(p.enrollment_id)
     const userName = enr ? userMap.get(enr.user_id) ?? 'Learner' : 'Learner'
     const courseName = enr ? courseMap.get(enr.course_id) ?? 'Course' : 'Course'
     const initials = userName.split(/\s+/).map((s) => s[0]).join('').toUpperCase().slice(0, 2) || '?'
-    return {
-      id: i + 1,
-      user: userName,
-      action: 'completed a lesson',
-      course: courseName,
-      time: p.completed_at ? new Date(p.completed_at).toLocaleString() : '',
-      avatar: initials,
-      type: 'completion',
-    }
+    return { id: i + 1, user: userName, action: 'completed a lesson', course: courseName, time: p.completed_at ? new Date(p.completed_at).toLocaleString() : '', avatar: initials, type: 'completion' }
   })
 
   return NextResponse.json({
     stats: {
-      learners: { current: learnerCount, previous: Math.max(0, learnerCount - 50), change: 0 },
-      courses: { current: totalCourses, previous: Math.max(0, totalCourses - 2), change: 0 },
-      completion: { current: completionRate, previous: Math.max(0, completionRate - 10), change: 0 },
-      avgTime: { current: avgTimeHours, previous: Math.max(0, avgTimeHours - 1), change: 0 },
+      learners: { current: learnersCurrent || learnerCount, previous: learnersPrev, change: pctChange(learnersCurrent || learnerCount, learnersPrev) },
+      courses: { current: totalCourses, previous: totalCourses, change: 0 },
+      completion: { current: completionRate, previous: completionPrevRate, change: pctChange(completionRate, completionPrevRate) },
+      avgTime: { current: avgTimeHours, previous: avgTimePrev, change: pctChange(avgTimeHours, avgTimePrev) },
     },
     topCourses,
     weeklyData,

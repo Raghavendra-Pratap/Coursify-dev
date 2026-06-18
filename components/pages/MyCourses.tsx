@@ -254,6 +254,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
         });
         setCourses(courseList.map((c: { id: string; title: string; description: string | null; status: string; created_at: string; updated_at: string; created_by?: string; has_unpublished_changes?: boolean }) => {
           const st = courseStats[c.id] ?? { learners: 0, avgCompletion: 0 };
+          const ex = (statsRes.extras ?? {})[c.id] ?? { avgRating: 0, totalRatings: 0, hasQuiz: false, views: 0 };
           return {
           id: c.id,
           title: c.title,
@@ -264,18 +265,18 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
           learners: st.learners,
           enrolled: st.learners,
           completion: st.avgCompletion,
-          avgRating: 0,
-          totalRatings: 0,
+          avgRating: ex.avgRating ?? 0,
+          totalRatings: ex.totalRatings ?? 0,
           status: c.status as 'draft' | 'published' | 'archived',
           category: 'General',
           duration: formatCourseDuration(durationSecondsByCourse[c.id] ?? 0),
           lastUpdated: formatCourseDate(c.updated_at),
           createdDate: formatCourseDate(c.created_at),
-          views: 0,
-          trend: 'up',
-          trendValue: 0,
-          hasQuiz: false,
-          hasCertificate: false,
+          views: ex.views ?? 0,
+          trend: st.avgCompletion >= 50 ? 'up' : 'down',
+          trendValue: st.avgCompletion,
+          hasQuiz: ex.hasQuiz ?? false,
+          hasCertificate: c.status === 'published',
           language: 'English',
           level: 'Beginner',
           tags: [],
@@ -942,11 +943,6 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
         {configMissing && (
           <div className="mb-4 text-sm text-amber-700 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-2">
             Configure Supabase (see BACKEND_SETUP.md) to load and save courses.
-          </div>
-        )}
-        {!configMissing && !loading && courses.length === 0 && (
-          <div className="mb-4 text-sm text-blue-700 dark:text-blue-200 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-2">
-            No courses yet. Create your first course below.
           </div>
         )}
         <div className="flex items-center justify-between mb-4">

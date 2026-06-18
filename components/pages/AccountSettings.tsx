@@ -328,8 +328,8 @@ export default function AccountSettings() {
         />
       </Section>
 
-      <Section icon={Bell} title="Notifications">
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Email/reminder options are local for now. In-app notification controls below are saved to your account.</p>
+      <Section icon={Bell} title="Notification settings">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Manage email reminders (local) and in-app alerts (saved to your account).</p>
         <Row
           label="Email Notifications"
           description="Receive updates via email"

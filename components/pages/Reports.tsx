@@ -78,32 +78,7 @@ const Reports: React.FC = () => {
 
   const filteredReports = getFilteredReports();
 
-  const handleCreateReport = () => {
-    const newReport = {
-      id: reports.length + 1,
-      name: reportName || 'New Custom Report',
-      description: 'Custom generated report',
-      category: reportType,
-      type: 'on-demand',
-      frequency: 'On-demand',
-      lastGenerated: 'Just now',
-      recipients: 0,
-      format: 'PDF',
-      size: '0 KB',
-      icon: FileText,
-      color: 'blue',
-      metrics: [],
-      isActive: false
-    };
-    
-    setReports([newReport, ...reports]);
-    setShowCreateModal(false);
-    setReportName('');
-  };
-
-  const handleGenerateReport = async (reportId: number) => {
-    const report = reports.find(r => r.id === reportId);
-    setActiveDropdown(null);
+  const downloadEnrollmentsCsv = async (filename: string) => {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
       setReportMessage('Configure Supabase to generate reports.');
       setTimeout(() => setReportMessage(null), 4000);
@@ -132,15 +107,28 @@ const Reports: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `report-${report?.name ?? 'export'}-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-      setReportMessage(report ? `Report "${report.name}" downloaded.` : 'Report downloaded.');
+      setReportMessage(`Report "${filename}" downloaded.`);
       setTimeout(() => setReportMessage(null), 4000);
     } catch {
       setReportMessage('Failed to generate report.');
       setTimeout(() => setReportMessage(null), 4000);
     }
+  };
+
+  const handleCreateReport = async () => {
+    const name = reportName || 'enrollment-report';
+    await downloadEnrollmentsCsv(name);
+    setShowCreateModal(false);
+    setReportName('');
+  };
+
+  const handleGenerateReport = async (reportId: number) => {
+    const report = reports.find(r => r.id === reportId);
+    setActiveDropdown(null);
+    await downloadEnrollmentsCsv(report?.name ?? 'enrollment-report');
   };
 
   const handleScheduleReport = (report: any) => {
@@ -161,8 +149,8 @@ const Reports: React.FC = () => {
 
   const saveSchedule = () => {
     if (reportToSchedule) {
-      setReportMessage(`Schedule saved for "${reportToSchedule.name}". Configure a cron or worker to send reports.`);
-      setTimeout(() => setReportMessage(null), 5000);
+      setReportMessage(`Schedule saved for "${reportToSchedule.name}". Cron can call GET /api/reports/generate with Authorization: Bearer CRON_SECRET.`);
+      setTimeout(() => setReportMessage(null), 6000);
     }
     setShowScheduleModal(false);
     setReportToSchedule(null);
@@ -204,9 +192,13 @@ const Reports: React.FC = () => {
             <p className="text-gray-600 dark:text-gray-400 mt-1">Generate and schedule automated learning reports</p>
           </div>
           <div className="flex space-x-3">
-            <button className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 font-semibold flex items-center transition-all">
-              <Upload className="w-5 h-5 mr-2" />
-              Import Template
+            <button
+              type="button"
+              onClick={() => downloadEnrollmentsCsv('enrollment-report')}
+              className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 font-semibold flex items-center transition-all"
+            >
+              <Download className="w-5 h-5 mr-2" />
+              Export Enrollments CSV
             </button>
             <button 
               onClick={() => setShowCreateModal(true)}
