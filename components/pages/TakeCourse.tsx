@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, Component } from 'react';
-import { createPortal } from 'react-dom';
 import {
   ArrowLeft,
   BookOpen,
@@ -96,16 +95,15 @@ type LessonStep =
 interface TakeCourseProps {
   courseId: string;
   onBack: () => void;
-  sidebarOpen?: boolean;
   /** When provided, open directly to this lesson after course loads. */
   initialLessonId?: string | null;
 }
 
 const NOTES_STORAGE_PREFIX = 'coursify_note_';
 const NOTES_MANIFEST_KEY = 'coursify_notes_manifest';
-const DEFAULT_NOTES_WIDTH = 320;
-const MIN_NOTES_WIDTH = 200;
-const MAX_NOTES_WIDTH = 600;
+const DEFAULT_PANEL_WIDTH = 320;
+const MIN_PANEL_WIDTH = 200;
+const MAX_PANEL_WIDTH = 600;
 
 /** Convert document/form URLs to embed-friendly format (Google Docs /preview, Google Forms embedded, etc.) */
 function getEmbedUrl(url: string): string {
@@ -200,7 +198,7 @@ function takeUiStorageKey(userId: string | null, courseId: string): string | nul
   return `take_course_ui_${userId}_${courseId}`;
 }
 
-export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initialLessonId = null }: TakeCourseProps) {
+export default function TakeCourse({ courseId, onBack, initialLessonId = null }: TakeCourseProps) {
   const { user } = useAuth();
   const userId = user?.id ?? null;
 
@@ -219,7 +217,6 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
   const [completeSuccess, setCompleteSuccess] = useState(false);
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [sidebarPortalTarget, setSidebarPortalTarget] = useState<HTMLElement | null>(null);
   const [docZoom, setDocZoom] = useState(100);
   const [docDarkMode, setDocDarkMode] = useState(false);
   const [docFullScreen, setDocFullScreen] = useState(false);
@@ -229,8 +226,12 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
   /** Key for lesson error boundary; increment to remount and recover from render errors (e.g. React #185). */
   const [lessonErrorBoundaryKey, setLessonErrorBoundaryKey] = useState(0);
 
+  const [courseContentOpen, setCourseContentOpen] = useState(true);
+  const [courseContentWidth, setCourseContentWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const [resizingCourseContent, setResizingCourseContent] = useState(false);
+
   const [notesOpen, setNotesOpen] = useState(true);
-  const [notesWidth, setNotesWidth] = useState(DEFAULT_NOTES_WIDTH);
+  const [notesWidth, setNotesWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [noteContent, setNoteContent] = useState('');
   const [resizingNotes, setResizingNotes] = useState(false);
   const noteSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -241,10 +242,6 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
   const [questionInput, setQuestionInput] = useState('');
   const [questionSubmitting, setQuestionSubmitting] = useState(false);
   const [questionError, setQuestionError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSidebarPortalTarget(document.getElementById('take-course-sidebar-content'));
-  }, []);
 
   useEffect(() => {
     const onFullScreenChange = () => {
@@ -487,6 +484,29 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
     };
   }, [userId, courseId, selectedLessonId, course?.title, lessonContent?.lesson?.title, noteContent, modules, flushNoteSave]);
 
+  // Resize course content panel
+  useEffect(() => {
+    if (!resizingCourseContent) return;
+    const onMove = (e: MouseEvent) => {
+      const container = document.querySelector('[data-take-course-layout]');
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const w = Math.round(Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, e.clientX - rect.left)));
+      setCourseContentWidth(w);
+    };
+    const onUp = () => setResizingCourseContent(false);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [resizingCourseContent]);
+
   // Resize notes panel: global mouse move/up when resizing
   useEffect(() => {
     if (!resizingNotes) return;
@@ -495,7 +515,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
       if (!container) return;
       const rect = container.getBoundingClientRect();
       const x = rect.right - e.clientX;
-      const w = Math.round(Math.min(MAX_NOTES_WIDTH, Math.max(MIN_NOTES_WIDTH, x)));
+      const w = Math.round(Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, x)));
       setNotesWidth(w);
     };
     const onUp = () => setResizingNotes(false);
@@ -792,103 +812,151 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
     );
   }
 
-  const courseOutlineInSidebar = sidebarPortalTarget && (
-    <div className="flex flex-col h-full min-h-0 text-white">
-      <div className={`flex-shrink-0 border-b border-blue-500 flex items-center ${sidebarOpen ? 'p-4 gap-2' : 'p-2 justify-center'}`}>
-        <BookOpen className="w-4 h-4 text-blue-200 flex-shrink-0" aria-hidden />
-        {sidebarOpen && <h2 className="font-semibold">Course content</h2>}
-      </div>
-      <div className="overflow-y-auto flex-1 p-2">
-        {modules.map((mod) => {
-          const isExpanded = expandedModules.has(mod.id);
-          const lessons = mod.lessons ?? [];
-          return (
-            <div key={mod.id} className="mb-1">
-              <button
-                onClick={() => toggleModule(mod.id)}
-                className="w-full flex items-center gap-2 py-2.5 px-3 rounded-lg text-left text-sm font-medium text-white hover:bg-blue-500 transition-colors"
-              >
-                {isExpanded ? (
-                  <ChevronDown className="w-4 h-4 flex-shrink-0 text-blue-200" />
-                ) : (
-                  <ChevronRight className="w-4 h-4 flex-shrink-0 text-blue-200" />
-                )}
-                <span className="truncate">{mod.title}</span>
-                <span className="ml-auto text-xs text-blue-200">
-                  {lessons.filter((l) => completedLessonIds.has(l.id)).length}/{lessons.length}
-                </span>
-              </button>
-              {isExpanded && (
-                <ul className="ml-4 mt-0.5 space-y-0.5">
-                  {lessons.map((l) => {
-                    const done = completedLessonIds.has(l.id);
-                    const active = selectedLessonId === l.id;
-                    return (
-                      <li key={l.id}>
-                        <button
-                          onClick={() => setSelectedLessonId(l.id)}
-                          className={`w-full flex items-center gap-2 py-2 px-3 rounded-lg text-left text-sm transition-colors ${
-                            active ? 'bg-white text-blue-600 font-medium' : 'text-blue-100 hover:bg-blue-500'
-                          }`}
-                        >
-                          {done ? (
-                            <CheckCircle className="w-4 h-4 flex-shrink-0 text-emerald-300" />
-                          ) : (
-                            <Circle className="w-4 h-4 flex-shrink-0 text-blue-200" />
-                          )}
-                          <span className="truncate">{l.title}</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
+  const courseOutlinePanel = (
+    <div className="overflow-y-auto flex-1 min-h-0 p-2">
+      {modules.map((mod) => {
+        const isExpanded = expandedModules.has(mod.id);
+        const lessons = mod.lessons ?? [];
+        return (
+          <div key={mod.id} className="mb-1">
+            <button
+              onClick={() => toggleModule(mod.id)}
+              className="w-full flex items-center gap-2 py-2 px-3 rounded-lg text-left text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/80 transition-colors"
+            >
+              {isExpanded ? (
+                <ChevronDown className="w-4 h-4 flex-shrink-0 text-gray-400" />
+              ) : (
+                <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400" />
               )}
-            </div>
-          );
-        })}
-      </div>
+              <span className="truncate">{mod.title}</span>
+              <span className="ml-auto text-xs text-gray-500 dark:text-gray-400">
+                {lessons.filter((l) => completedLessonIds.has(l.id)).length}/{lessons.length}
+              </span>
+            </button>
+            {isExpanded && (
+              <ul className="ml-3 mt-0.5 space-y-0.5">
+                {lessons.map((l) => {
+                  const done = completedLessonIds.has(l.id);
+                  const active = selectedLessonId === l.id;
+                  return (
+                    <li key={l.id}>
+                      <button
+                        onClick={() => setSelectedLessonId(l.id)}
+                        className={`w-full flex items-center gap-2 py-2 px-3 rounded-lg text-left text-sm transition-colors ${
+                          active
+                            ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/80'
+                        }`}
+                      >
+                        {done ? (
+                          <CheckCircle className="w-4 h-4 flex-shrink-0 text-emerald-500" />
+                        ) : (
+                          <Circle className="w-4 h-4 flex-shrink-0 text-gray-400" />
+                        )}
+                        <span className="truncate">{l.title}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 
   return (
-    <>
-      {sidebarPortalTarget && createPortal(courseOutlineInSidebar, sidebarPortalTarget)}
-      <div className="h-full max-h-full flex flex-col min-h-0 min-w-0">
-        {/* Top bar: back + course title + progress */}
-        <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/95 z-10 shadow-sm">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={onBack}
-                  className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium transition-colors"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                  Back to My learning
-                </button>
-                <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 hidden sm:block" />
-                <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white truncate max-w-[200px] sm:max-w-none">
-                  {course.title}
-                </h1>
+    <div className="h-full max-h-full flex flex-col min-h-0 min-w-0">
+      {/* Top bar: brand + course nav + progress */}
+      <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/95 z-10 shadow-sm">
+        <div className="px-4 sm:px-6 py-3">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-9 h-9 flex-shrink-0 bg-blue-600 dark:bg-blue-500 rounded-lg flex items-center justify-center" title="Coursify LMS Platform">
+              <Video className="w-5 h-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <span className="font-bold text-gray-900 dark:text-white block leading-tight">Coursify</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400 block leading-tight">LMS Platform</span>
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4 min-w-0">
+              <button
+                onClick={onBack}
+                className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium transition-colors flex-shrink-0"
+              >
+                <ArrowLeft className="w-5 h-5" />
+                Back to My learning
+              </button>
+              <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 hidden sm:block flex-shrink-0" />
+              <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white truncate">
+                {course.title}
+              </h1>
+            </div>
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <div className="flex-1 sm:flex-initial sm:min-w-[140px] h-2.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                  style={{ width: `${totalLessons ? (completedCount / totalLessons) * 100 : 0}%` }}
+                />
               </div>
-              <div className="flex items-center gap-3 w-full sm:w-auto">
-                <div className="flex-1 sm:flex-initial sm:min-w-[140px] h-2.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                    style={{ width: `${totalLessons ? (completedCount / totalLessons) * 100 : 0}%` }}
-                  />
-                </div>
-                <span className="text-sm font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                  {completedCount} / {totalLessons} lessons
-                </span>
-              </div>
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                {completedCount} / {totalLessons} lessons
+              </span>
             </div>
           </div>
         </div>
+      </div>
 
-        <div data-take-course-layout className="flex-1 min-h-0 flex w-full mx-auto px-4 sm:px-6 py-4 overflow-hidden">
-          {/* Lesson area */}
-          <main className="flex-1 min-h-0 min-w-0 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
+      <div data-take-course-layout className="flex-1 min-h-0 flex w-full mx-auto px-4 sm:px-6 py-4 overflow-hidden gap-0">
+        {/* Course content panel (left, mirrors Notes) */}
+        {courseContentOpen ? (
+          <>
+            <aside
+              className="flex-shrink-0 flex flex-col rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden"
+              style={{ width: courseContentWidth }}
+            >
+              <div className="flex items-center justify-between flex-shrink-0 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
+                  <BookOpen className="w-4 h-4 text-blue-500" />
+                  Course content
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCourseContentOpen(false)}
+                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                  aria-label="Close course content"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+              {courseOutlinePanel}
+            </aside>
+            <div
+              role="separator"
+              aria-label="Resize course content panel"
+              onMouseDown={(e) => { e.preventDefault(); setResizingCourseContent(true); }}
+              className="flex-shrink-0 w-1 cursor-col-resize hover:bg-blue-400 dark:hover:bg-blue-600 transition-colors rounded mx-0.5 self-stretch flex items-center justify-center group"
+            >
+              <div className="w-0.5 h-8 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-blue-500 dark:group-hover:bg-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setCourseContentOpen(true)}
+            className="flex-shrink-0 flex flex-col items-center justify-center w-9 rounded-l-lg border border-r-0 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 py-2 mr-1"
+            title="Open course content"
+            aria-label="Open course content"
+          >
+            <BookOpen className="w-5 h-5" />
+            <span className="text-[10px] font-medium mt-0.5">Content</span>
+          </button>
+        )}
+
+        {/* Lesson area */}
+        <main className="flex-1 min-h-0 min-w-0 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
           {contentLoading && !lessonContent ? (
             <div className="flex-1 flex items-center justify-center p-8 text-gray-500 dark:text-gray-400">
               Loading lesson…
@@ -1395,8 +1463,7 @@ export default function TakeCourse({ courseId, onBack, sidebarOpen = true, initi
             </div>
           </>
         )}
-        </div>
       </div>
-    </>
+    </div>
   );
 }

@@ -86,6 +86,14 @@ function CoursifyAppLayout({
   onNavigate: (view: string) => void;
   children: React.ReactNode;
 }) {
+  if (currentView === 'take') {
+    return (
+      <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden">
+        {children}
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       <div className={`relative flex flex-col h-screen bg-gradient-to-b from-blue-600 to-blue-700 text-white transition-all flex-shrink-0 dark:from-gray-900 dark:to-gray-800 dark:border-r dark:border-gray-800 ${sidebarOpen ? 'w-64' : 'w-20'}`}>
@@ -111,10 +119,7 @@ function CoursifyAppLayout({
           </button>
         </div>
 
-        {currentView === 'take' ? (
-          <div id="take-course-sidebar-content" className="flex-1 min-h-0 overflow-hidden flex flex-col" aria-label="Course content" />
-        ) : (
-          <nav className="flex-1 min-h-0 p-4 space-y-2 overflow-y-auto">
+        <nav className="flex-1 min-h-0 p-4 space-y-2 overflow-y-auto">
             {sessionMode === 'learner' ? (
               <>
                 <SidebarNavItem icon={BookOpen} label="My learning" view="courses" currentView={currentView} sidebarOpen={sidebarOpen} onNavigate={onNavigate} />
@@ -134,7 +139,6 @@ function CoursifyAppLayout({
               </>
             )}
           </nav>
-        )}
 
         <div className={`flex-shrink-0 border-t border-blue-500 dark:border-gray-700 bg-blue-700 dark:bg-gray-800/80 ${sidebarOpen ? 'p-4' : 'p-2 flex flex-col items-center gap-1'}`}>
           {userDisplay.role === 'Sign in to save' ? (
@@ -512,7 +516,7 @@ const CoursifyLMS = () => {
       {currentView === 'dashboard' && (Dashboard != null ? <Dashboard sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} setCurrentView={setCurrentView} /> : fallback)}
       {currentView === 'courses' && (MyCourses != null ? <MyCourses setCurrentView={setCurrentView} onEditCourse={(id) => { setEditingCourseId(id); setCurrentView('create'); }} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} sessionMode={sessionMode} learningCourseId={learningCourseId} /> : fallback)}
       {currentView === 'create' && (CreateCourse != null ? <CreateCourse setCurrentView={setCurrentView} initialCourseId={editingCourseId} onBackToCourses={() => { setEditingCourseId(null); setCurrentView('courses'); }} onImportSuccess={(id) => { setEditingCourseId(id); setCurrentView('create'); }} /> : fallback)}
-      {currentView === 'take' && learningCourseId && (TakeCourse != null ? <TakeCourse courseId={learningCourseId} onBack={() => { setLearningCourseId(null); setLearningLessonId(null); setCurrentView('courses'); }} sidebarOpen={sidebarOpen} initialLessonId={learningLessonId} /> : fallback)}
+      {currentView === 'take' && learningCourseId && (TakeCourse != null ? <TakeCourse courseId={learningCourseId} onBack={() => { setLearningCourseId(null); setLearningLessonId(null); setCurrentView('courses'); }} initialLessonId={learningLessonId} /> : fallback)}
       {currentView === 'notes' && (MyNotes != null ? <MyNotes setCurrentView={setCurrentView} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} onOpenLesson={(courseId, lessonId) => { setLearningCourseId(courseId); setLearningLessonId(lessonId); setCurrentView('take'); }} /> : fallback)}
       {currentView === 'qa' && (QAndA != null ? <QAndA setCurrentView={setCurrentView} sessionMode={sessionMode} onStartCourse={(id) => { setLearningCourseId(id); setCurrentView('take'); }} /> : fallback)}
       {currentView === 'notifications' && (Notifications != null ? <Notifications setCurrentView={setCurrentView} onOpenCourse={(id) => { setLearningCourseId(id); setCurrentView('take'); }} /> : fallback)}
