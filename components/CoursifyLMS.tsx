@@ -13,6 +13,40 @@ import MyLearning from './pages/MyLearning';
 const SESSION_MODE_KEY = 'coursify_session_mode';
 type SessionMode = 'instructor' | 'learner' | null;
 
+type TakeNavFromUrl = { view: string; courseId: string; lessonId: string | null };
+
+function readTakeNavFromUrl(): TakeNavFromUrl | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get('view');
+  const courseId = params.get('course');
+  if (view === 'take' && courseId) {
+    return { view: 'take', courseId, lessonId: params.get('lesson') };
+  }
+  return null;
+}
+
+function syncTakeNavToUrl(view: string, courseId: string | null, lessonId: string | null) {
+  if (typeof window === 'undefined') return;
+  const params = new URLSearchParams(window.location.search);
+  const hadTake = params.get('view') === 'take';
+  if (view === 'take' && courseId) {
+    params.set('view', 'take');
+    params.set('course', courseId);
+    if (lessonId) params.set('lesson', lessonId);
+    else params.delete('lesson');
+  } else if (hadTake) {
+    params.delete('view');
+    params.delete('course');
+    params.delete('lesson');
+  } else {
+    return;
+  }
+  const search = params.toString();
+  const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
+  window.history.replaceState({}, '', url);
+}
+
 const pageLoading = () => (
   <div className="flex min-h-[60vh] items-center justify-center p-8">
     <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading…</div>
@@ -180,7 +214,8 @@ function CoursifyAppLayout({
 const CoursifyLMS = () => {
   const { user, isLoading: authLoading, isAuthenticated, signOut: authSignOut } = useAuth();
   const [sessionMode, setSessionMode] = useState<SessionMode>(null);
-  const [currentView, setCurrentView] = useState('dashboard');
+  const takeNavFromUrl = useRef(readTakeNavFromUrl());
+  const [currentView, setCurrentView] = useState(() => takeNavFromUrl.current?.view ?? 'dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showSignInModal, setShowSignInModal] = useState(false);
@@ -191,14 +226,19 @@ const CoursifyLMS = () => {
   const [profileStats, setProfileStats] = useState({ courses: 0, certificates: 0, badges: 0 });
   const [isRedirectingToGoogle, setIsRedirectingToGoogle] = useState(false);
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
-  const [learningCourseId, setLearningCourseId] = useState<string | null>(null);
-  const [learningLessonId, setLearningLessonId] = useState<string | null>(null);
+  const [learningCourseId, setLearningCourseId] = useState<string | null>(() => takeNavFromUrl.current?.courseId ?? null);
+  const [learningLessonId, setLearningLessonId] = useState<string | null>(() => takeNavFromUrl.current?.lessonId ?? null);
   const authChecked = !authLoading;
   /** Only restore dashboard/courses view on initial load or login; don't overwrite when user ref changes (e.g. tab focus token refresh) */
-  const sessionViewRestoredRef = useRef(false);
+  const sessionViewRestoredRef = useRef(!!takeNavFromUrl.current);
   /** Ref to current view so the auth effect can avoid overwriting Take Course / Create Course when it re-runs (learner + instructor) */
   const currentViewRef = useRef(currentView);
   currentViewRef.current = currentView;
+
+  // Keep ?view=take&course=… in the URL so refresh returns to the same course
+  useEffect(() => {
+    syncTakeNavToUrl(currentView, learningCourseId, learningLessonId);
+  }, [currentView, learningCourseId, learningLessonId]);
 
   // Apply saved theme (dark/light) on load. Default is dark; users can switch to light in Settings.
   useEffect(() => {
