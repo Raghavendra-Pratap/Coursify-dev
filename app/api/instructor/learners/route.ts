@@ -151,6 +151,6 @@ export async function GET(request: Request) {
     }
   })
 
-  return NextResponse.json({ userIds, learnerStats: statsByUser, learners, emptyReason: userIds.length === 0 ? "no_enrollments" : undefined })
+  return NextResponse.json({ userIds, learnerStats: statsByUser, learners, emptyReason: userIds.length === 0 ? "no_enrollments" : undefined }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } })
 }
 

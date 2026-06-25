@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     .limit(100);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const unreadCount = (rows ?? []).filter((r: { read_at: string | null }) => !r.read_at).length;
-  return NextResponse.json({ notifications: rows ?? [], unreadCount });
+  return NextResponse.json({ notifications: rows ?? [], unreadCount }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } });
 }
 
 export async function PATCH(request: Request) {
@@ -44,12 +44,12 @@ export async function PATCH(request: Request) {
   if (markAll) {
     const { error } = await db.from('user_notifications').update({ read_at: new Date().toISOString() }).eq('user_id', user.id).is('read_at', null);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } });
   }
   if (id) {
     const { error } = await db.from('user_notifications').update({ read_at: new Date().toISOString() }).eq('id', id).eq('user_id', user.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } });
   }
   return NextResponse.json({ error: 'Provide id or mark_all' }, { status: 400 });
 }

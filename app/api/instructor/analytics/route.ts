@@ -178,5 +178,5 @@ export async function GET(request: Request) {
     engagement: { stats: { dailyActiveUsers: statBlock(dauCurrent, dauPrev), avgSessionMinutes: statBlock(avgSessionMin, Math.max(0, avgSessionMin - 5)), newEnrollments: statBlock(newEnrollCurrent, newEnrollPrev), returnRate: statBlock(returnRate, Math.max(0, returnRate - 5)) }, peakHours },
     completion: { stats: { totalCompletions: statBlock(completedInPeriod, completedPrev), completionRate: statBlock(completionRatePct, completionRatePrev), certificatesIssued: statBlock(completedAll, completedPrev), avgDaysToComplete: statBlock(avgDays, Math.max(0, avgDays + 2)) }, byCourse: completionByCourse },
     performance: { stats: { avgQuizScore: statBlock(avgQuizScore, Math.max(0, avgQuizScore - 3)), passRate: statBlock(passRate, Math.max(0, passRate - 5)), avgCompletion: statBlock(avgCompletionRate, completionRatePrev), satisfaction: statBlock(satisfaction, Math.max(0, satisfaction - 5)) } },
-  })
+  }), { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } }
 }

@@ -12,6 +12,7 @@ import {
   UserPlus,
   Settings,
 } from 'lucide-react';
+import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
 import { useAuth } from '@/contexts/AuthContext';
 
 type NotificationRow = {
@@ -73,23 +74,30 @@ export default function NotificationsDropdown({ onOpenCourse, onOpenSettings }: 
 
   const fetchNotifications = useCallback(async () => {
     if (!userId) return;
-    setLoading(true);
+    const cacheKey = `notifications:${userId}`;
+    const cached = readClientCache<{ notifications?: NotificationRow[]; unreadCount?: number }>(cacheKey, 30_000);
+    if (cached) {
+      setNotifications(cached.notifications ?? []);
+      setUnreadCount(cached.unreadCount ?? 0);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
-      const res = await fetch('/api/notifications', { credentials: 'include', cache: 'no-store' });
-      if (!res.ok) {
-        if (res.status === 401) setError('Sign in to view notifications.');
-        else setError('Failed to load notifications.');
-        setNotifications([]);
-        setUnreadCount(0);
-        return;
-      }
-      const data = await res.json();
+      const { data } = await fetchJsonCached<{ notifications?: NotificationRow[]; unreadCount?: number }>(
+        cacheKey,
+        '/api/notifications',
+        { maxAgeMs: 30_000 }
+      );
       setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
       setUnreadCount(typeof data.unreadCount === 'number' ? data.unreadCount : 0);
     } catch {
-      setError('Failed to load notifications.');
-      setNotifications([]);
+      if (!cached) {
+        setError('Failed to load notifications.');
+        setNotifications([]);
+        setUnreadCount(0);
+      }
     } finally {
       setLoading(false);
     }

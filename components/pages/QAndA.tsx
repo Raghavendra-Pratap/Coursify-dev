@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { HelpCircle, ChevronDown, ChevronRight, Send, BookOpen, MessageSquare, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
 
 export type QuestionRow = {
   id: string;
@@ -51,23 +52,24 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
 
   const fetchThreads = useCallback(async () => {
     if (!userId) return;
-    setLoading(true);
-    setError(null);
     const url = sessionMode === 'instructor' ? '/api/instructor/questions' : '/api/learning/my-questions';
+    const cacheKey = sessionMode === 'instructor' ? 'instructor:questions' : 'learning:my-questions';
+    const cached = readClientCache<{ threads?: Thread[] }>(cacheKey, 60_000);
+    if (cached?.threads) {
+      setThreads(cached.threads);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+    setError(null);
     try {
-      const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
-      if (!res.ok) {
-        if (res.status === 401) setError('Sign in to view Q & A.');
-        else if (res.status === 404) setThreads([]);
-        else setError('Failed to load questions.');
-        setThreads([]);
-        return;
-      }
-      const data = await res.json();
+      const { data } = await fetchJsonCached<{ threads?: Thread[] }>(cacheKey, url);
       setThreads(Array.isArray(data.threads) ? data.threads : []);
     } catch {
-      setError('Failed to load questions.');
-      setThreads([]);
+      if (!cached?.threads) {
+        setError('Failed to load questions.');
+        setThreads([]);
+      }
     } finally {
       setLoading(false);
     }

@@ -10,7 +10,20 @@ import Profile from './pages/Profile';
 import AccountSettings from './pages/AccountSettings';
 import MyLearning from './pages/MyLearning';
 import MyCourses from './pages/MyCourses';
+import Learners from './pages/Learners';
+import Analytics from './pages/Analytics';
+import Reports from './pages/Reports';
+import MyNotes from './pages/MyNotes';
+import QAndA from './pages/QAndA';
 import NotificationsDropdown from './NotificationsDropdown';
+
+function KeepAliveView({ active, children }: { active: boolean; children: React.ReactNode }) {
+  return (
+    <div className={active ? '' : 'hidden'} aria-hidden={!active}>
+      {children}
+    </div>
+  );
+}
 
 const SESSION_MODE_KEY = 'coursify_session_mode';
 type SessionMode = 'instructor' | 'learner' | null;
@@ -56,12 +69,7 @@ const pageLoading = () => (
 );
 
 const CreateCourse = dynamic(() => import('./pages/CreateCourse'), { loading: pageLoading, ssr: false });
-const Learners = dynamic(() => import('./pages/Learners'), { loading: pageLoading, ssr: false });
-const Analytics = dynamic(() => import('./pages/Analytics'), { loading: pageLoading, ssr: false });
-const Reports = dynamic(() => import('./pages/Reports'), { loading: pageLoading, ssr: false });
 const TakeCourse = dynamic(() => import('./pages/TakeCourse'), { loading: pageLoading, ssr: false });
-const MyNotes = dynamic(() => import('./pages/MyNotes'), { loading: pageLoading, ssr: false });
-const QAndA = dynamic(() => import('./pages/QAndA'), { loading: pageLoading, ssr: false });
 
 type UserDisplay = { displayName: string; email?: string; initials: string; role?: string };
 
@@ -573,21 +581,35 @@ const CoursifyLMS = () => {
       }}
       onOpenSettings={() => setCurrentView('settings')}
     >
-      <div className={currentView === 'dashboard' ? '' : 'hidden'} aria-hidden={currentView !== 'dashboard'}>
+      <KeepAliveView active={currentView === 'dashboard'}>
         <Dashboard setCurrentView={setCurrentView} />
-      </div>
-      <div className={currentView === 'courses' ? '' : 'hidden'} aria-hidden={currentView !== 'courses'}>
+      </KeepAliveView>
+      <KeepAliveView active={currentView === 'courses'}>
         <MyCourses setCurrentView={setCurrentView} onEditCourse={(id) => { setEditingCourseId(id); setCurrentView('create'); }} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} sessionMode={sessionMode} learningCourseId={learningCourseId} />
-      </div>
+      </KeepAliveView>
       {currentView === 'create' && (CreateCourse != null ? <CreateCourse setCurrentView={setCurrentView} initialCourseId={editingCourseId} onBackToCourses={() => { setEditingCourseId(null); setCurrentView('courses'); }} onImportSuccess={(id) => { setEditingCourseId(id); setCurrentView('create'); }} /> : fallback)}
       {currentView === 'take' && learningCourseId && (TakeCourse != null ? <TakeCourse courseId={learningCourseId} onBack={() => { setLearningCourseId(null); setLearningLessonId(null); setCurrentView('courses'); }} initialLessonId={learningLessonId} /> : fallback)}
-      {currentView === 'notes' && (MyNotes != null ? <MyNotes setCurrentView={setCurrentView} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} onOpenLesson={(courseId, lessonId) => { setLearningCourseId(courseId); setLearningLessonId(lessonId); setCurrentView('take'); }} /> : fallback)}
-      {currentView === 'qa' && (QAndA != null ? <QAndA setCurrentView={setCurrentView} sessionMode={sessionMode} onStartCourse={(id) => { setLearningCourseId(id); setCurrentView('take'); }} /> : fallback)}
-      {currentView === 'learners' && (Learners != null ? <Learners setCurrentView={setCurrentView} /> : fallback)}
-      {currentView === 'analytics' && (Analytics != null ? <Analytics /> : fallback)}
-      {currentView === 'reports' && (Reports != null ? <Reports /> : fallback)}
-      {currentView === 'profile' && (Profile != null ? <Profile setCurrentView={setCurrentView} /> : fallback)}
-      {currentView === 'settings' && (AccountSettings != null ? <AccountSettings /> : fallback)}
+      <KeepAliveView active={currentView === 'notes'}>
+        <MyNotes setCurrentView={setCurrentView} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} onOpenLesson={(courseId, lessonId) => { setLearningCourseId(courseId); setLearningLessonId(lessonId); setCurrentView('take'); }} />
+      </KeepAliveView>
+      <KeepAliveView active={currentView === 'qa'}>
+        <QAndA setCurrentView={setCurrentView} sessionMode={sessionMode} onStartCourse={(id) => { setLearningCourseId(id); setCurrentView('take'); }} />
+      </KeepAliveView>
+      <KeepAliveView active={currentView === 'learners'}>
+        <Learners setCurrentView={setCurrentView} />
+      </KeepAliveView>
+      <KeepAliveView active={currentView === 'analytics'}>
+        <Analytics />
+      </KeepAliveView>
+      <KeepAliveView active={currentView === 'reports'}>
+        <Reports />
+      </KeepAliveView>
+      <KeepAliveView active={currentView === 'profile'}>
+        <Profile setCurrentView={setCurrentView} />
+      </KeepAliveView>
+      <KeepAliveView active={currentView === 'settings'}>
+        <AccountSettings />
+      </KeepAliveView>
 
       {/* Sign In Modal */}
       {showSignInModal && (

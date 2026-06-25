@@ -43,7 +43,7 @@ export async function GET(request: Request) {
       .eq('lesson_id', lessonId)
       .maybeSingle()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ note: data ?? null })
+    return NextResponse.json({ note: data ?? null }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } })
   }
 
   const { data, error } = await db
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
     .eq('user_id', user.id)
     .order('updated_at', { ascending: false })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ notes: data ?? [] })
+  return NextResponse.json({ notes: data ?? [] }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } })
 }
 
 /** PUT: upsert a note for course + lesson */

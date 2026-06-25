@@ -17,23 +17,29 @@ type EnrolledCourse = {
   completed_at: string | null;
 };
 
+import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
+
 export default function MyLearning({ setCurrentView, onStartCourse }: MyLearningProps) {
   const [courses, setCourses] = useState<EnrolledCourse[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const cached = readClientCache<{ courses?: EnrolledCourse[] }>('learning:enrolled', 60_000);
+    if (cached?.courses) {
+      setCourses(cached.courses);
+      setLoading(false);
+    }
     const load = async () => {
       try {
-        const res = await fetch('/api/learning/enrolled', { credentials: 'include', cache: 'no-store' });
-        const data = await res.json().catch(() => ({ courses: [] }));
+        const { data } = await fetchJsonCached<{ courses?: EnrolledCourse[] }>('learning:enrolled', '/api/learning/enrolled');
         setCourses(Array.isArray(data.courses) ? data.courses : []);
       } catch {
-        setCourses([]);
+        if (!cached?.courses) setCourses([]);
       } finally {
         setLoading(false);
       }
     };
-    load();
+    void load();
   }, []);
 
   const handleContinue = (courseId: string) => {

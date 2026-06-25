@@ -27,7 +27,7 @@ export async function GET(request: Request) {
   const { data: collabRows } = await db.from('course_collaborators').select('course_id').eq('user_id', user.id);
   const collabIds = (collabRows ?? []).map((c: { course_id: string }) => c.course_id);
   const allCourseIds = Array.from(new Set([...courseIds, ...collabIds]));
-  if (allCourseIds.length === 0) return NextResponse.json({ threads: [] });
+  if (allCourseIds.length === 0) return NextResponse.json({ threads: [] }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } });
   const selectCols = 'id, course_id, module_id, lesson_id, parent_id, asked_by, question_text, answer_text, answered_by, answered_at, created_at';
   const { data: rows, error } = await db.from('course_questions').select(selectCols).in('course_id', allCourseIds).order('created_at', { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -75,5 +75,5 @@ export async function GET(request: Request) {
       answeredByName: f.answered_by ? (userNameBy.get(f.answered_by) ?? null) : null,
     })),
   }));
-  return NextResponse.json({ threads });
+  return NextResponse.json({ threads }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } });
 }

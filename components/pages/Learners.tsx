@@ -7,6 +7,7 @@ import {
   Activity, Trophy, FileDown, ArrowUpRight, ArrowDownRight, Zap, X, Play, FileText, Bell, Award, Eye
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
 import type { Database } from '@/lib/database.types';
 
 type LearnerInviteInsert = Database['public']['Tables']['learner_invites']['Insert'];
@@ -35,6 +36,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   const [learnersError, setLearnersError] = useState<string | null>(null);
   const [learnersEmptyReason, setLearnersEmptyReason] = useState<'no_courses' | 'no_enrollments' | null>(null);
   const [pendingInvites, setPendingInvites] = useState<{ id: string; email: string; course_id: string | null; status: string; created_at: string }[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const stats = {
     total: learners.length,
@@ -83,9 +85,121 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   const filteredLearners = getFilteredLearners();
 
   useEffect(() => {
+    const mapLearnerRow = (p: {
+      id: string;
+      full_name?: string | null;
+      role?: string;
+      organization?: string | null;
+      enrolledCourses?: number;
+      completedCourses?: number;
+      totalProgress?: number;
+      lastActive?: string;
+      joinedDate?: string;
+      averageScore?: number;
+      totalTimeSpent?: string;
+      lastActivityAt?: string | null;
+      email?: string | null;
+      certificates?: number;
+    }) => {
+      const name = p.full_name || 'Unknown';
+      const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || '?';
+      const enrolledCourses = p.enrolledCourses ?? 0;
+      const completedCourses = p.completedCourses ?? 0;
+      const totalProgress = p.totalProgress ?? 0;
+      const lastActivityAt = p.lastActivityAt ?? null;
+      const daysSinceActivity = lastActivityAt
+        ? Math.floor((Date.now() - new Date(lastActivityAt).getTime()) / (24 * 60 * 60 * 1000))
+        : 999;
+      let status: 'active' | 'at-risk' | 'inactive' = 'active';
+      if (enrolledCourses === 0) status = 'inactive';
+      else if (daysSinceActivity > 7) status = 'inactive';
+      else if ((totalProgress < 25 && daysSinceActivity >= 3) || (daysSinceActivity >= 3 && daysSinceActivity <= 7)) status = 'at-risk';
+      else if (totalProgress >= 25 && daysSinceActivity <= 2) status = 'active';
+      else if (totalProgress < 25 && daysSinceActivity <= 2) status = 'active';
+      else status = 'at-risk';
+      return {
+        id: p.id,
+        name,
+        email: p.email ?? '(signed up)',
+        avatar: initials,
+        avatarColor: 'from-indigo-400 to-indigo-500',
+        status,
+        enrolledCourses,
+        completedCourses,
+        inProgressCourses: Math.max(0, enrolledCourses - completedCourses),
+        totalProgress,
+        averageScore: p.averageScore ?? 0,
+        totalTimeSpent: p.totalTimeSpent ?? '0h',
+        lastActive: p.lastActive ?? '—',
+        joinedDate: p.joinedDate ?? '—',
+        streak: 0,
+        badges: 0,
+        certificates: p.certificates ?? 0,
+        department: p.organization || '—',
+        role: p.role || '—',
+        manager: '—',
+        courses: [],
+        activityLog: [],
+      };
+    };
+
+    const applyLearnersPayload = async (payload: Record<string, unknown>) => {
+      setLearnersError(null);
+      if (payload.error && typeof payload.error === 'string') {
+        const msg = payload.error;
+        setLearnersError(msg === 'SUPABASE_SERVICE_ROLE_KEY required' ? 'Server config: add SUPABASE_SERVICE_ROLE_KEY to .env.local and restart the dev server.' : msg);
+        setLearners([]);
+        setLearnersEmptyReason(null);
+        return;
+      }
+      const apiLearners = Array.isArray(payload.learners) ? payload.learners : [];
+      const emptyReason = payload.emptyReason as 'no_courses' | 'no_enrollments' | undefined;
+      setLearnersEmptyReason(emptyReason ?? null);
+      if (apiLearners.length > 0) {
+        setLearnersEmptyReason(null);
+        setLearners(apiLearners.map((p) => mapLearnerRow(p as Parameters<typeof mapLearnerRow>[0])));
+        return;
+      }
+      const userIds = Array.isArray(payload.userIds) ? (payload.userIds as string[]) : [];
+      const learnerStatsFromApi = (payload.learnerStats && typeof payload.learnerStats === 'object')
+        ? (payload.learnerStats as Record<string, Record<string, unknown>>)
+        : {};
+      if (userIds.length === 0) {
+        setLearners([]);
+        return;
+      }
+      setLearnersEmptyReason(null);
+      const { data: profilesData, error } = await supabase
+        .from('user_profiles')
+        .select('id, full_name, role, organization')
+        .in('id', userIds);
+      if (error) throw error;
+      setLearners(
+        (profilesData ?? []).map((p: { id: string; full_name: string | null; role: string; organization: string | null }) => {
+          const stats = learnerStatsFromApi[p.id] ?? {};
+          return mapLearnerRow({
+            id: p.id,
+            full_name: p.full_name,
+            role: p.role,
+            organization: p.organization,
+            enrolledCourses: stats.enrolledCourses as number | undefined,
+            completedCourses: stats.completedCourses as number | undefined,
+            totalProgress: stats.totalProgress as number | undefined,
+            lastActive: stats.lastActive as string | undefined,
+            joinedDate: stats.joinedDate as string | undefined,
+            averageScore: stats.averageScore as number | undefined,
+            totalTimeSpent: stats.totalTimeSpent as string | undefined,
+            lastActivityAt: stats.lastActivityAt as string | null | undefined,
+            certificates: stats.certificates as number | undefined,
+          });
+        })
+      );
+    };
+
     const fetchProfiles = async () => {
       if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
         setConfigMissing(true);
+        setLoading(false);
         return;
       }
       setConfigMissing(false);
@@ -94,149 +208,24 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
         const currentUserId = session?.user?.id ?? null;
         if (!currentUserId) {
           setLearners([]);
+          setLoading(false);
           return;
         }
 
-        // API returns enrolled learners only (users in enrollments for your courses). Invited-but-not-enrolled (learner_invites) are not included.
-        const res = await fetch('/api/instructor/learners', { credentials: 'include', cache: 'no-store' });
-        const data = await res.json().catch(() => ({ error: 'Failed to load learners', learners: [] }));
-        setLearnersError(null);
-        if (!res.ok) {
-          const msg = (data && typeof data.error === 'string') ? data.error : 'Could not load learners';
-          setLearnersError(msg === 'SUPABASE_SERVICE_ROLE_KEY required' ? 'Server config: add SUPABASE_SERVICE_ROLE_KEY to .env.local and restart the dev server.' : msg);
-          setLearners([]);
-          setLearnersEmptyReason(null);
-          return;
+        const cached = readClientCache<Record<string, unknown>>('instructor:learners', 60_000);
+        if (cached) {
+          await applyLearnersPayload(cached);
+          setLoading(false);
         }
-        const apiLearners = Array.isArray(data.learners) ? data.learners : [];
-        const emptyReason = data.emptyReason as 'no_courses' | 'no_enrollments' | undefined;
-        setLearnersEmptyReason(emptyReason ?? null);
-
-        if (apiLearners.length > 0) {
-          setLearnersEmptyReason(null);
-          const fromApi = apiLearners.map((p: { id: string; full_name?: string | null; role?: string; organization?: string | null; enrolledCourses?: number; completedCourses?: number; totalProgress?: number; lastActive?: string; joinedDate?: string; averageScore?: number; totalTimeSpent?: string; lastActivityAt?: string | null }) => {
-            const name = p.full_name || 'Unknown';
-            const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || '?';
-            const enrolledCourses = p.enrolledCourses ?? 0;
-            const completedCourses = p.completedCourses ?? 0;
-            const totalProgress = p.totalProgress ?? 0;
-            const lastActive = p.lastActive ?? '—';
-            const joinedDate = p.joinedDate ?? '—';
-            const averageScore = p.averageScore ?? 0;
-            const totalTimeSpent = p.totalTimeSpent ?? '0h';
-            const lastActivityAt = p.lastActivityAt ?? null;
-            const daysSinceActivity = lastActivityAt
-              ? Math.floor((Date.now() - new Date(lastActivityAt).getTime()) / (24 * 60 * 60 * 1000))
-              : 999;
-            let status: 'active' | 'at-risk' | 'inactive' = 'active';
-            if (enrolledCourses === 0) status = 'inactive';
-            else if (daysSinceActivity > 7) status = 'inactive';
-            else if ((totalProgress < 25 && daysSinceActivity >= 3) || (daysSinceActivity >= 3 && daysSinceActivity <= 7)) status = 'at-risk';
-            else if (totalProgress >= 25 && daysSinceActivity <= 2) status = 'active';
-            else if (totalProgress < 25 && daysSinceActivity <= 2) status = 'active';
-            else status = 'at-risk';
-            return {
-              id: p.id,
-              name,
-              email: (p as { email?: string | null }).email ?? '(signed up)',
-              avatar: initials,
-              avatarColor: 'from-indigo-400 to-indigo-500',
-              status,
-              enrolledCourses,
-              completedCourses,
-              inProgressCourses: Math.max(0, enrolledCourses - completedCourses),
-              totalProgress,
-              averageScore,
-              totalTimeSpent,
-              lastActive,
-              joinedDate,
-              streak: 0,
-              badges: 0,
-              certificates: (p as { certificates?: number }).certificates ?? 0,
-              department: p.organization || '—',
-              role: p.role || '—',
-              manager: '—',
-              courses: [],
-              activityLog: [],
-            };
-          });
-          setLearners(fromApi);
-          return;
-        }
-
-        const userIds = Array.isArray(data.userIds) ? data.userIds : [];
-        const learnerStatsFromApi = (data.learnerStats && typeof data.learnerStats === 'object') ? data.learnerStats : {};
-        if (userIds.length === 0) {
-          setLearners([]);
-          return;
-        }
-        setLearnersError(null);
-        setLearnersEmptyReason(null);
-
-        const query = supabase.from('user_profiles').select('id, full_name, role, organization').in('id', userIds);
-        const { data: profilesData, error } = await query;
-        if (error) throw error;
-        const raw = profilesData || [];
-        const fromDb = raw.map((p: { id: string; full_name: string | null; role: string; organization: string | null }) => {
-          const name = p.full_name || 'Unknown';
-          const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || '?';
-          const stats = learnerStatsFromApi[p.id];
-          const enrolledCourses = stats?.enrolledCourses ?? 0;
-          const completedCourses = stats?.completedCourses ?? 0;
-          const totalProgress = stats?.totalProgress ?? 0;
-          const lastActive = stats?.lastActive ?? '—';
-          const joinedDate = stats?.joinedDate ?? '—';
-          const averageScore = stats?.averageScore ?? 0;
-          const totalTimeSpent = stats?.totalTimeSpent ?? '0h';
-          const lastActivityAt = stats?.lastActivityAt ?? null;
-          const daysSinceActivity = lastActivityAt
-            ? Math.floor((Date.now() - new Date(lastActivityAt).getTime()) / (24 * 60 * 60 * 1000))
-            : 999;
-          let status: 'active' | 'at-risk' | 'inactive' = 'active';
-          if (enrolledCourses === 0) {
-            status = 'inactive';
-          } else if (daysSinceActivity > 7) {
-            status = 'inactive';
-          } else if ((totalProgress < 25 && daysSinceActivity >= 3) || (daysSinceActivity >= 3 && daysSinceActivity <= 7)) {
-            status = 'at-risk';
-          } else if (totalProgress >= 25 && daysSinceActivity <= 2) {
-            status = 'active';
-          } else if (totalProgress < 25 && daysSinceActivity <= 2) {
-            status = 'active';
-          } else {
-            status = 'at-risk';
-          }
-          return {
-            id: p.id,
-            name,
-            email: (p as { email?: string | null }).email ?? '(signed up)',
-            avatar: initials,
-            avatarColor: 'from-indigo-400 to-indigo-500',
-            status,
-            enrolledCourses,
-            completedCourses,
-            inProgressCourses: Math.max(0, enrolledCourses - completedCourses),
-            totalProgress,
-            averageScore,
-            totalTimeSpent,
-            lastActive,
-            joinedDate,
-            streak: 0,
-            badges: 0,
-            certificates: (p as { certificates?: number }).certificates ?? 0,
-            department: p.organization || '—',
-            role: p.role,
-            manager: '—',
-            courses: [],
-            activityLog: []
-          };
-        });
-        setLearners(fromDb);
+        const { data } = await fetchJsonCached<Record<string, unknown>>('instructor:learners', '/api/instructor/learners');
+        await applyLearnersPayload(data);
       } catch {
         setConfigMissing(true);
         setLearnersError('Could not load learners.');
         setLearnersEmptyReason(null);
         setLearners([]);
+      } finally {
+        setLoading(false);
       }
     };
     fetchProfiles();
@@ -594,7 +583,13 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
       {/* Learners List */}
       <div className="p-8">
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-          {filteredLearners.length === 0 ? (
+          {loading ? (
+            <div className="p-6 space-y-3">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div key={i} className="h-14 rounded-xl bg-gray-100 dark:bg-gray-700 animate-pulse" />
+              ))}
+            </div>
+          ) : filteredLearners.length === 0 ? (
             <div className="p-12">
               <div className="text-center text-gray-500 dark:text-gray-400 mb-6">
                 {learnersError ? (

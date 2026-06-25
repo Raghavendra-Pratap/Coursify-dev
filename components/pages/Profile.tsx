@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { fetchJsonCached } from '@/lib/client-fetch-cache';
 
 interface ProfileProps {
   setCurrentView: (view: string) => void;
@@ -109,8 +110,10 @@ export default function Profile({ setCurrentView }: ProfileProps) {
         enrollments = (enrollmentsData ?? []) as EnrollmentRow[];
         if (enrollments.length === 0) {
           try {
-            const res = await fetch('/api/learning/enrolled', { credentials: 'include', cache: 'no-store' });
-            const data = await res.json().catch(() => ({}));
+            const { data } = await fetchJsonCached<{ courses?: { id: string; title: string; progress_percentage?: number; completed_at?: string | null }[] }>(
+              'learning:enrolled',
+              '/api/learning/enrolled'
+            );
             const list = Array.isArray(data?.courses) ? data.courses : [];
             if (list.length > 0) {
               fromEnrolledApi = true;

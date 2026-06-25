@@ -16,6 +16,7 @@ import {
   Moon,
   X,
 } from 'lucide-react';
+import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
 import { supabase } from '@/lib/supabase';
 import { LearningPreferences } from '../LearningPreferences';
 
@@ -107,16 +108,25 @@ export default function AccountSettings() {
   useEffect(() => {
     let mounted = true;
     const loadNotificationPreferences = async () => {
-      setNotifPrefLoading(true);
+      const cached = readClientCache<{ preferences?: Partial<NotificationPreferences> }>('notification-preferences', 60_000);
+      if (cached?.preferences && mounted) {
+        setNotificationPreferences({
+          notify_course_updates: cached.preferences.notify_course_updates ?? true,
+          notify_question_answers: cached.preferences.notify_question_answers ?? true,
+          notify_new_questions: cached.preferences.notify_new_questions ?? true,
+          notify_enrollments: cached.preferences.notify_enrollments ?? true,
+        });
+        setNotifPrefLoading(false);
+      } else {
+        setNotifPrefLoading(true);
+      }
       setNotifPrefError(null);
       try {
-        const res = await fetch('/api/notification-preferences', { credentials: 'include', cache: 'no-store' });
-        if (!res.ok) {
-          if (mounted) setNotifPrefError('Failed to load in-app notification settings.');
-          return;
-        }
-        const data = await res.json().catch(() => ({}));
-        const prefs = (data as { preferences?: Partial<NotificationPreferences> }).preferences;
+        const { data } = await fetchJsonCached<{ preferences?: Partial<NotificationPreferences> }>(
+          'notification-preferences',
+          '/api/notification-preferences'
+        );
+        const prefs = data.preferences;
         if (mounted && prefs) {
           setNotificationPreferences({
             notify_course_updates: prefs.notify_course_updates ?? true,
@@ -126,7 +136,7 @@ export default function AccountSettings() {
           });
         }
       } catch {
-        if (mounted) setNotifPrefError('Failed to load in-app notification settings.');
+        if (mounted && !cached?.preferences) setNotifPrefError('Failed to load in-app notification settings.');
       } finally {
         if (mounted) setNotifPrefLoading(false);
       }

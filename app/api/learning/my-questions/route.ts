@@ -68,5 +68,5 @@ export async function GET(request: Request) {
       answeredByName: f.answered_by ? (userNameBy.get(f.answered_by) ?? null) : null,
     })),
   }));
-  return NextResponse.json({ threads });
+  return NextResponse.json({ threads }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } });
 }

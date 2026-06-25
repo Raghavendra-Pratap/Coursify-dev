@@ -7,6 +7,7 @@ import {
   Monitor, Smartphone, Award
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { useCachedFetch } from '@/lib/use-cached-fetch';
 
 const StatCard = ({ title, current, previous, change, trend, icon: Icon, color, suffix = '', comparisonMode = false }: {
   title: string;
@@ -108,42 +109,42 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
   const [completionByCourse, setCompletionByCourse] = useState<Array<{ category: string; rate: number; courses: number; color: string }>>([]);
   const [courseOptions, setCourseOptions] = useState<Array<{ id: string; name: string }>>([]);
 
+  const analyticsRange = dateRange === 'year' ? '90days' : dateRange === 'custom' ? '30days' : dateRange;
+  const analyticsUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    ? `/api/instructor/analytics?range=${analyticsRange}`
+    : null;
+  const { data: analyticsData, loading } = useCachedFetch<Record<string, unknown>>(
+    `instructor:analytics:${analyticsRange}`,
+    analyticsUrl,
+    [analyticsRange]
+  );
+
   useEffect(() => {
-    const load = async () => {
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-        setConfigMissing(true);
-        return;
-      }
-      setConfigMissing(false);
-      try {
-        const range = dateRange === 'year' ? '90days' : dateRange === 'custom' ? '30days' : dateRange;
-        const res = await fetch(`/api/instructor/analytics?range=${range}`, { credentials: 'include', cache: 'no-store' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          setConfigMissing(true);
-          return;
-        }
-        const overview = data.overview ?? {};
-        setOverviewStats({
-          totalLearners: overview.totalLearners ?? { current: 0, previous: 0, change: 0, trend: 'up' },
-          activeLearners: overview.activeLearners ?? { current: 0, previous: 0, change: 0, trend: 'up' },
-          coursesCompleted: overview.coursesCompleted ?? { current: 0, previous: 0, change: 0, trend: 'up' },
-          avgCompletionRate: overview.avgCompletionRate ?? { current: 0, previous: 0, change: 0, trend: 'up' },
-        });
-        const coursePerformanceList = Array.isArray(data.coursePerformance) ? data.coursePerformance : [];
-        setCoursePerformance(coursePerformanceList);
-        if (data.engagement?.stats) setEngagementStats(data.engagement.stats);
-        if (Array.isArray(data.engagement?.peakHours)) setPeakHours(data.engagement.peakHours);
-        if (data.completion?.stats) setCompletionStats(data.completion.stats);
-        if (Array.isArray(data.completion?.byCourse)) setCompletionByCourse(data.completion.byCourse);
-        if (data.performance?.stats) setPerformanceStats(data.performance.stats);
-        if (Array.isArray(data.courseOptions)) setCourseOptions(data.courseOptions);
-      } catch {
-        setConfigMissing(true);
-      }
-    };
-    load();
-  }, [dateRange]);
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      setConfigMissing(true);
+      return;
+    }
+    if (!analyticsData) return;
+    setConfigMissing(false);
+    const overview = (analyticsData.overview ?? {}) as Record<string, unknown>;
+    setOverviewStats({
+      totalLearners: (overview.totalLearners as typeof overviewStats.totalLearners) ?? { current: 0, previous: 0, change: 0, trend: 'up' },
+      activeLearners: (overview.activeLearners as typeof overviewStats.activeLearners) ?? { current: 0, previous: 0, change: 0, trend: 'up' },
+      coursesCompleted: (overview.coursesCompleted as typeof overviewStats.coursesCompleted) ?? { current: 0, previous: 0, change: 0, trend: 'up' },
+      avgCompletionRate: (overview.avgCompletionRate as typeof overviewStats.avgCompletionRate) ?? { current: 0, previous: 0, change: 0, trend: 'up' },
+    });
+    const coursePerformanceList = Array.isArray(analyticsData.coursePerformance) ? analyticsData.coursePerformance as CoursePerformanceItem[] : [];
+    setCoursePerformance(coursePerformanceList);
+    const engagement = analyticsData.engagement as { stats?: typeof engagementStats; peakHours?: typeof peakHours } | undefined;
+    if (engagement?.stats) setEngagementStats(engagement.stats);
+    if (Array.isArray(engagement?.peakHours)) setPeakHours(engagement.peakHours);
+    const completion = analyticsData.completion as { stats?: typeof completionStats; byCourse?: typeof completionByCourse } | undefined;
+    if (completion?.stats) setCompletionStats(completion.stats);
+    if (Array.isArray(completion?.byCourse)) setCompletionByCourse(completion.byCourse);
+    const performance = analyticsData.performance as { stats?: typeof performanceStats } | undefined;
+    if (performance?.stats) setPerformanceStats(performance.stats);
+    if (Array.isArray(analyticsData.courseOptions)) setCourseOptions(analyticsData.courseOptions as Array<{ id: string; name: string }>);
+  }, [analyticsData]);
 
   const filteredCoursePerformance = selectedCourse === 'all'
     ? coursePerformance
@@ -307,7 +308,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
         {selectedMetric === 'overview' && (
           <div>
             {/* Overview Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 ${loading ? 'animate-pulse' : ''}`}>
               <StatCard 
                 title="Total Learners" 
                 current={overviewStats.totalLearners.current}

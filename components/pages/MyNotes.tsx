@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { StickyNote, BookOpen, ChevronRight, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
 
 const NOTES_STORAGE_PREFIX = 'coursify_note_';
 const NOTES_MANIFEST_KEY = 'coursify_notes_manifest';
@@ -32,48 +33,64 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
   const [noteContents, setNoteContents] = useState<Record<string, string>>({});
   const [courseExists, setCourseExists] = useState<boolean | null>(null);
   const [existingLessonIds, setExistingLessonIds] = useState<Set<string>>(new Set());
+  const [notesLoading, setNotesLoading] = useState(true);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !userId) {
       setEntries([]);
+      setNotesLoading(false);
       return;
     }
     let cancelled = false;
     (async () => {
+      const cacheKey = `learning:notes:${userId}`;
+      const cached = readClientCache<{ notes?: Array<{ course_id: string; course_title: string; lesson_id: string; lesson_title: string; module_id?: string; module_title?: string; updated_at: string; content?: string }> }>(cacheKey, 60_000);
+      if (cached?.notes?.length) {
+        applyNotes(cached.notes);
+        setNotesLoading(false);
+      } else {
+        setNotesLoading(true);
+      }
       try {
-        const res = await fetch('/api/learning/notes', { credentials: 'include', cache: 'no-store' });
-        if (res.ok) {
-          const data = await res.json();
-          const notes = Array.isArray(data.notes) ? data.notes : [];
-          if (!cancelled && notes.length > 0) {
-            const mapped = notes.map((n: { course_id: string; course_title: string; lesson_id: string; lesson_title: string; module_id?: string; module_title?: string; updated_at: string; content?: string }) => ({
-              courseId: n.course_id,
-              courseTitle: n.course_title,
-              lessonId: n.lesson_id,
-              lessonTitle: n.lesson_title,
-              moduleId: n.module_id,
-              moduleTitle: n.module_title,
-              updatedAt: new Date(n.updated_at).getTime(),
-            }));
-            setEntries(mapped);
-            const contents: Record<string, string> = {};
-            for (const n of notes) {
-              const key = userId ? `${NOTES_STORAGE_PREFIX}${userId}_${n.course_id}_${n.lesson_id}` : null;
-              if (key) contents[key] = n.content ?? '';
-            }
-            setNoteContents(contents);
-            return;
-          }
+        const { data } = await fetchJsonCached<{ notes?: Array<{ course_id: string; course_title: string; lesson_id: string; lesson_title: string; module_id?: string; module_title?: string; updated_at: string; content?: string }> }>(cacheKey, '/api/learning/notes');
+        if (cancelled) return;
+        const notes = Array.isArray(data.notes) ? data.notes : [];
+        if (notes.length > 0) {
+          applyNotes(notes);
+          setNotesLoading(false);
+          return;
         }
       } catch {
-        // fall through
+        // fall through to local manifest
       }
+      if (cancelled) return;
       try {
         const raw = localStorage.getItem(`${NOTES_MANIFEST_KEY}_${userId}`);
         const list: NoteEntry[] = raw ? JSON.parse(raw) : [];
-        if (!cancelled) setEntries(Array.isArray(list) ? list : []);
+        setEntries(Array.isArray(list) ? list : []);
       } catch {
-        if (!cancelled) setEntries([]);
+        setEntries([]);
+      } finally {
+        if (!cancelled) setNotesLoading(false);
+      }
+
+      function applyNotes(notes: Array<{ course_id: string; course_title: string; lesson_id: string; lesson_title: string; module_id?: string; module_title?: string; updated_at: string; content?: string }>) {
+        const mapped = notes.map((n) => ({
+          courseId: n.course_id,
+          courseTitle: n.course_title,
+          lessonId: n.lesson_id,
+          lessonTitle: n.lesson_title,
+          moduleId: n.module_id,
+          moduleTitle: n.module_title,
+          updatedAt: new Date(n.updated_at).getTime(),
+        }));
+        setEntries(mapped);
+        const contents: Record<string, string> = {};
+        for (const n of notes) {
+          const key = userId ? `${NOTES_STORAGE_PREFIX}${userId}_${n.course_id}_${n.lesson_id}` : null;
+          if (key) contents[key] = n.content ?? '';
+        }
+        setNoteContents(contents);
       }
     })();
     return () => { cancelled = true; };
@@ -279,7 +296,13 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
         All your notes from enrolled courses in one place. One notebook per course. Notes are stored locally and remain available even if a course is deleted.
       </p>
 
-      {entries.length === 0 ? (
+      {notesLoading ? (
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-24 rounded-xl bg-gray-100 dark:bg-gray-700 animate-pulse" />
+          ))}
+        </div>
+      ) : entries.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-12 text-center">
           <StickyNote className="w-16 h-16 text-gray-300 dark:text-gray-500 mx-auto mb-4" />
           <p className="text-gray-600 dark:text-gray-400 font-medium">No notes yet</p>

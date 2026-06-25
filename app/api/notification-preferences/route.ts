@@ -32,7 +32,7 @@ export async function GET(request: Request) {
       .maybeSingle();
 
     if (error || !data) {
-      return NextResponse.json({ preferences: createDefaultPreferences(user.id), storageReady: !error });
+      return NextResponse.json({ preferences: createDefaultPreferences(user.id), storageReady: !error }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } });
     }
 
     const preferences: NotificationPreferencesRow = {
@@ -43,9 +43,9 @@ export async function GET(request: Request) {
       notify_enrollments: data.notify_enrollments ?? true,
       updated_at: data.updated_at,
     };
-    return NextResponse.json({ preferences, storageReady: true });
+    return NextResponse.json({ preferences, storageReady: true }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } });
   } catch {
-    return NextResponse.json({ preferences: createDefaultPreferences(user.id), storageReady: false });
+    return NextResponse.json({ preferences: createDefaultPreferences(user.id), storageReady: false }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } });
   }
 }
 
@@ -84,7 +84,7 @@ export async function PATCH(request: Request) {
     const { error } = await db.from('user_notification_preferences').upsert(merged, { onConflict: 'user_id' });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    return NextResponse.json({ preferences: merged, storageReady: true });
+    return NextResponse.json({ preferences: merged, storageReady: true }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } });
   } catch {
     return NextResponse.json({ error: 'Notification preferences storage is not configured yet.' }, { status: 503 });
   }
