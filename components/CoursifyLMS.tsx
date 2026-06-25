@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import AccountSettings from './pages/AccountSettings';
 import MyLearning from './pages/MyLearning';
+import MyCourses from './pages/MyCourses';
 import NotificationsDropdown from './NotificationsDropdown';
 
 const SESSION_MODE_KEY = 'coursify_session_mode';
@@ -55,7 +56,6 @@ const pageLoading = () => (
 );
 
 const CreateCourse = dynamic(() => import('./pages/CreateCourse'), { loading: pageLoading, ssr: false });
-const MyCourses = dynamic(() => import('./pages/MyCourses'), { loading: pageLoading, ssr: false });
 const Learners = dynamic(() => import('./pages/Learners'), { loading: pageLoading, ssr: false });
 const Analytics = dynamic(() => import('./pages/Analytics'), { loading: pageLoading, ssr: false });
 const Reports = dynamic(() => import('./pages/Reports'), { loading: pageLoading, ssr: false });
@@ -573,8 +573,12 @@ const CoursifyLMS = () => {
       }}
       onOpenSettings={() => setCurrentView('settings')}
     >
-      {currentView === 'dashboard' && (Dashboard != null ? <Dashboard setCurrentView={setCurrentView} /> : fallback)}
-      {currentView === 'courses' && (MyCourses != null ? <MyCourses setCurrentView={setCurrentView} onEditCourse={(id) => { setEditingCourseId(id); setCurrentView('create'); }} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} sessionMode={sessionMode} learningCourseId={learningCourseId} /> : fallback)}
+      <div className={currentView === 'dashboard' ? '' : 'hidden'} aria-hidden={currentView !== 'dashboard'}>
+        <Dashboard setCurrentView={setCurrentView} />
+      </div>
+      <div className={currentView === 'courses' ? '' : 'hidden'} aria-hidden={currentView !== 'courses'}>
+        <MyCourses setCurrentView={setCurrentView} onEditCourse={(id) => { setEditingCourseId(id); setCurrentView('create'); }} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} sessionMode={sessionMode} learningCourseId={learningCourseId} />
+      </div>
       {currentView === 'create' && (CreateCourse != null ? <CreateCourse setCurrentView={setCurrentView} initialCourseId={editingCourseId} onBackToCourses={() => { setEditingCourseId(null); setCurrentView('courses'); }} onImportSuccess={(id) => { setEditingCourseId(id); setCurrentView('create'); }} /> : fallback)}
       {currentView === 'take' && learningCourseId && (TakeCourse != null ? <TakeCourse courseId={learningCourseId} onBack={() => { setLearningCourseId(null); setLearningLessonId(null); setCurrentView('courses'); }} initialLessonId={learningLessonId} /> : fallback)}
       {currentView === 'notes' && (MyNotes != null ? <MyNotes setCurrentView={setCurrentView} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} onOpenLesson={(courseId, lessonId) => { setLearningCourseId(courseId); setLearningLessonId(lessonId); setCurrentView('take'); }} /> : fallback)}

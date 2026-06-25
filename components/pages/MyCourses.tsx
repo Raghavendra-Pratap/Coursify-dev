@@ -9,6 +9,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { getPreferences, getCourseRecommendationScore } from '@/lib/preference-loop';
 import type { LearnerPreferences } from '@/lib/preference-loop';
+import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
 
 type SessionMode = 'instructor' | 'learner' | null;
 
@@ -164,40 +165,16 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
   }, [userId]);
 
   useEffect(() => {
-    const fetchContentMix = async () => {
-      const { data: items } = await supabase.from('content_items').select('content_type, lesson_id');
-      if (!items?.length) return;
-      const lessonIds = Array.from(new Set(items.map((i: { lesson_id: string }) => i.lesson_id)));
-      const { data: lessons } = await supabase.from('lessons').select('id, module_id').in('id', lessonIds);
-      if (!lessons?.length) return;
-      const moduleIds = Array.from(new Set(lessons.map((l: { module_id: string }) => l.module_id)));
-      const { data: modules } = await supabase.from('modules').select('id, course_id').in('id', moduleIds);
-      if (!modules?.length) return;
-      const lessonToCourse: Record<string, string> = {};
-      lessons.forEach((l: { id: string; module_id: string }) => {
-        const m = modules.find((x: { id: string }) => x.id === l.module_id);
-        if (m) lessonToCourse[l.id] = (m as { course_id: string }).course_id;
-      });
-      const mix: Record<string, { video: number; reading: number; quiz: number }> = {};
-      items.forEach((i: { content_type: string; lesson_id: string }) => {
-        const courseId = lessonToCourse[i.lesson_id];
-        if (!courseId) return;
-        if (!mix[courseId]) mix[courseId] = { video: 0, reading: 0, quiz: 0 };
-        if (i.content_type === 'video') mix[courseId].video++;
-        else if (i.content_type === 'quiz' || i.content_type === 'form') mix[courseId].quiz++;
-        else mix[courseId].reading++;
-      });
-      setContentMixByCourse(mix);
-    };
-    fetchContentMix();
-  }, []);
-
-  useEffect(() => {
     if (!isLearnerView || learningCourseId) return;
-    setEnrolledLoading(true);
-    fetch('/api/learning/enrolled', { credentials: 'include', cache: 'no-store' })
-      .then((res) => res.json().catch(() => ({ courses: [] })))
-      .then((data) => {
+    const hit = readClientCache<{ courses?: EnrolledCourse[] }>('learning:enrolled', 60_000);
+    if (hit?.courses) {
+      setEnrolledCourses(hit.courses);
+      setEnrolledLoading(false);
+    } else {
+      setEnrolledLoading(true);
+    }
+    fetchJsonCached<{ courses?: EnrolledCourse[] }>('learning:enrolled', '/api/learning/enrolled')
+      .then(({ data }) => {
         setEnrolledCourses(Array.isArray(data.courses) ? data.courses : []);
       })
       .catch(() => setEnrolledCourses([]))
@@ -206,91 +183,59 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
 
   useEffect(() => {
     if (isLearnerView) return;
-    const fetchCourses = async () => {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      if (!url) {
+    let cancelled = false;
+
+    const applyPayload = (data: {
+      courses?: CourseRow[];
+      totalUniqueLearners?: number;
+      contentMix?: Record<string, { video: number; reading: number; quiz: number }>;
+    }) => {
+      const rows = (data.courses ?? []).map((c) => ({
+        ...c,
+        category: c.category ?? 'General',
+        status: c.status as CourseRow['status'],
+        lastUpdated: formatCourseDate(c.lastUpdated),
+        createdDate: formatCourseDate(c.createdDate),
+      }));
+      setCourses(rows);
+      if (typeof data.totalUniqueLearners === 'number') setTotalUniqueLearners(data.totalUniqueLearners);
+      if (data.contentMix) setContentMixByCourse(data.contentMix);
+    };
+
+    const load = async () => {
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
         setCourses([]);
         setConfigMissing(true);
         setLoading(false);
         return;
       }
       setConfigMissing(false);
-      try {
-        let courseList: { id: string; title: string; description: string | null; status: string; created_at: string; updated_at: string; created_by?: string; has_unpublished_changes?: boolean }[] = [];
-        const { data: dataWithMeta, error: errWith } = await supabase.from('courses').select('id, title, description, status, created_at, updated_at, created_by, has_unpublished_changes').order('updated_at', { ascending: false });
-        if (!errWith && dataWithMeta) courseList = dataWithMeta as typeof courseList;
-        if (errWith) {
-          const { data: dataBasic, error: errBasic } = await supabase.from('courses').select('id, title, description, status, created_at, updated_at').order('updated_at', { ascending: false });
-          if (errBasic) throw errBasic;
-          courseList = (dataBasic || []) as typeof courseList;
-        }
-        const courseIds = courseList.map((c: { id: string }) => c.id);
-        const [modulesRes, statsRes] = await Promise.all([
-          supabase.from('modules').select('id, course_id').in('course_id', courseIds),
-          fetch('/api/instructor/course-stats', { credentials: 'include', cache: 'no-store' }).then((r) => r.json().catch(() => ({ stats: {}, totalUniqueLearners: undefined })))
-        ]);
-        const modules = modulesRes.data ?? [];
-        const courseStats: Record<string, { learners: number; avgCompletion: number }> = statsRes.stats ?? {};
-        setTotalUniqueLearners(typeof statsRes.totalUniqueLearners === 'number' ? statsRes.totalUniqueLearners : null);
-        const moduleIds = modules.map((m: { id: string }) => m.id);
-        const { data: lessonsData } = moduleIds.length
-          ? await supabase.from('lessons').select('id, module_id, duration_seconds').in('module_id', moduleIds)
-          : { data: [] };
-        const lessons = lessonsData ?? [];
-        const modulesByCourse: Record<string, number> = {};
-        const lessonsByCourse: Record<string, number> = {};
-        const durationSecondsByCourse: Record<string, number> = {};
-        modules.forEach((m: { id: string; course_id: string }) => {
-          modulesByCourse[m.course_id] = (modulesByCourse[m.course_id] ?? 0) + 1;
-        });
-        lessons.forEach((l: { module_id: string; duration_seconds?: number | null }) => {
-          const mod = modules.find((x: { id: string }) => x.id === l.module_id);
-          if (mod) {
-            const cid = (mod as { course_id: string }).course_id;
-            lessonsByCourse[cid] = (lessonsByCourse[cid] ?? 0) + 1;
-            const sec = Number(l.duration_seconds) || 0;
-            durationSecondsByCourse[cid] = (durationSecondsByCourse[cid] ?? 0) + sec;
-          }
-        });
-        setCourses(courseList.map((c: { id: string; title: string; description: string | null; status: string; created_at: string; updated_at: string; created_by?: string; has_unpublished_changes?: boolean }) => {
-          const st = courseStats[c.id] ?? { learners: 0, avgCompletion: 0 };
-          const ex = (statsRes.extras ?? {})[c.id] ?? { avgRating: 0, totalRatings: 0, hasQuiz: false, views: 0 };
-          return {
-          id: c.id,
-          title: c.title,
-          description: c.description || '',
-          thumbnail: 'blue',
-          modules: modulesByCourse[c.id] ?? 0,
-          lessons: lessonsByCourse[c.id] ?? 0,
-          learners: st.learners,
-          enrolled: st.learners,
-          completion: st.avgCompletion,
-          avgRating: ex.avgRating ?? 0,
-          totalRatings: ex.totalRatings ?? 0,
-          status: c.status as 'draft' | 'published' | 'archived',
-          category: 'General',
-          duration: formatCourseDuration(durationSecondsByCourse[c.id] ?? 0),
-          lastUpdated: formatCourseDate(c.updated_at),
-          createdDate: formatCourseDate(c.created_at),
-          views: ex.views ?? 0,
-          trend: st.avgCompletion >= 50 ? 'up' : 'down',
-          trendValue: st.avgCompletion,
-          hasQuiz: ex.hasQuiz ?? false,
-          hasCertificate: c.status === 'published',
-          language: 'English',
-          level: 'Beginner',
-          tags: [],
-          createdBy: c.created_by,
-          hasUnpublishedChanges: !!c.has_unpublished_changes
-        };
-        }));
-      } catch {
-        setCourses([]);
-      } finally {
+      const cached = readClientCache<{
+        courses?: CourseRow[];
+        totalUniqueLearners?: number;
+        contentMix?: Record<string, { video: number; reading: number; quiz: number }>;
+      }>('instructor:my-courses', 60_000);
+      if (cached) {
+        applyPayload(cached);
         setLoading(false);
       }
+      try {
+        const { data } = await fetchJsonCached<{
+          courses?: CourseRow[];
+          totalUniqueLearners?: number;
+          contentMix?: Record<string, { video: number; reading: number; quiz: number }>;
+        }>('instructor:my-courses', '/api/instructor/my-courses');
+        if (cancelled) return;
+        applyPayload(data);
+      } catch {
+        if (!cancelled) setCourses([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
-    fetchCourses();
+
+    void load();
+    return () => { cancelled = true; };
   }, [isLearnerView]);
 
   const thumbnailColors: Record<string, string> = {
@@ -1066,7 +1011,19 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
 
       {/* Courses Grid/List */}
       <div className="p-8">
-        {filteredCourses.length === 0 ? (
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden animate-pulse">
+                <div className="h-48 bg-gray-200 dark:bg-gray-700" />
+                <div className="p-5 space-y-3">
+                  <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
+                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filteredCourses.length === 0 ? (
           <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-600">
             <Folder className="w-20 h-20 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
             <h3 className="text-2xl font-bold mb-2 dark:text-white">No courses found</h3>

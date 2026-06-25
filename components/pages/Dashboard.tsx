@@ -8,6 +8,7 @@ import {
   ArrowUp, ArrowDown, Minus, CheckCircle, AlertCircle, XCircle
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
 
 interface DashboardProps {
   setCurrentView: (view: string) => void;
@@ -28,27 +29,45 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
   const [topCourses, setTopCourses] = useState<{ id: number | string; name: string; completion: number; learners: number; trend: string; trendValue: number; avgTime: string; lastUpdated: string; status: string; dropOffPoint: string }[]>([]);
   const [weeklyData, setWeeklyData] = useState<{ week: string; completions: number; enrollments: number; avgTime: number }[]>([]);
   const [recentActivity, setRecentActivity] = useState<{ id: number; user: string; action: string; course: string; time: string; avatar: string; score?: number; type: string }[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
         setConfigMissing(true);
+        setLoading(false);
         return;
       }
       setConfigMissing(false);
+      const cacheKey = `instructor:dashboard:${selectedPeriod}`;
+      const cached = readClientCache<{
+        stats?: typeof stats;
+        topCourses?: typeof topCourses;
+        weeklyData?: typeof weeklyData;
+        recentActivity?: typeof recentActivity;
+      }>(cacheKey, 60_000);
+      if (cached?.stats) {
+        setStats(cached.stats);
+        if (cached.topCourses) setTopCourses(cached.topCourses);
+        if (cached.weeklyData) setWeeklyData(cached.weeklyData);
+        if (cached.recentActivity) setRecentActivity(cached.recentActivity);
+        setLoading(false);
+      }
       try {
-        const res = await fetch(`/api/instructor/dashboard?period=${selectedPeriod}`, { credentials: 'include', cache: 'no-store' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          setConfigMissing(true);
-          return;
-        }
+        const { data } = await fetchJsonCached<{
+          stats?: typeof stats;
+          topCourses?: typeof topCourses;
+          weeklyData?: typeof weeklyData;
+          recentActivity?: typeof recentActivity;
+        }>(cacheKey, `/api/instructor/dashboard?period=${selectedPeriod}`);
         if (data.stats) setStats(data.stats);
         if (Array.isArray(data.topCourses)) setTopCourses(data.topCourses);
         if (Array.isArray(data.weeklyData)) setWeeklyData(data.weeklyData);
         if (Array.isArray(data.recentActivity)) setRecentActivity(data.recentActivity);
       } catch {
-        setConfigMissing(true);
+        if (!cached?.stats) setConfigMissing(true);
+      } finally {
+        setLoading(false);
       }
     };
     load();
@@ -181,7 +200,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
 
       <div className="p-8">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 ${loading ? 'animate-pulse' : ''}`}>
           <StatCard 
             icon={Users} 
             title="Total Learners" 

@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import { createServerClient as createServiceClient } from '@/lib/supabase'
+import { getInstructorCourseIds } from '@/lib/instructor-course-access'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -34,31 +35,25 @@ export async function GET(request: Request) {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY required' }, { status: 500 })
   const db = createServiceClient()
 
-  const { data: profile } = await db.from('user_profiles').select('role').eq('id', user.id).maybeSingle()
-  const isAdmin = (profile as { role?: string } | null)?.role === 'admin'
-  let courseIds: string[]
-  if (isAdmin) {
-    const { data: allCourses } = await db.from('courses').select('id')
-    courseIds = (allCourses ?? []).map((c: { id: string }) => c.id)
-  } else {
-    const { data: owned } = await db.from('courses').select('id').eq('created_by', user.id)
-    const { data: collab } = await db.from('course_collaborators').select('course_id').eq('user_id', user.id)
-    courseIds = Array.from(new Set([...(owned ?? []).map((c: { id: string }) => c.id), ...(collab ?? []).map((c: { course_id: string }) => c.course_id)]))
-  }
+  const { courseIds } = await getInstructorCourseIds(db, user.id)
 
   const empty = { stats: { learners: { current: 0, previous: 0, change: 0 }, courses: { current: 0, previous: 0, change: 0 }, completion: { current: 0, previous: 0, change: 0 }, avgTime: { current: 0, previous: 0, change: 0 } }, topCourses: [], weeklyData: [], recentActivity: [] }
   if (courseIds.length === 0) return NextResponse.json(empty)
 
-  const [enrollmentsRes, coursesListRes, progressRes, modulesRes] = await Promise.all([
+  const [enrollmentsRes, coursesListRes, modulesRes] = await Promise.all([
     db.from('enrollments').select('id, course_id, user_id, completed_at, progress_percentage, enrolled_at').in('course_id', courseIds),
     db.from('courses').select('id, title, updated_at').in('id', courseIds).order('updated_at', { ascending: false }).limit(10),
-    db.from('progress').select('id, enrollment_id, lesson_id, completed_at, time_spent_seconds, completed').limit(5000),
     db.from('modules').select('id, course_id').in('course_id', courseIds),
   ])
 
   const allEnrollments = enrollmentsRes.data ?? []
-  const myEnrollmentIds = new Set(allEnrollments.map((e: { id: string }) => e.id))
-  const progressRows = (progressRes.data ?? []).filter((p: { enrollment_id: string }) => myEnrollmentIds.has(p.enrollment_id))
+  const enrollmentIds = allEnrollments.map((e: { id: string }) => e.id)
+  const progressRes = enrollmentIds.length
+    ? await db.from('progress').select('id, enrollment_id, lesson_id, completed_at, time_spent_seconds, completed').in('enrollment_id', enrollmentIds)
+    : { data: [] }
+
+  const myEnrollmentIds = new Set(enrollmentIds)
+  const progressRows = progressRes.data ?? []
   const inPeriod = (iso: string | null | undefined, start: Date, end: Date) => {
     if (!iso) return false
     const d = new Date(iso)
@@ -161,13 +156,13 @@ export async function GET(request: Request) {
     avgTime: byDay[day].timeN ? Math.round((byDay[day].timeSec / byDay[day].timeN / 3600) * 10) / 10 : 0,
   }))
 
-  const enrollmentIds = Array.from(new Set(progressRows.map((p: { enrollment_id: string }) => p.enrollment_id)))
-  const { data: enrollmentsForActivity } = enrollmentIds.length > 0 ? await db.from('enrollments').select('id, user_id, course_id').in('id', enrollmentIds) : { data: [] }
-  const enrollMap = new Map((enrollmentsForActivity ?? []).map((e: { id: string; user_id: string; course_id: string }) => [e.id, e]))
-  const userIds = Array.from(new Set((enrollmentsForActivity ?? []).map((e: { user_id: string }) => e.user_id)))
+  const activityEnrollmentIds = Array.from(new Set(progressRows.map((p: { enrollment_id: string }) => p.enrollment_id)))
+  const enrollmentsForActivity = allEnrollments.filter((e: { id: string }) => activityEnrollmentIds.includes(e.id))
+  const enrollMap = new Map(enrollmentsForActivity.map((e: { id: string; user_id: string; course_id: string }) => [e.id, e]))
+  const userIds = Array.from(new Set(enrollmentsForActivity.map((e: { user_id: string }) => e.user_id)))
   const { data: userProfiles } = userIds.length ? await db.from('user_profiles').select('id, full_name').in('id', userIds) : { data: [] }
   const userMap = new Map((userProfiles ?? []).map((u: { id: string; full_name: string | null }) => [u.id, u.full_name ?? 'Learner']))
-  const courseIdsForActivity = Array.from(new Set((enrollmentsForActivity ?? []).map((e: { course_id: string }) => e.course_id)))
+  const courseIdsForActivity = Array.from(new Set(enrollmentsForActivity.map((e: { course_id: string }) => e.course_id)))
   const { data: courseTitles } = courseIdsForActivity.length ? await db.from('courses').select('id, title').in('id', courseIdsForActivity) : { data: [] }
   const courseMap = new Map((courseTitles ?? []).map((c: { id: string; title: string }) => [c.id, c.title]))
 
@@ -189,5 +184,5 @@ export async function GET(request: Request) {
     topCourses,
     weeklyData,
     recentActivity,
-  })
+  }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } })
 }
