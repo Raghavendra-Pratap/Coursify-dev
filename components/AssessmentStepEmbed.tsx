@@ -7,6 +7,7 @@ type LaunchResponse = {
   embedUrl?: string;
   takeUrl?: string;
   openInNewTab?: boolean;
+  embedBlocked?: boolean;
   sessionId?: string;
   status?: string;
   alreadySubmitted?: boolean;
@@ -147,6 +148,31 @@ export function AssessmentStepEmbed({
         >
           <ExternalLink className="w-4 h-4" /> Start final exam
         </button>
+      </div>
+    );
+  }
+
+  const takeInNewTab = Boolean(launch?.openInNewTab || launch?.embedBlocked);
+  const newTabUrl = launch?.takeUrl ?? launch?.embedUrl;
+
+  if (takeInNewTab && newTabUrl) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+        <Award className="w-10 h-10 text-indigo-600 mb-3" />
+        <p className="font-medium text-gray-900 dark:text-white mb-2">{launch?.title ?? title}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-md">
+          {launch?.embedBlocked
+            ? 'This quiz cannot be embedded in the lesson yet (Assessment Pro iframe settings). Open it in a new tab to take the assessment.'
+            : 'Open this assessment in Assessment Pro to continue.'}
+        </p>
+        <a
+          href={newTabUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700"
+        >
+          <ExternalLink className="w-4 h-4" /> Start assessment
+        </a>
       </div>
     );
   }

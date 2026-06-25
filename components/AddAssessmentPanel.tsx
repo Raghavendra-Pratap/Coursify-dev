@@ -46,7 +46,7 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
   const [selectedCatalogId, setSelectedCatalogId] = useState('');
   const [builderUrl, setBuilderUrl] = useState<string | null>(null);
   const [builderAssessmentId, setBuilderAssessmentId] = useState<string | null>(null);
-  const [builderOpened, setBuilderOpened] = useState(false);
+  const [builderEmbedBlocked, setBuilderEmbedBlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -63,7 +63,7 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
     setSelectedCatalogId('');
     setBuilderUrl(null);
     setBuilderAssessmentId(null);
-    setBuilderOpened(false);
+    setBuilderEmbedBlocked(false);
     setError(null);
     setLoading(false);
     setCatalogLoading(false);
@@ -140,7 +140,7 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
     return () => window.removeEventListener('message', onMessage);
   }, [active, accessMode, title, description, passingScore, finishAdd]);
 
-  const startBuilderSession = async (): Promise<{ embedBuilderUrl: string; assessmentId?: string } | null> => {
+  const startBuilderSession = useCallback(async (): Promise<{ embedBuilderUrl: string; assessmentId?: string } | null> => {
     setLoading(true);
     setError(null);
     try {
@@ -160,13 +160,14 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
         setError((data as { error?: string }).error ?? 'Failed to start designer session');
         return null;
       }
-      const session = data as { embedBuilderUrl?: string; assessmentId?: string };
+      const session = data as { embedBuilderUrl?: string; assessmentId?: string; embedBlocked?: boolean };
       if (!session.embedBuilderUrl) {
         setError('Designer URL missing from Assessment Pro');
         return null;
       }
       setBuilderUrl(session.embedBuilderUrl);
       setBuilderAssessmentId(session.assessmentId ?? null);
+      setBuilderEmbedBlocked(Boolean(session.embedBlocked));
       return { embedBuilderUrl: session.embedBuilderUrl, assessmentId: session.assessmentId };
     } catch {
       setError('Failed to connect to Assessment Pro. Try Create simple or Pick existing.');
@@ -174,23 +175,12 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
     } finally {
       setLoading(false);
     }
-  };
+  }, [accessMode, title]);
 
-  const openBuilderInNewTab = async () => {
-    let url = builderUrl;
-    if (!url) {
-      const session = await startBuilderSession();
-      if (!session) return;
-      url = session.embedBuilderUrl;
-    }
-    const opened = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!opened) {
-      setError('Popup blocked. Allow popups for this site, or copy the designer link below.');
-    } else {
-      setBuilderOpened(true);
-      setError(null);
-    }
-  };
+  useEffect(() => {
+    if (!active || tab !== 'builder' || builderUrl || loading) return;
+    void startBuilderSession();
+  }, [active, tab, builderUrl, loading, startBuilderSession]);
 
   const handleCreate = async () => {
     if (!title.trim()) {
@@ -314,7 +304,7 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
                 if (t.id !== 'builder') {
                   setBuilderUrl(null);
                   setBuilderAssessmentId(null);
-                  setBuilderOpened(false);
+                  setBuilderEmbedBlocked(false);
                 }
               }}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
@@ -446,23 +436,42 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
         )}
 
         {tab === 'builder' && (
-          <div className="space-y-4 max-w-2xl">
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Assessment Pro opens in a <strong>new tab</strong> (embedded designer is not available yet). Design your questions, click <strong>Publish</strong>, then return here — this page will detect the save automatically.
-            </p>
-            <button
-              type="button"
-              onClick={() => void openBuilderInNewTab()}
-              disabled={loading}
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
-              {loading ? 'Connecting…' : 'Open Assessment Pro designer'}
-            </button>
-            {builderOpened && (
-              <p className="text-sm text-emerald-600 dark:text-emerald-400">
-                Designer opened. After you publish, this lesson will update automatically — or click &quot;Add draft to lesson&quot; below.
+          <div className="space-y-4 flex flex-col min-h-[50vh]">
+            {loading && !builderUrl && (
+              <p className="text-sm text-gray-500 flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" /> Connecting to Assessment Pro…
               </p>
+            )}
+            {builderEmbedBlocked && (
+              <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-4 text-sm text-amber-900 dark:text-amber-200">
+                Assessment Pro is not allowing iframe embeds from this site yet (<code className="text-xs">X-Frame-Options: SAMEORIGIN</code>).
+                Open the designer in a new tab below. The AP team must set <code className="text-xs">COURSIFY_FRAME_ANCESTORS</code> for{' '}
+                <code className="text-xs">{typeof window !== 'undefined' ? window.location.origin : 'your Coursify domain'}</code> to enable inline embedding.
+              </div>
+            )}
+            {!builderEmbedBlocked && builderUrl && (
+              <>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Design questions below. Click <strong>Publish</strong> in Assessment Pro to link this assessment to your lesson.
+                </p>
+                <iframe
+                  src={builderUrl}
+                  title="Assessment Pro builder"
+                  className="w-full flex-1 min-h-[45vh] border border-gray-200 dark:border-gray-600 rounded-xl"
+                  allow="clipboard-read; clipboard-write"
+                />
+              </>
+            )}
+            {builderEmbedBlocked && builderUrl && (
+              <a
+                href={builderUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 w-fit"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Open Assessment Pro designer
+              </a>
             )}
             {builderUrl && (
               <p className="text-xs text-gray-500 break-all">

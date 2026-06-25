@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireInstructor } from '@/lib/instructor-auth';
-import { createBuilderSession, isAssessmentProConfigured } from '@/lib/assessment-pro';
+import { createBuilderSession, isAssessmentProConfigured, probeEmbedFraming } from '@/lib/assessment-pro';
 
 export async function POST(request: Request) {
   const auth = await requireInstructor(request);
@@ -29,7 +29,8 @@ export async function POST(request: Request) {
       title: body.title?.trim() || undefined,
       parentOrigin: body.parentOrigin?.trim() || undefined,
     });
-    return NextResponse.json(session);
+    const framing = await probeEmbedFraming(session.embedBuilderUrl);
+    return NextResponse.json({ ...session, embedBlocked: !framing.iframeAllowed });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to start builder session';
     return NextResponse.json({ error: msg }, { status: 502 });

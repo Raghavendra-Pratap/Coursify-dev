@@ -147,6 +147,7 @@ export interface LaunchEmbedParams {
     courseId: string;
     coursifyUserId?: string;
   };
+  parentOrigin?: string;
 }
 
 export interface LaunchEmbedResult {
@@ -156,26 +157,47 @@ export interface LaunchEmbedResult {
   expiresAt?: string;
 }
 
+/** HEAD probe: AP currently returns X-Frame-Options: SAMEORIGIN + login redirect when framing is not configured. */
+export async function probeEmbedFraming(embedUrl: string): Promise<{ iframeAllowed: boolean }> {
+  try {
+    const res = await fetch(embedUrl, { method: 'HEAD', redirect: 'manual' });
+    const xfo = res.headers.get('x-frame-options')?.toUpperCase();
+    const location = res.headers.get('location') ?? '';
+    if (res.status >= 300 && res.status < 400 && /login/i.test(location)) {
+      return { iframeAllowed: false };
+    }
+    if (xfo === 'SAMEORIGIN' || xfo === 'DENY') {
+      return { iframeAllowed: false };
+    }
+    return { iframeAllowed: res.ok || res.status < 400 };
+  } catch {
+    return { iframeAllowed: false };
+  }
+}
+
 export async function launchEmbedAssessment(params: LaunchEmbedParams): Promise<LaunchEmbedResult> {
   const data = await apPost<{
     launchToken?: string;
     embedUrl?: string;
-    sessionId?: string;
+    sessionId?: string | null;
+    invitationId?: string;
     expiresAt?: string;
   }>('/api/v1/integrations/lms/launch', {
     assessmentId: params.assessmentId,
     learner: params.learner,
     externalRef: params.externalRef,
+    parentOrigin: params.parentOrigin,
   });
 
-  if (!data.launchToken || !data.embedUrl || !data.sessionId) {
+  const sessionId = data.sessionId ?? data.invitationId;
+  if (!data.launchToken || !data.embedUrl || !sessionId) {
     throw new Error('Assessment Pro launch response missing required fields');
   }
 
   return {
     launchToken: data.launchToken,
     embedUrl: data.embedUrl,
-    sessionId: data.sessionId,
+    sessionId,
     expiresAt: data.expiresAt,
   };
 }

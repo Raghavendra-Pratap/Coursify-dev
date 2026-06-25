@@ -4,6 +4,7 @@ import {
   createProctoredInvitation,
   isAssessmentProConfigured,
   launchEmbedAssessment,
+  probeEmbedFraming,
 } from '@/lib/assessment-pro';
 
 export async function POST(
@@ -64,10 +65,15 @@ export async function POST(
     }
 
     if (session?.status === 'in_progress' && session.embed_url) {
+      const framing = await probeEmbedFraming(session.embed_url);
+      const embedBlocked = !framing.iframeAllowed;
       return NextResponse.json({
         sessionId: session.id,
         status: session.status,
         embedUrl: session.embed_url,
+        takeUrl: embedBlocked ? session.embed_url : undefined,
+        openInNewTab: embedBlocked,
+        embedBlocked,
       });
     }
 
@@ -86,6 +92,7 @@ export async function POST(
       'Learner';
 
     try {
+      const parentOrigin = new URL(request.url).origin;
       const launch = await launchEmbedAssessment({
         assessmentId: ext.assessment_pro_assessment_id,
         learner: {
@@ -99,7 +106,11 @@ export async function POST(
           courseId,
           coursifyUserId: user.id,
         },
+        parentOrigin,
       });
+
+      const framing = await probeEmbedFraming(launch.embedUrl);
+      const embedBlocked = !framing.iframeAllowed;
 
       const sessionPayload = {
         enrollment_id: enrollment.id,
@@ -127,8 +138,10 @@ export async function POST(
       return NextResponse.json({
         sessionId: (updatedSession as { id: string } | null)?.id ?? session?.id,
         embedUrl: launch.embedUrl,
+        takeUrl: embedBlocked ? launch.embedUrl : undefined,
         expiresAt: launch.expiresAt,
-        openInNewTab: false,
+        openInNewTab: embedBlocked,
+        embedBlocked,
         title: ext.title,
       });
     } catch (e) {
