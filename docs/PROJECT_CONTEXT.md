@@ -1,6 +1,6 @@
 # Coursify LMS - Project Context
 
-**Last Updated**: 2025-03  
+**Last Updated**: 2025-06  
 **Status**: In active development; production at https://coursify.bsoc.space (custom domain). Develop/release from root codebase (Next.js App Router, Supabase auth, instructor/learner flows). Default branch: **develop**.
 
 ---
@@ -14,6 +14,11 @@
 - **Instructor**: Dashboard, My Courses, Create Course (with **Import from sheet** CSV), Learners, Analytics, Reports; Share modal uses magic link when available.
 - **Learner**: My Courses (enrolled), Take Course (video, reading, quizzes/forms, Q&A, notes); **My Notes** (by course, localStorage); **Notifications**; **Q&A** threads; course **ratings** (1–5 + review); progress and certificates (instructor-awarded).
 - **Deploy**: Vercel; `develop` branch; custom domain coursify.bsoc.space; vercel.app redirects via `vercel.json`.
+
+### Recent completions (Jun 2025)
+- **Shell navigation performance**: Keep-alive views, client cache (`lib/client-fetch-cache.ts`), login prefetch (`lib/prefetch-shell-data.ts`), sync cache hydration, localStorage persistence (5 min TTL). Covers instructor and learner shell pages. See [OPTIMIZATION_REFACTOR.md](OPTIMIZATION_REFACTOR.md).
+- **Unified APIs**: `GET /api/instructor/my-courses`, optimized dashboard route; private cache headers on read endpoints.
+- **Assessment Pro (authoring)**: Inline `AddAssessmentPanel`, Design in AP default, iframe embed with fallback to new tab when AP blocks framing.
 
 ### Recent completions (Mar 2025)
 - **Course import from sheet**: Create Course → Import from sheet; CSV parser (`lib/parseCourseSheet.ts`), segment_sequence, draft creation, template at `public/course-import-template.csv`; API `POST /api/instructor/courses/import-from-sheet`.

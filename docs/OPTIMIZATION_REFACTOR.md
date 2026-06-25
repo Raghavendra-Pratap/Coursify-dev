@@ -1,42 +1,174 @@
-# Optimization refactor (loading and processing)
+# Navigation and loading performance
 
-This document records the optimizations applied for better and faster loading and efficient processing, without changing any features or behavior.
+This document describes how Coursify keeps shell navigation fast (Dashboard, My Courses, Learners, Analytics, Q&A, Notes, Profile, Settings) for **both instructor and learner** modes, without changing product behavior.
 
----
-
-## Applied optimizations
-
-### 1. Lazy-loading of heavy page components (CoursifyLMS)
-
-- **What:** The six heaviest page components are now loaded on demand via `next/dynamic` instead of being in the initial bundle.
-- **Components:** CreateCourse, MyCourses, Learners, Analytics, Reports, TakeCourse.
-- **Still static (smaller):** Dashboard, Profile, AccountSettings, MyLearning.
-- **Effect:** Initial JS bundle is smaller; the app shell and dashboard/courses list load faster. When the user switches to Create Course, My Courses, Learners, etc., the chunk for that view loads (with a short “Loading…” state).
-- **File:** `components/CoursifyLMS.tsx` (dynamic imports + loading fallback, `ssr: false` for these views).
-
-### 2. TakeCourse: memoization and parallel fetch
-
-- **Memoized `requiredSegmentIds`:** Replaced the `allVideoSegmentIds()` function (called every render) with a `useMemo` that depends on `lessonContent`. The list of video segment IDs is now recomputed only when lesson content changes.
-- **Memoized `totalLessons`:** `modules.reduce(...)` is wrapped in `useMemo` with `[modules]` so it is not recalculated on every render.
-- **Parallel fetch on course load:** When loading a course, the content API and the progress API are now requested in parallel with `Promise.all` instead of content first and then progress. Both use the same `courseId`; only the content response is used for state. This can reduce perceived load time when opening a course.
-- **File:** `components/pages/TakeCourse.tsx`.
+**Last updated:** 2025-06 (develop: `f15a55ad` and earlier perf commits)
 
 ---
 
-## Not changed (features and behavior)
+## Goals
 
-- All existing features, functions, and options behave the same.
-- No API contract or response shape was changed.
-- No removal or simplification of UI flows.
+- Tab switches should feel **instant** — no blank pages, no “Loading…” flash when cached data exists.
+- Network refreshes happen **in the background** (stale-while-revalidate).
+- **First login** prefetches all shell endpoints in parallel so the first click is already warm.
+- **Hard refresh** can still feel fast via **localStorage** persistence (5-minute TTL).
+
+Take Course and Create Course are intentionally heavier (video player, full course tree) and are not part of this instant shell.
 
 ---
 
-## Optional next steps (future work)
+## Architecture overview
 
-- **API routes:** In `app/api/learning/courses/[courseId]/content/route.ts`, after resolving enrollment, independent queries (e.g. progress and course) could be run in parallel with `Promise.all` to reduce server-side latency. The same idea can be applied in other routes where multiple independent DB calls exist.
-- **Instructor learners API:** `app/api/instructor/learners/route.ts` already batches progress in a single `.in('enrollment_id', enrollmentIds)` query; no N+1. Further gains would come from combining or reducing round-trips if new requirements appear.
-- **Memoization in CreateCourse/MyCourses:** Heavy derived data (e.g. filtered or sorted lists) could be wrapped in `useMemo` where dependencies are clear and stable. Not done in this pass to avoid broad changes in large components.
-- **CoursifyLMS sidebar:** Inline components (e.g. `NavItem`, `StatCard`) could be extracted and wrapped with `React.memo` to avoid unnecessary rerenders when parent state (e.g. `currentView`) changes. Optional and low impact.
-- **Client data layer:** A small cache or a shared hook for `/api/learning/enrolled` (and similar) could avoid duplicate requests when multiple components need the same data. Optional.
+```
+Login / session mode set
+        │
+        ▼
+prefetchShellData(mode, userId)     ──► parallel fetch all shell APIs
+        │
+        ▼
+KeepAliveView (CoursifyLMS)         ──► pages stay mounted; switch = CSS hidden toggle
+        │
+        ▼
+readClientCache (sync, µs)          ──► memory Map, then localStorage
+        │
+        ▼
+useState initializer / useCachedFetch ──► first paint uses cache (no flash)
+        │
+        ▼
+fetchJsonCached (background)        ──► refresh quietly; update cache
+```
 
-These refactors keep the app’s behavior and features intact while improving initial load and Take Course performance.
+---
+
+## Key files
+
+| File | Role |
+|------|------|
+| `lib/client-fetch-cache.ts` | In-memory + localStorage cache; `fetchJsonCached`, `SHELL_CACHE_MS` (5 min) |
+| `lib/use-cached-fetch.ts` | React hook: sync hydrate from cache, background revalidate |
+| `lib/prefetch-shell-data.ts` | Login prefetch + per-nav hover prefetch |
+| `components/CoursifyLMS.tsx` | `KeepAliveView`, prefetch on auth, nav hover warmup |
+| `app/api/instructor/my-courses/route.ts` | Unified instructor course list (replaces client waterfall) |
+| `app/api/instructor/dashboard/route.ts` | Dashboard stats; scoped progress queries + cache headers |
+
+---
+
+## Shell keep-alive
+
+In `components/CoursifyLMS.tsx`, these views use `KeepAliveView` (mounted once, toggled with `hidden`):
+
+- **Instructor:** dashboard, courses, learners, analytics, reports, qa, profile, settings
+- **Learner:** courses (My learning), notes, qa, profile, settings
+
+**Not keep-alive:** `create`, `take` — loaded via `next/dynamic` to limit bundle size and avoid keeping video state in memory when navigating away.
+
+---
+
+## Client cache
+
+### Memory + localStorage
+
+- Keys prefixed with `instructor:`, `learning:`, `notifications:`, or `notification-preferences` are persisted to `localStorage` under `coursify:cache:{key}`.
+- Default TTL: **`SHELL_CACHE_MS` = 5 minutes** (`lib/client-fetch-cache.ts`).
+- Notifications: **30 seconds** TTL.
+
+### Stale-while-revalidate
+
+`fetchJsonCached(key, url)`:
+
+1. If cache hit → return immediately, fire background fetch.
+2. If cache miss → await fetch, write cache, return.
+
+Pages initialize `useState` from `readClientCache()` so the first render never shows a loading skeleton when data is already available.
+
+---
+
+## Prefetch
+
+### On login (session mode known)
+
+`prefetchShellData(mode, userId)` in `CoursifyLMS`:
+
+**Instructor** — dashboard, my-courses, learners, analytics, questions, notification-preferences, notifications.
+
+**Learner** — enrolled courses, my-questions, notes, notification-preferences, notifications.
+
+### On nav hover / focus
+
+`prefetchShellView(view, mode, userId)` warms the cache for the target page before click.
+
+---
+
+## Instructor vs learner coverage
+
+| Page | Instructor | Learner |
+|------|------------|---------|
+| Dashboard | ✅ cache + prefetch | N/A (not in nav) |
+| My Courses / My learning | ✅ unified API + cache | ✅ `learning:enrolled` + cache |
+| Learners | ✅ cache + prefetch | N/A |
+| Analytics | ✅ `useCachedFetch` | N/A |
+| Q & A | ✅ `instructor:questions` | ✅ `learning:my-questions` |
+| My Notes | N/A | ✅ `learning:notes:{userId}` |
+| Profile / Settings | ✅ keep-alive; Settings cached | ✅ same |
+| Notifications | ✅ 30s cache | ✅ same |
+| Take Course | ⚠️ `cache: 'no-store'` (by design) | ⚠️ same |
+
+### Known gaps (future work)
+
+- **Profile** — keep-alive yes; no sync cache hydrate yet (Supabase on mount).
+- **Instructor pages in learner mode** — keep-alive mounts instructor views in the background; they may prefetch instructor APIs even when the user is in learner mode (wasted bandwidth, not blocking UX).
+- **Take Course** — course content/progress not cached; opening a course always hits the network.
+- **Cache invalidation** — mutations (create course, invite learner) do not yet call `invalidateClientCache()`; data refreshes on TTL or background revalidate.
+
+---
+
+## API optimizations
+
+### Unified instructor course list
+
+`GET /api/instructor/my-courses` — single server round-trip for courses, module/lesson counts, learner stats, content mix. Replaces multiple client-side Supabase queries in `MyCourses.tsx`.
+
+### Dashboard
+
+`GET /api/instructor/dashboard?period=7days` — progress filtered by enrollment IDs (not full-table scan). Response includes `Cache-Control: private, max-age=15, stale-while-revalidate=60`.
+
+### Read API cache headers
+
+These GET routes send short private cache headers (browser + CDN hint):
+
+- `instructor/dashboard`, `instructor/my-courses`, `instructor/learners`, `instructor/analytics`
+- `instructor/questions`, `learning/enrolled`, `learning/my-questions`, `learning/notes`
+- `notifications`, `notification-preferences`
+
+---
+
+## Earlier optimizations (still in place)
+
+### Lazy-loading heavy pages
+
+`CreateCourse` and `TakeCourse` use `next/dynamic` with `ssr: false` and a loading fallback. Other shell pages are **static imports** (keep-alive requires them mounted).
+
+Previously, six pages were dynamic; that was reversed for shell pages to enable instant tab switching.
+
+### TakeCourse
+
+- `useMemo` for `requiredSegmentIds` and `totalLessons`
+- Parallel fetch of content + progress APIs on course open (`Promise.all`)
+
+---
+
+## Verifying performance
+
+1. Sign in (instructor or learner).
+2. Wait ~2s for prefetch to complete.
+3. Switch: Dashboard ↔ My Courses ↔ Learners ↔ Analytics (or learner: My learning ↔ Notes ↔ Q&A).
+4. **Second visit to each tab** should be immediate (no skeleton).
+5. Hard refresh — first paint should still show cached data if within 5 minutes.
+
+---
+
+## Related docs
+
+- [CODEBASE_MAP.md](CODEBASE_MAP.md) — file locations
+- [BRANCH_AND_DEPLOY.md](BRANCH_AND_DEPLOY.md) — `develop` → Vercel
+- [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) — product overview

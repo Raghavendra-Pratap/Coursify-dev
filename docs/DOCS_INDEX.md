@@ -1,6 +1,6 @@
 # Docs index
 
-**Last updated**: 2025-03
+**Last updated**: 2025-06
 
 Quick index of documentation in `docs/` and related files. Use this for `/docs` navigation.
 
@@ -93,7 +93,7 @@ Quick index of documentation in `docs/` and related files. Use this for `/docs` 
 | [HANDOFF_SUMMARY.md](HANDOFF_SUMMARY.md) | Handoff summary for devs |
 | [CODE_REVIEW.md](CODE_REVIEW.md) | Code review notes |
 | [PREFERENCE_LOOP.md](PREFERENCE_LOOP.md) | Preference loop |
-| [OPTIMIZATION_REFACTOR.md](OPTIMIZATION_REFACTOR.md) | Optimization and refactor notes |
+| [OPTIMIZATION_REFACTOR.md](OPTIMIZATION_REFACTOR.md) | Shell navigation performance: keep-alive, client cache, prefetch, instructor + learner |
 | [ADD_QUIZ_FEATURE_AND_IMPLEMENTATION.md](ADD_QUIZ_FEATURE_AND_IMPLEMENTATION.md) | Quiz feature and implementation |
 | [CLARIFICATIONS.md](CLARIFICATIONS.md) | Clarifications log |
 | [PLACEHOLDERS_REMAINING.md](PLACEHOLDERS_REMAINING.md) | Remaining placeholders |

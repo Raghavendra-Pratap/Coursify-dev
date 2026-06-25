@@ -1,6 +1,6 @@
 # Codebase Map: Coursify LMS
 
-**Last Updated**: 2025-03 (post–learner mode & course import from sheet)  
+**Last Updated**: 2025-06  
 **Purpose**: Navigation guide for the codebase structure, entry points, and component relationships
 
 ---
@@ -15,21 +15,26 @@ Coursify/
 │   └── globals.css              # Global Tailwind CSS styles
 │
 ├── components/                   # React components
-│   ├── CoursifyLMS.tsx          # Main app orchestrator (sidebar + routing)
+│   ├── CoursifyLMS.tsx          # Main app shell: nav, KeepAliveView, prefetch, session mode
 │   └── pages/                   # Page-level components
-│       ├── Dashboard.tsx         # Dashboard with stats, charts, activity
-│       ├── CreateCourse.tsx      # Course creation + Import from sheet
-│       ├── MyCourses.tsx         # Course management; learner/instructor tabs
-│       ├── Learners.tsx         # Learner management and tracking
-│       ├── Analytics.tsx        # Analytics dashboard (4 metric views)
+│       ├── Dashboard.tsx         # Dashboard with stats, charts, activity (cached fetch)
+│       ├── CreateCourse.tsx      # Course creation + Import from sheet (dynamic import)
+│       ├── MyCourses.tsx         # Instructor courses OR learner enrolled list (cached)
+│       ├── Learners.tsx         # Learner management and tracking (cached)
+│       ├── Analytics.tsx        # Analytics dashboard (useCachedFetch)
 │       ├── Reports.tsx          # Report generation and scheduling
-│       ├── TakeCourse.tsx       # Learner: video, reading, quiz/form, Q&A, notes
-│       ├── MyNotes.tsx          # Learner: notes by course (localStorage)
-│       ├── Notifications.tsx    # Learner: notifications sidebar
-│       └── QAndA.tsx            # Learner: course Q&A threads
+│       ├── TakeCourse.tsx       # Learner: video, reading, quiz/form, Q&A, notes (dynamic)
+│       ├── MyNotes.tsx          # Learner: notes by course (cached API + localStorage fallback)
+│       ├── Profile.tsx          # User profile
+│       ├── AccountSettings.tsx  # Settings (cached notification prefs)
+│       └── QAndA.tsx            # Q&A threads — instructor + learner (cached)
 │
 ├── lib/                          # Utility libraries and clients
 │   ├── supabase.ts              # Supabase client (client & server)
+│   ├── client-fetch-cache.ts    # Shell data cache (memory + localStorage, SWR fetch)
+│   ├── use-cached-fetch.ts      # React hook for cached JSON pages
+│   ├── prefetch-shell-data.ts   # Login + nav-hover prefetch for shell APIs
+│   ├── instructor-course-access.ts # Shared instructor course ID scope for APIs
 │   ├── database.types.ts        # TypeScript types for database
 │   ├── magic-link.ts            # HMAC-signed magic link tokens (share links)
 │   └── parseCourseSheet.ts      # CSV course import parser (segment_sequence)
@@ -40,6 +45,10 @@ Coursify/
 ├── app/api/                      # API routes (Next.js)
 │   ├── courses/[id]/magic-link/ # GET: generate magic link for course share
 │   ├── instructor/
+│   │   ├── dashboard/           # GET: instructor dashboard stats (cached)
+│   │   ├── my-courses/          # GET: unified course list + stats (cached)
+│   │   ├── learners/            # GET: enrolled learners (cached)
+│   │   ├── analytics/           # GET: analytics aggregates (cached)
 │   │   ├── courses/import-from-sheet/ # POST: create draft course from CSV
 │   │   ├── courses/[courseId]/structure/ # POST: replace course structure
 │   │   ├── courses/[courseId]/notify-update/ # POST: notify learners
@@ -109,13 +118,14 @@ Coursify/
 
 ### Main App Component
 **File**: `components/CoursifyLMS.tsx`
-- **Purpose**: App orchestrator with sidebar navigation
+- **Purpose**: App shell with top nav, session mode (instructor / learner), and view routing
 - **State Management**: 
-  - `currentView` - Controls which page to display
-  - `sidebarOpen` - Sidebar collapse state
-  - `showProfileModal` - Profile modal visibility
-- **Navigation**: Routes to dashboard, courses, create, learners, analytics, reports, settings; learner views (take course, My Notes, Notifications, Q&A)
-- **Components**: Renders page components based on `currentView`; supports learner/instructor session mode
+  - `currentView` — which page to show
+  - `sessionMode` — instructor vs learner (persisted in `localStorage`)
+  - `learningCourseId` / `learningLessonId` — Take Course deep link state
+- **Performance**: `KeepAliveView` keeps shell pages mounted; `prefetchShellData` on login; nav hover prefetch via `prefetchShellView`
+- **Navigation**: Instructor (Dashboard, My Courses, Learners, Analytics, Reports, Q&A); Learner (My learning, My Notes, Q&A); shared Profile/Settings
+- **Dynamic imports**: `CreateCourse`, `TakeCourse` only (`next/dynamic`, `ssr: false`)
 
 ---
 

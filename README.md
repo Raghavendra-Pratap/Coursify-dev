@@ -61,9 +61,13 @@ See `project_plan.md` for detailed roadmap:
 
 - **Frontend**: Next.js 14, React 18, TypeScript
 - **Styling**: Tailwind CSS
-- **Database**: Supabase (PostgreSQL)
+- **Database**: Supabase (PostgreSQL) — auth and data only; videos external (YouTube, Drive, URLs)
 - **Hosting**: Vercel (free tier for MVP)
 - **Icons**: Lucide React
+
+## Performance
+
+Shell navigation (Dashboard, My Courses, Learners, Q&A, Notes, etc.) uses keep-alive views, client-side cache, and login prefetch for instant tab switching. See [docs/OPTIMIZATION_REFACTOR.md](docs/OPTIMIZATION_REFACTOR.md).
 
 ## Cost Optimization
 
