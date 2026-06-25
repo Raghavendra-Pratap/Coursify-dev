@@ -105,6 +105,7 @@ export interface BuilderSessionParams {
   accessMode: 'lms_embed' | 'proctored_portal';
   assessmentId?: string;
   title?: string;
+  parentOrigin?: string;
 }
 
 export interface BuilderSessionResult {
@@ -124,6 +125,7 @@ export async function createBuilderSession(params: BuilderSessionParams): Promis
     accessMode: params.accessMode,
     assessmentId: params.assessmentId,
     title: params.title,
+    parentOrigin: params.parentOrigin,
   });
   if (!data.embedBuilderUrl) {
     throw new Error('Assessment Pro builder response missing embedBuilderUrl');

@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { accessMode?: string; assessmentId?: string; title?: string };
+  let body: { accessMode?: string; assessmentId?: string; title?: string; parentOrigin?: string };
   try {
     body = await request.json();
   } catch {
@@ -27,6 +27,7 @@ export async function POST(request: Request) {
       accessMode,
       assessmentId: body.assessmentId?.trim() || undefined,
       title: body.title?.trim() || undefined,
+      parentOrigin: body.parentOrigin?.trim() || undefined,
     });
     return NextResponse.json(session);
   } catch (e) {

@@ -9,7 +9,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { ReadingContentRenderer } from '@/components/ReadingContentRenderer';
 import { AssessmentGradingPanel } from '@/components/AssessmentGradingPanel';
-import { AddAssessmentModal } from '@/components/AddAssessmentModal';
+import { AddAssessmentPanel } from '@/components/AddAssessmentPanel';
 
 interface CreateCourseProps {
   setCurrentView: (view: string) => void;
@@ -488,7 +488,7 @@ function onFormSubmit(e) {
 `;
   };
   const [formModalFormUrl, setFormModalFormUrl] = useState('');
-  const [showAssessmentModal, setShowAssessmentModal] = useState(false);
+  const [showAssessmentPanel, setShowAssessmentPanel] = useState(false);
   const [showStreamSettings, setShowStreamSettings] = useState(false);
   const [savedCourseId, setSavedCourseId] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -1233,7 +1233,7 @@ function onFormSubmit(e) {
       setReadingBody('');
       setShowReadingModal(true);
     } else if (type === 'assessment') {
-      setShowAssessmentModal(true);
+      setShowAssessmentPanel((open) => !open);
     }
   };
 
@@ -2212,10 +2212,14 @@ function onFormSubmit(e) {
                 </button>
                 <button
                   onClick={() => handleAddContent('assessment')}
-                  className="px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-semibold flex items-center transition-all shadow-lg"
+                  className={`px-6 py-3 rounded-xl font-semibold flex items-center transition-all shadow-lg ${
+                    showAssessmentPanel
+                      ? 'bg-indigo-800 text-white ring-2 ring-indigo-300'
+                      : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                  }`}
                 >
                   <Award className="w-5 h-5 mr-2" />
-                  Add Assessment
+                  {showAssessmentPanel ? 'Close Assessment' : 'Add Assessment'}
                 </button>
                 <button
                   onClick={() => handleAddContent('form')}
@@ -2232,6 +2236,12 @@ function onFormSubmit(e) {
                   Add Reading
                 </button>
               </div>
+
+              <AddAssessmentPanel
+                active={showAssessmentPanel}
+                onClose={() => setShowAssessmentPanel(false)}
+                onAdd={handleAddAssessmentContent}
+              />
 
               {/* Combined (learner) view — one window: video + reading + quiz + form in order, like TakeCourse (from e359e8bd) */}
               {totalSteps > 0 && currentStepContent && (
@@ -3772,14 +3782,6 @@ function onFormSubmit(e) {
             </div>
           </div>
         </div>
-      )}
-
-      {showAssessmentModal && (
-        <AddAssessmentModal
-          open
-          onClose={() => setShowAssessmentModal(false)}
-          onAdd={handleAddAssessmentContent}
-        />
       )}
 
       {/* Preview Mode Modal - uses real course data */}
