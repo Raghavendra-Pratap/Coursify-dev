@@ -3,7 +3,8 @@
 **Status:** Draft for Coursify developers  
 **Last updated:** 2026-06-25  
 **Partner system:** [Assessment Pro](https://github.com/Raghavendra-Pratap/assessment-pro)  
-**Master integration plan:** [`ASSESSMENT_PRO_INTEGRATION.md`](ASSESSMENT_PRO_INTEGRATION.md)
+**Master integration plan:** [`ASSESSMENT_PRO_INTEGRATION.md`](ASSESSMENT_PRO_INTEGRATION.md)  
+**AP handoff (credentials, test UUIDs, authoring roadmap):** [`COURSIFY_INTEGRATION_HANDOFF.md`](COURSIFY_INTEGRATION_HANDOFF.md)
 
 This document describes **what Coursify must build** to integrate with Assessment Pro. Assessment Pro will deliver the APIs and embed surface described in the master plan; this guide covers your schema, APIs, UI, and webhooks.
 
