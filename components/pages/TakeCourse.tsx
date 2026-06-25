@@ -27,6 +27,7 @@ import { LessonVideoPlayer, type VideoSegment } from '../LessonVideoPlayer';
 import { ReadingContentRenderer } from '@/components/ReadingContentRenderer';
 import { useAuth } from '@/contexts/AuthContext';
 import { recordActivity } from '@/lib/preference-loop';
+import { AssessmentStepEmbed } from '@/components/AssessmentStepEmbed';
 
 /** Catches render/effect errors (e.g. React #185) in lesson content and shows a fallback instead of crashing. */
 class LessonErrorBoundary extends Component<
@@ -84,13 +85,20 @@ type ContentItem = {
   readingMaterial?: { title: string; body?: string | null; url?: string | null; format?: string | null } | null;
   quiz?: { title: string; description?: string | null; form_url?: string | null; form_entry_id_webhook?: string | null } | null;
   form?: { title: string; description?: string | null; form_url?: string | null } | null;
+  externalAssessment?: {
+    title?: string | null;
+    description?: string | null;
+    access_mode?: 'lms_embed' | 'proctored_portal';
+    passing_score?: number | null;
+  } | null;
 };
 
 type LessonStep =
   | { type: 'video'; segmentId: string; segment: VideoSegment & { source?: string; duration_seconds?: number }; stepLabel: string }
   | { type: 'reading'; item: ContentItem; stepLabel: string }
   | { type: 'quiz'; item: ContentItem; stepLabel: string }
-  | { type: 'form'; item: ContentItem; stepLabel: string };
+  | { type: 'form'; item: ContentItem; stepLabel: string }
+  | { type: 'assessment'; item: ContentItem; stepLabel: string };
 
 interface TakeCourseProps {
   courseId: string;
@@ -666,6 +674,13 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
       } else if (item.content_type === 'form' && item.form) {
         stepNum += 1;
         steps.push({ type: 'form', item, stepLabel: `Form: ${item.form?.title ?? 'Form'}` });
+      } else if (item.content_type === 'assessment' && item.externalAssessment) {
+        stepNum += 1;
+        steps.push({
+          type: 'assessment',
+          item,
+          stepLabel: `Assessment: ${item.externalAssessment?.title ?? 'Assessment'}`,
+        });
       }
     }
     return steps;
@@ -675,7 +690,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
     if (!userId) return;
     const items = lessonContent?.contentItems ?? [];
     const types = new Set(items.map((i) => i.content_type));
-    const contentType = types.has('video') ? 'video' : types.has('reading') ? 'reading' : types.has('quiz') ? 'quiz' : types.has('form') ? 'form' : 'video';
+    const contentType = types.has('video') ? 'video' : types.has('reading') ? 'reading' : types.has('quiz') ? 'quiz' : types.has('form') ? 'form' : types.has('assessment') ? 'quiz' : 'video';
     try {
       await recordActivity(userId, {
         user_id: userId,
@@ -1269,6 +1284,24 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
                               <button type="button" onClick={handleContinue} className="self-start px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Continue</button>
                             </div>
                           )
+                        ) : step.type === 'assessment' ? (
+                          <div className="flex flex-col flex-1 min-h-0">
+                            <div className="flex-shrink-0 flex items-center justify-between gap-3 px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                                <HelpCircle className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                                {step.item.externalAssessment?.title ?? 'Assessment'}
+                              </span>
+                              <button type="button" onClick={handleContinue} className="ml-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Continue</button>
+                            </div>
+                            <div className="flex-1 min-h-0 overflow-auto bg-white dark:bg-gray-900 flex flex-col">
+                              <AssessmentStepEmbed
+                                courseId={courseId}
+                                contentItemId={step.item.id}
+                                title={step.item.externalAssessment?.title ?? 'Assessment'}
+                                accessMode={step.item.externalAssessment?.access_mode ?? 'lms_embed'}
+                              />
+                            </div>
+                          </div>
                         ) : null}
                       </div>
                       {totalSteps > 1 && (

@@ -60,19 +60,20 @@ export async function GET(
     .eq('lesson_id', lessonId)
     .order('order_index')
 
-  const items = (contentItems ?? []).map((ci) => ({ ...ci, videoSegments: [] as unknown[], readingMaterial: null as unknown, quiz: null as unknown, form: null as unknown }))
+  const items = (contentItems ?? []).map((ci) => ({ ...ci, videoSegments: [] as unknown[], readingMaterial: null as unknown, quiz: null as unknown, form: null as unknown, externalAssessment: null as unknown }))
   const contentItemIds = items.map((c) => c.id).filter(Boolean)
 
   if (contentItemIds.length > 0) {
-    const [segmentsRes, readingRes, quizzesRes, formsRes] = await Promise.all([
+    const [segmentsRes, readingRes, quizzesRes, formsRes, assessmentsRes] = await Promise.all([
       db.from('video_segments').select('id, content_item_id, name, duration_seconds, start_time_seconds, end_time_seconds, source, source_url, storage_path').in('content_item_id', contentItemIds).order('id'),
       db.from('reading_materials').select('*').in('content_item_id', contentItemIds),
       db.from('quizzes').select('*').in('content_item_id', contentItemIds),
       db.from('forms').select('*').in('content_item_id', contentItemIds),
+      db.from('external_assessments').select('*').in('content_item_id', contentItemIds),
     ])
 
-    const byContentId: Record<string, { segments: unknown[]; reading: unknown; quiz: unknown; form: unknown }> = {}
-    for (const id of contentItemIds) byContentId[id] = { segments: [], reading: null, quiz: null, form: null }
+    const byContentId: Record<string, { segments: unknown[]; reading: unknown; quiz: unknown; form: unknown; externalAssessment: unknown }> = {}
+    for (const id of contentItemIds) byContentId[id] = { segments: [], reading: null, quiz: null, form: null, externalAssessment: null }
 
     for (const s of segmentsRes.data ?? []) {
       const cid = (s as { content_item_id: string }).content_item_id
@@ -86,6 +87,11 @@ export async function GET(
       const cid = (q as { content_item_id: string }).content_item_id
       if (byContentId[cid]) byContentId[cid].quiz = q
     }
+    for (const a of assessmentsRes.data ?? []) {
+      const cid = (a as { content_item_id: string }).content_item_id
+      if (byContentId[cid]) byContentId[cid].externalAssessment = a
+    }
+
     for (const f of formsRes.data ?? []) {
       const cid = (f as { content_item_id: string }).content_item_id
       if (byContentId[cid]) byContentId[cid].form = f
@@ -98,6 +104,7 @@ export async function GET(
         it.readingMaterial = extra.reading
         it.quiz = extra.quiz
         it.form = extra.form
+        it.externalAssessment = extra.externalAssessment
       }
     }
   }

@@ -48,7 +48,7 @@ export async function POST(
   let body: { title?: string; description?: string; modules: Array<{
     title: string; order: number; lessons: Array<{
       title: string; order: number; duration?: string; content: Array<{
-        type: string; order: number; videoSegment?: { name?: string; source?: string; sourceUrl?: string; startTime?: string; endTime?: string; duration?: string; startTimestamp?: number; endTimestamp?: number }; reading?: { title?: string; type?: string; url?: string; body?: string; format?: string }; quiz?: { title?: string; passingScore?: number; formUrl?: string; formEntryIdWebhook?: string }; form?: { title?: string; formUrl?: string }
+        type: string; order: number; videoSegment?: { name?: string; source?: string; sourceUrl?: string; startTime?: string; endTime?: string; duration?: string; startTimestamp?: number; endTimestamp?: number }; reading?: { title?: string; type?: string; url?: string; body?: string; format?: string }; quiz?: { title?: string; passingScore?: number; formUrl?: string; formEntryIdWebhook?: string }; form?: { title?: string; formUrl?: string }; assessment?: { title?: string; description?: string; assessmentProId?: string; accessMode?: string; passingScore?: number }
       }>
     }>
   }> }
@@ -161,6 +161,20 @@ export async function POST(
             form_entry_id_webhook: item.quiz.formEntryIdWebhook?.trim() ?? null,
           })
         }
+        if (item.type === 'assessment' && item.assessment) {
+          const accessMode = item.assessment.accessMode === 'proctored_portal' ? 'proctored_portal' : 'lms_embed'
+          const presentation = accessMode === 'proctored_portal' ? 'new_tab' : 'embed'
+          await db.from('external_assessments').insert({
+            content_item_id: contentItemId,
+            assessment_pro_assessment_id: item.assessment.assessmentProId,
+            access_mode: accessMode,
+            presentation,
+            passing_score: item.assessment.passingScore ?? 70,
+            title: item.assessment.title ?? 'Assessment',
+            description: item.assessment.description ?? null,
+          })
+        }
+
         if (item.type === 'form' && item.form) {
           await db.from('forms').insert({
             content_item_id: contentItemId,

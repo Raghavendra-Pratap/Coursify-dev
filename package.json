@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:assessment-pro": "bash scripts/test-assessment-pro-integration.sh all",
+    "test:assessment-pro:prod": "bash scripts/test-assessment-pro-production.sh all"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.6",

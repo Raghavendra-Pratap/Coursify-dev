@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { ReadingContentRenderer } from '@/components/ReadingContentRenderer';
+import { AssessmentGradingPanel } from '@/components/AssessmentGradingPanel';
 
 interface CreateCourseProps {
   setCurrentView: (view: string) => void;
@@ -18,7 +19,7 @@ interface CreateCourseProps {
 }
 
 // Updated data structure: Lessons contain content items (video segments, quizzes, forms, reading)
-type ContentType = 'video' | 'quiz' | 'form' | 'reading';
+type ContentType = 'video' | 'quiz' | 'form' | 'reading' | 'assessment';
 type VideoSource = 'upload' | 'google_drive' | 'youtube' | 'external_url';
 
 interface VideoSegment {
@@ -63,6 +64,14 @@ interface FormContent {
   formUrl?: string;
 }
 
+interface ExternalAssessmentContent {
+  title: string;
+  description?: string;
+  assessmentProId: string;
+  accessMode: 'lms_embed' | 'proctored_portal';
+  passingScore: number;
+}
+
 // Reading material: link (Google Doc, Microsoft Doc, etc.) or native in-app text (plain, markdown, or html)
 interface ReadingMaterial {
   title: string;
@@ -80,6 +89,7 @@ interface ContentItem {
   quiz?: Quiz;
   form?: FormContent;
   reading?: ReadingMaterial;
+  assessment?: ExternalAssessmentContent;
 }
 
 interface Lesson {
@@ -477,6 +487,12 @@ function onFormSubmit(e) {
 `;
   };
   const [formModalFormUrl, setFormModalFormUrl] = useState('');
+  const [showAssessmentModal, setShowAssessmentModal] = useState(false);
+  const [assessmentModalTitle, setAssessmentModalTitle] = useState('');
+  const [assessmentModalDescription, setAssessmentModalDescription] = useState('');
+  const [assessmentModalProId, setAssessmentModalProId] = useState('');
+  const [assessmentModalAccessMode, setAssessmentModalAccessMode] = useState<'lms_embed' | 'proctored_portal'>('lms_embed');
+  const [assessmentModalPassingScore, setAssessmentModalPassingScore] = useState(70);
   const [showStreamSettings, setShowStreamSettings] = useState(false);
   const [savedCourseId, setSavedCourseId] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -772,7 +788,7 @@ function onFormSubmit(e) {
             const content: ContentItem[] = [];
             for (let ci = 0; ci < (itemRows || []).length; ci++) {
               const item = (itemRows as { id: string; content_type: string; order_index: number }[])[ci];
-              const type = (item.content_type === 'video' || item.content_type === 'quiz' || item.content_type === 'form' || item.content_type === 'reading') ? item.content_type : 'reading';
+              const type = (item.content_type === 'video' || item.content_type === 'quiz' || item.content_type === 'form' || item.content_type === 'reading' || item.content_type === 'assessment') ? item.content_type : 'reading';
               const contentItem: ContentItem = { id: ci, type: type as ContentType, order: item.order_index };
               if (type === 'video') {
                 const { data: vsRows } = await db.from('video_segments').select('name, duration_seconds, start_time_seconds, end_time_seconds, source, source_url').eq('content_item_id', item.id).order('id');
@@ -793,6 +809,17 @@ function onFormSubmit(e) {
                 const { data: formRows } = await db.from('forms').select('title, form_url').eq('content_item_id', item.id).maybeSingle();
                 const f = formRows as { title: string; form_url?: string | null } | undefined;
                 contentItem.form = f ? { id: ci, title: f.title, formUrl: f.form_url || undefined } : undefined;
+              }
+              if (type === 'assessment') {
+                const { data: extRows } = await db.from('external_assessments').select('title, description, assessment_pro_assessment_id, access_mode, passing_score').eq('content_item_id', item.id).maybeSingle();
+                const ext = extRows as { title: string | null; description: string | null; assessment_pro_assessment_id: string; access_mode: 'lms_embed' | 'proctored_portal'; passing_score: number | null } | undefined;
+                contentItem.assessment = ext ? {
+                  title: ext.title ?? 'Assessment',
+                  description: ext.description ?? undefined,
+                  assessmentProId: ext.assessment_pro_assessment_id,
+                  accessMode: ext.access_mode,
+                  passingScore: ext.passing_score ?? 70,
+                } : undefined;
               }
               content.push(contentItem);
             }
@@ -1209,6 +1236,13 @@ function onFormSubmit(e) {
       setReadingUrl('');
       setReadingBody('');
       setShowReadingModal(true);
+    } else if (type === 'assessment') {
+      setAssessmentModalTitle('');
+      setAssessmentModalDescription('');
+      setAssessmentModalProId('');
+      setAssessmentModalAccessMode('lms_embed');
+      setAssessmentModalPassingScore(70);
+      setShowAssessmentModal(true);
     }
   };
 
@@ -1718,6 +1752,12 @@ function onFormSubmit(e) {
           </div>
         </div>
 
+        {savedCourseId && (
+          <div className="px-6 pt-4">
+            <AssessmentGradingPanel courseId={savedCourseId} />
+          </div>
+        )}
+
         <div className="p-6">
           <div className="space-y-3">
             {courseData.modules.map((module, moduleIdx) => (
@@ -1903,6 +1943,12 @@ function onFormSubmit(e) {
           </div>
         </div>
 
+        {savedCourseId && (
+          <div className="px-8 pt-4">
+            <AssessmentGradingPanel courseId={savedCourseId} />
+          </div>
+        )}
+
         <div className="p-8">
           {currentLessonData ? (
             <>
@@ -2026,6 +2072,20 @@ function onFormSubmit(e) {
                               </div>
                             </>
                           )}
+                          {content.type === 'assessment' && content.assessment && (
+                            <>
+                              <div className="flex items-center mb-2">
+                                <Award className="w-5 h-5 text-indigo-600 dark:text-indigo-400 mr-2" />
+                                <span className="font-semibold text-gray-900 dark:text-white">{content.assessment.title}</span>
+                                <span className="ml-2 text-xs bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded">
+                                  {content.assessment.accessMode === 'proctored_portal' ? 'Final exam' : 'Module quiz'}
+                                </span>
+                              </div>
+                              <div className="text-sm text-gray-600 dark:text-gray-400">
+                                Assessment Pro · Passing score: {content.assessment.passingScore}%
+                              </div>
+                            </>
+                          )}
                           {content.type === 'form' && content.form && (
                             <>
                               <div className="flex items-center mb-2">
@@ -2131,6 +2191,13 @@ function onFormSubmit(e) {
                 >
                   <Award className="w-5 h-5 mr-2" />
                   Add Quiz
+                </button>
+                <button
+                  onClick={() => handleAddContent('assessment')}
+                  className="px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-semibold flex items-center transition-all shadow-lg"
+                >
+                  <Award className="w-5 h-5 mr-2" />
+                  Add Assessment
                 </button>
                 <button
                   onClick={() => handleAddContent('form')}
@@ -2266,6 +2333,25 @@ function onFormSubmit(e) {
                         )}
                       </div>
                     )}
+                    {currentStepContent.type === 'assessment' && (
+                      <div className="flex flex-col min-h-[50vh]">
+                        <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                            <Award className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                            {currentStepContent.assessment?.title || 'Assessment'}
+                          </span>
+                        </div>
+                        <div className="p-8 flex flex-col items-center justify-center flex-1 text-center">
+                          <Award className="w-10 h-10 text-indigo-600 mb-3" />
+                          <p className="font-medium text-gray-900 dark:text-white">{currentStepContent.assessment?.title || 'Assessment'}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 max-w-md">
+                            {currentStepContent.assessment?.accessMode === 'proctored_portal'
+                              ? 'Learners open this final exam in Assessment Pro (new tab).'
+                              : 'Learners take this module quiz embedded in Take Course.'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   {/* Control bar: step title, Next, two timelines */}
                   <div className="rounded-xl bg-gray-900/95 dark:bg-gray-950 p-5 text-white mt-4">
@@ -2275,11 +2361,12 @@ function onFormSubmit(e) {
                         {currentStepContent.type === 'reading' && (currentStepContent.reading?.title || 'Reading')}
                         {currentStepContent.type === 'quiz' && (currentStepContent.quiz?.title || 'Quiz')}
                         {currentStepContent.type === 'form' && (currentStepContent.form?.title || 'Form')}
+                        {currentStepContent.type === 'assessment' && (currentStepContent.assessment?.title || 'Assessment')}
                       </span>
                       <span className="text-sm text-white/90">Step {combinedSegmentIndex + 1} of {totalSteps}</span>
                     </div>
                     <div className="flex items-center gap-2 mb-3">
-                      {(currentStepContent.type === 'reading' || currentStepContent.type === 'quiz' || currentStepContent.type === 'form') && (
+                      {(currentStepContent.type === 'reading' || currentStepContent.type === 'quiz' || currentStepContent.type === 'form' || currentStepContent.type === 'assessment') && (
                         <button
                           type="button"
                           onClick={() => { if (combinedSegmentIndex < totalSteps - 1) setCombinedSegmentIndex((i) => i + 1); }}
@@ -3662,6 +3749,144 @@ function onFormSubmit(e) {
                   className="flex-1 px-6 py-3 bg-green-600 dark:bg-green-600 text-white rounded-xl hover:bg-green-700 dark:hover:bg-green-700 font-semibold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Add Form
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assessment Pro Modal */}
+      {showAssessmentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 border border-gray-200 dark:border-gray-700">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Add Assessment (Assessment Pro)</h3>
+              <button
+                onClick={() => {
+                  setShowAssessmentModal(false);
+                  setAssessmentModalTitle('');
+                  setAssessmentModalDescription('');
+                  setAssessmentModalProId('');
+                  setAssessmentModalAccessMode('lms_embed');
+                  setAssessmentModalPassingScore(70);
+                }}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
+              >
+                <X className="w-6 h-6 dark:text-gray-200" />
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl p-4 mb-6">
+                <div className="flex items-start">
+                  <Info className="w-5 h-5 text-indigo-600 dark:text-indigo-400 mr-3 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-indigo-900 dark:text-indigo-200">
+                    <p className="font-semibold mb-1">Module quiz vs final exam</p>
+                    <p><strong>Module quiz</strong> embeds in Take Course. <strong>Final exam</strong> opens Assessment Pro in a new tab with proctoring.</p>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Assessment type</label>
+                  <select
+                    value={assessmentModalAccessMode}
+                    onChange={(e) => setAssessmentModalAccessMode(e.target.value as 'lms_embed' | 'proctored_portal')}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="lms_embed">Module quiz (embedded)</option>
+                    <option value="proctored_portal">Final exam (new tab)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Title</label>
+                  <input
+                    type="text"
+                    value={assessmentModalTitle}
+                    onChange={(e) => setAssessmentModalTitle(e.target.value)}
+                    placeholder="e.g., Module 1 Quiz"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Description (optional)</label>
+                  <textarea
+                    value={assessmentModalDescription}
+                    onChange={(e) => setAssessmentModalDescription(e.target.value)}
+                    rows={2}
+                    placeholder="Shown to learners before they start"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Assessment Pro ID (UUID)</label>
+                  <input
+                    type="text"
+                    value={assessmentModalProId}
+                    onChange={(e) => setAssessmentModalProId(e.target.value)}
+                    placeholder="Paste assessment UUID from Assessment Pro"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white font-mono text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Passing score (%)</label>
+                  <input
+                    type="number"
+                    value={assessmentModalPassingScore}
+                    onChange={(e) => setAssessmentModalPassingScore(Number(e.target.value) || 70)}
+                    min={0}
+                    max={100}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+              </div>
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowAssessmentModal(false);
+                    setAssessmentModalTitle('');
+                    setAssessmentModalDescription('');
+                    setAssessmentModalProId('');
+                    setAssessmentModalAccessMode('lms_embed');
+                    setAssessmentModalPassingScore(70);
+                  }}
+                  className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold text-gray-900 dark:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const proId = assessmentModalProId.trim();
+                    if (!/^[0-9a-f-]{36}$/i.test(proId)) return;
+                    const modules = [...courseData.modules];
+                    const moduleItem = modules[currentModule];
+                    const lesson = moduleItem.lessons[currentLesson];
+                    const newAssessment: ContentItem = {
+                      id: Date.now(),
+                      type: 'assessment',
+                      order: lesson.content.length,
+                      assessment: {
+                        title: assessmentModalTitle.trim() || 'Assessment',
+                        description: assessmentModalDescription.trim() || undefined,
+                        assessmentProId: proId,
+                        accessMode: assessmentModalAccessMode,
+                        passingScore: Math.min(100, Math.max(0, Number(assessmentModalPassingScore) || 70)),
+                      },
+                    };
+                    lesson.content.push(newAssessment);
+                    setCourseData({ ...courseData, modules });
+                    setSelectedContent(lesson.content.length - 1);
+                    setShowAssessmentModal(false);
+                    setAssessmentModalTitle('');
+                    setAssessmentModalDescription('');
+                    setAssessmentModalProId('');
+                    setAssessmentModalAccessMode('lms_embed');
+                    setAssessmentModalPassingScore(70);
+                  }}
+                  disabled={!/^[0-9a-f-]{36}$/i.test(assessmentModalProId.trim())}
+                  className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Add Assessment
                 </button>
               </div>
             </div>
