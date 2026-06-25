@@ -20,8 +20,8 @@ Aligned partner plan: [`ASSESSMENT_PRO_INTEGRATION response.md`](ASSESSMENT_PRO_
 | Final exam: invitations + new tab (`proctored_portal`) | **Done** |
 | Webhook → session / progress / grading queue | **Done** |
 | Instructor grading panel (Create Course) | **Done** |
-| Authoring: **paste UUID only** | **Done** |
-| Authoring: picker / create / builder iframe | **Not started** — see §3 below |
+| Authoring: picker / create / builder iframe | **Done** |
+| Authoring: paste UUID (advanced) | **Done** |
 
 Production smoke test (from repo root, after Vercel env is set):
 
@@ -70,22 +70,14 @@ Store in `external_assessments.assessment_pro_assessment_id` linked to a `conten
 
 ## 3. “Add Assessment” modal — four options
 
-Current Coursify UI supports **paste UUID** only. Remaining authoring work:
+Current Coursify UI supports all four options in **Add Assessment** (`components/AddAssessmentModal.tsx`).
 
-| Option | What to build | AP API |
-|--------|----------------|--------|
-| **Pick existing** | Server proxy → dropdown in Create Course | `GET /api/v1/integrations/lms/assessments?accessMode=lms_embed` |
-| **Create simple** | Instructor form → create assessment in AP | `POST /api/v1/integrations/lms/assessments` |
-| **Design in AP** | Builder iframe in modal | `POST /api/v1/integrations/lms/builder-sessions` → `embedBuilderUrl` |
-| **Paste UUID** | Advanced / fallback | *(no AP call — store UUID in `external_assessments`)* |
-
-All server-to-server calls: `Authorization: Bearer <ASSESSMENT_PRO_API_KEY>`.
-
-Suggested Coursify proxy routes (not built yet):
-
-- `GET /api/instructor/assessments/catalog?accessMode=lms_embed`
-- `POST /api/instructor/assessments/create`
-- `POST /api/instructor/assessments/builder-session`
+| Option | What to build | AP API | Coursify proxy |
+|--------|----------------|--------|----------------|
+| **Pick existing** | Server proxy → dropdown in Create Course | `GET /api/v1/integrations/lms/assessments?accessMode=…` | `GET /api/instructor/assessments/catalog` |
+| **Create simple** | Instructor form → create assessment in AP | `POST /api/v1/integrations/lms/assessments` | `POST /api/instructor/assessments/create` |
+| **Design in AP** | Builder iframe in modal | `POST /api/v1/integrations/lms/builder-sessions` → `embedBuilderUrl` | `POST /api/instructor/assessments/builder-session` |
+| **Paste UUID** | Advanced / fallback | *(none)* | *(none)* |
 
 ---
 
@@ -145,7 +137,7 @@ Use `NEXT_PUBLIC_ASSESSMENT_PRO_ORIGIN` for origin checks in app code.
 |-------|------|-----------------|
 | 1 | Env vars + webhook route | Done |
 | 2 | DB: `external_assessments`, `external_assessment_sessions` | Done |
-| 3 | **Authoring:** picker +/or create +/or builder iframe | **Next** |
+| 3 | **Authoring:** picker +/or create +/or builder iframe | Done |
 | 4 | Take Course: launch + iframe (`lms_embed`) | Done |
 | 5 | Final exam: invitations + new tab (`proctored_portal`) | Done |
 | 6 | Webhook → progress / grading queue | Done |

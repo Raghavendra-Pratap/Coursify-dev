@@ -41,6 +41,101 @@ async function apPost<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function apGet<T>(path: string): Promise<T> {
+  const url = `${baseUrl()}${path}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${apiKey()}`,
+    },
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(errText || `Assessment Pro API error (${res.status})`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export interface ApAssessmentSummary {
+  id: string;
+  title: string;
+  description?: string;
+  accessMode: 'lms_embed' | 'proctored_portal';
+  passingScore: number;
+  durationMinutes?: number;
+  questionCount?: number;
+  isDraft?: boolean;
+  isPublished?: boolean;
+}
+
+export async function listAssessments(accessMode?: string): Promise<ApAssessmentSummary[]> {
+  const qs = accessMode ? `?accessMode=${encodeURIComponent(accessMode)}` : '';
+  const data = await apGet<{ assessments?: ApAssessmentSummary[] }>(
+    `/api/v1/integrations/lms/assessments${qs}`
+  );
+  return data.assessments ?? [];
+}
+
+export interface CreateAssessmentParams {
+  title: string;
+  description?: string;
+  accessMode: 'lms_embed' | 'proctored_portal';
+  passingScore?: number;
+  durationMinutes?: number;
+}
+
+export async function createAssessment(params: CreateAssessmentParams): Promise<ApAssessmentSummary> {
+  const data = await apPost<{ assessment?: ApAssessmentSummary }>(
+    '/api/v1/integrations/lms/assessments',
+    {
+      title: params.title,
+      description: params.description ?? '',
+      accessMode: params.accessMode,
+      passingScore: params.passingScore ?? 70,
+      durationMinutes: params.durationMinutes,
+    }
+  );
+  if (!data.assessment?.id) {
+    throw new Error('Assessment Pro create response missing assessment id');
+  }
+  return data.assessment;
+}
+
+export interface BuilderSessionParams {
+  accessMode: 'lms_embed' | 'proctored_portal';
+  assessmentId?: string;
+  title?: string;
+}
+
+export interface BuilderSessionResult {
+  embedBuilderUrl: string;
+  assessmentId?: string;
+  builderToken?: string;
+  expiresAt?: string;
+}
+
+export async function createBuilderSession(params: BuilderSessionParams): Promise<BuilderSessionResult> {
+  const data = await apPost<{
+    embedBuilderUrl?: string;
+    assessmentId?: string;
+    builderToken?: string;
+    expiresAt?: string;
+  }>('/api/v1/integrations/lms/builder-sessions', {
+    accessMode: params.accessMode,
+    assessmentId: params.assessmentId,
+    title: params.title,
+  });
+  if (!data.embedBuilderUrl) {
+    throw new Error('Assessment Pro builder response missing embedBuilderUrl');
+  }
+  return {
+    embedBuilderUrl: data.embedBuilderUrl,
+    assessmentId: data.assessmentId,
+    builderToken: data.builderToken,
+    expiresAt: data.expiresAt,
+  };
+}
+
 export interface LaunchEmbedParams {
   assessmentId: string;
   learner: { email: string; name: string; externalUserId: string };
