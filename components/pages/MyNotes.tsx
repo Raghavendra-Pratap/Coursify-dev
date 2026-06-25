@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { StickyNote, BookOpen, ChevronRight, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
+import { fetchJsonCached, readClientCache, SHELL_CACHE_MS } from '@/lib/client-fetch-cache';
 
 const NOTES_STORAGE_PREFIX = 'coursify_note_';
 const NOTES_MANIFEST_KEY = 'coursify_notes_manifest';
@@ -33,7 +33,10 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
   const [noteContents, setNoteContents] = useState<Record<string, string>>({});
   const [courseExists, setCourseExists] = useState<boolean | null>(null);
   const [existingLessonIds, setExistingLessonIds] = useState<Set<string>>(new Set());
-  const [notesLoading, setNotesLoading] = useState(true);
+  const [notesLoading, setNotesLoading] = useState(() => {
+    if (!userId) return false;
+    return readClientCache(`learning:notes:${userId}`, SHELL_CACHE_MS) == null;
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined' || !userId) {
@@ -44,7 +47,7 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
     let cancelled = false;
     (async () => {
       const cacheKey = `learning:notes:${userId}`;
-      const cached = readClientCache<{ notes?: Array<{ course_id: string; course_title: string; lesson_id: string; lesson_title: string; module_id?: string; module_title?: string; updated_at: string; content?: string }> }>(cacheKey, 60_000);
+      const cached = readClientCache<{ notes?: Array<{ course_id: string; course_title: string; lesson_id: string; lesson_title: string; module_id?: string; module_title?: string; updated_at: string; content?: string }> }>(cacheKey, SHELL_CACHE_MS);
       if (cached?.notes?.length) {
         applyNotes(cached.notes);
         setNotesLoading(false);
@@ -52,7 +55,7 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
         setNotesLoading(true);
       }
       try {
-        const { data } = await fetchJsonCached<{ notes?: Array<{ course_id: string; course_title: string; lesson_id: string; lesson_title: string; module_id?: string; module_title?: string; updated_at: string; content?: string }> }>(cacheKey, '/api/learning/notes');
+        const { data } = await fetchJsonCached<{ notes?: Array<{ course_id: string; course_title: string; lesson_id: string; lesson_title: string; module_id?: string; module_title?: string; updated_at: string; content?: string }> }>(cacheKey, '/api/learning/notes', { maxAgeMs: SHELL_CACHE_MS });
         if (cancelled) return;
         const notes = Array.isArray(data.notes) ? data.notes : [];
         if (notes.length > 0) {

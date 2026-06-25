@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { fetchJsonCached, readClientCache } from './client-fetch-cache';
+import { fetchJsonCached, readClientCache, SHELL_CACHE_MS } from './client-fetch-cache';
 
 type UseCachedFetchOptions = {
   enabled?: boolean;
@@ -16,7 +16,7 @@ export function useCachedFetch<T>(
   options: UseCachedFetchOptions = {}
 ) {
   const enabled = options.enabled !== false && Boolean(url);
-  const maxAgeMs = options.maxAgeMs ?? 60_000;
+  const maxAgeMs = options.maxAgeMs ?? SHELL_CACHE_MS;
 
   const [data, setData] = useState<T | null>(() =>
     enabled && url ? readClientCache<T>(cacheKey, maxAgeMs) : null

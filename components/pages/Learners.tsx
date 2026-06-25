@@ -7,7 +7,7 @@ import {
   Activity, Trophy, FileDown, ArrowUpRight, ArrowDownRight, Zap, X, Play, FileText, Bell, Award, Eye
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
+import { fetchJsonCached, readClientCache, SHELL_CACHE_MS } from '@/lib/client-fetch-cache';
 import type { Database } from '@/lib/database.types';
 
 type LearnerInviteInsert = Database['public']['Tables']['learner_invites']['Insert'];
@@ -17,6 +17,72 @@ interface LearnersProps {
 }
 
 type LearnerId = number | string;
+
+type LearnerApiRow = {
+  id: string;
+  full_name?: string | null;
+  role?: string;
+  organization?: string | null;
+  enrolledCourses?: number;
+  completedCourses?: number;
+  totalProgress?: number;
+  lastActive?: string;
+  joinedDate?: string;
+  averageScore?: number;
+  totalTimeSpent?: string;
+  lastActivityAt?: string | null;
+  email?: string | null;
+  certificates?: number;
+};
+
+function mapLearnerRow(p: LearnerApiRow) {
+  const name = p.full_name || 'Unknown';
+  const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || '?';
+  const enrolledCourses = p.enrolledCourses ?? 0;
+  const completedCourses = p.completedCourses ?? 0;
+  const totalProgress = p.totalProgress ?? 0;
+  const lastActivityAt = p.lastActivityAt ?? null;
+  const daysSinceActivity = lastActivityAt
+    ? Math.floor((Date.now() - new Date(lastActivityAt).getTime()) / (24 * 60 * 60 * 1000))
+    : 999;
+  let status: 'active' | 'at-risk' | 'inactive' = 'active';
+  if (enrolledCourses === 0) status = 'inactive';
+  else if (daysSinceActivity > 7) status = 'inactive';
+  else if ((totalProgress < 25 && daysSinceActivity >= 3) || (daysSinceActivity >= 3 && daysSinceActivity <= 7)) status = 'at-risk';
+  else if (totalProgress >= 25 && daysSinceActivity <= 2) status = 'active';
+  else if (totalProgress < 25 && daysSinceActivity <= 2) status = 'active';
+  else status = 'at-risk';
+  return {
+    id: p.id,
+    name,
+    email: p.email ?? '(signed up)',
+    avatar: initials,
+    avatarColor: 'from-indigo-400 to-indigo-500',
+    status,
+    enrolledCourses,
+    completedCourses,
+    inProgressCourses: Math.max(0, enrolledCourses - completedCourses),
+    totalProgress,
+    averageScore: p.averageScore ?? 0,
+    totalTimeSpent: p.totalTimeSpent ?? '0h',
+    lastActive: p.lastActive ?? '—',
+    joinedDate: p.joinedDate ?? '—',
+    streak: 0,
+    badges: 0,
+    certificates: p.certificates ?? 0,
+    department: p.organization || '—',
+    role: p.role || '—',
+    manager: '—',
+    courses: [],
+    activityLog: [],
+  };
+}
+
+function initialLearnersState(): any[] {
+  const cached = readClientCache<Record<string, unknown>>('instructor:learners', SHELL_CACHE_MS);
+  const apiLearners = Array.isArray(cached?.learners) ? (cached!.learners as LearnerApiRow[]) : [];
+  return apiLearners.map(mapLearnerRow);
+}
 
 const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   const [selectedTab, setSelectedTab] = useState('all');
@@ -30,13 +96,15 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   const [inviteCourseId, setInviteCourseId] = useState<string>('');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
-  const [learners, setLearners] = useState<any[]>([]);
+  const [learners, setLearners] = useState<any[]>(initialLearnersState);
   const [publishedCourses, setPublishedCourses] = useState<{ id: string; title: string }[]>([]);
   const [configMissing, setConfigMissing] = useState(false);
   const [learnersError, setLearnersError] = useState<string | null>(null);
   const [learnersEmptyReason, setLearnersEmptyReason] = useState<'no_courses' | 'no_enrollments' | null>(null);
   const [pendingInvites, setPendingInvites] = useState<{ id: string; email: string; course_id: string | null; status: string; created_at: string }[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(
+    () => readClientCache<Record<string, unknown>>('instructor:learners', SHELL_CACHE_MS) == null
+  );
 
   const stats = {
     total: learners.length,
@@ -85,64 +153,6 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   const filteredLearners = getFilteredLearners();
 
   useEffect(() => {
-    const mapLearnerRow = (p: {
-      id: string;
-      full_name?: string | null;
-      role?: string;
-      organization?: string | null;
-      enrolledCourses?: number;
-      completedCourses?: number;
-      totalProgress?: number;
-      lastActive?: string;
-      joinedDate?: string;
-      averageScore?: number;
-      totalTimeSpent?: string;
-      lastActivityAt?: string | null;
-      email?: string | null;
-      certificates?: number;
-    }) => {
-      const name = p.full_name || 'Unknown';
-      const initials = name.split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || '?';
-      const enrolledCourses = p.enrolledCourses ?? 0;
-      const completedCourses = p.completedCourses ?? 0;
-      const totalProgress = p.totalProgress ?? 0;
-      const lastActivityAt = p.lastActivityAt ?? null;
-      const daysSinceActivity = lastActivityAt
-        ? Math.floor((Date.now() - new Date(lastActivityAt).getTime()) / (24 * 60 * 60 * 1000))
-        : 999;
-      let status: 'active' | 'at-risk' | 'inactive' = 'active';
-      if (enrolledCourses === 0) status = 'inactive';
-      else if (daysSinceActivity > 7) status = 'inactive';
-      else if ((totalProgress < 25 && daysSinceActivity >= 3) || (daysSinceActivity >= 3 && daysSinceActivity <= 7)) status = 'at-risk';
-      else if (totalProgress >= 25 && daysSinceActivity <= 2) status = 'active';
-      else if (totalProgress < 25 && daysSinceActivity <= 2) status = 'active';
-      else status = 'at-risk';
-      return {
-        id: p.id,
-        name,
-        email: p.email ?? '(signed up)',
-        avatar: initials,
-        avatarColor: 'from-indigo-400 to-indigo-500',
-        status,
-        enrolledCourses,
-        completedCourses,
-        inProgressCourses: Math.max(0, enrolledCourses - completedCourses),
-        totalProgress,
-        averageScore: p.averageScore ?? 0,
-        totalTimeSpent: p.totalTimeSpent ?? '0h',
-        lastActive: p.lastActive ?? '—',
-        joinedDate: p.joinedDate ?? '—',
-        streak: 0,
-        badges: 0,
-        certificates: p.certificates ?? 0,
-        department: p.organization || '—',
-        role: p.role || '—',
-        manager: '—',
-        courses: [],
-        activityLog: [],
-      };
-    };
-
     const applyLearnersPayload = async (payload: Record<string, unknown>) => {
       setLearnersError(null);
       if (payload.error && typeof payload.error === 'string') {
@@ -157,7 +167,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
       setLearnersEmptyReason(emptyReason ?? null);
       if (apiLearners.length > 0) {
         setLearnersEmptyReason(null);
-        setLearners(apiLearners.map((p) => mapLearnerRow(p as Parameters<typeof mapLearnerRow>[0])));
+        setLearners(apiLearners.map((p) => mapLearnerRow(p as LearnerApiRow)));
         return;
       }
       const userIds = Array.isArray(payload.userIds) ? (payload.userIds as string[]) : [];
@@ -212,12 +222,16 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
           return;
         }
 
-        const cached = readClientCache<Record<string, unknown>>('instructor:learners', 60_000);
+        const cached = readClientCache<Record<string, unknown>>('instructor:learners', SHELL_CACHE_MS);
         if (cached) {
           await applyLearnersPayload(cached);
           setLoading(false);
         }
-        const { data } = await fetchJsonCached<Record<string, unknown>>('instructor:learners', '/api/instructor/learners');
+        const { data } = await fetchJsonCached<Record<string, unknown>>(
+          'instructor:learners',
+          '/api/instructor/learners',
+          { maxAgeMs: SHELL_CACHE_MS }
+        );
         await applyLearnersPayload(data);
       } catch {
         setConfigMissing(true);

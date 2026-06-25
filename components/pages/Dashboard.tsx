@@ -8,10 +8,33 @@ import {
   ArrowUp, ArrowDown, Minus, CheckCircle, AlertCircle, XCircle
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
+import { fetchJsonCached, readClientCache, SHELL_CACHE_MS } from '@/lib/client-fetch-cache';
 
 interface DashboardProps {
   setCurrentView: (view: string) => void;
+}
+
+type DashboardPayload = {
+  stats?: {
+    learners: { current: number; previous: number; change: number };
+    courses: { current: number; previous: number; change: number };
+    completion: { current: number; previous: number; change: number };
+    avgTime: { current: number; previous: number; change: number };
+  };
+  topCourses?: { id: number | string; name: string; completion: number; learners: number; trend: string; trendValue: number; avgTime: string; lastUpdated: string; status: string; dropOffPoint: string }[];
+  weeklyData?: { week: string; completions: number; enrollments: number; avgTime: number }[];
+  recentActivity?: { id: number; user: string; action: string; course: string; time: string; avatar: string; score?: number; type: string }[];
+};
+
+const EMPTY_STATS = {
+  learners: { current: 0, previous: 0, change: 0 },
+  courses: { current: 0, previous: 0, change: 0 },
+  completion: { current: 0, previous: 0, change: 0 },
+  avgTime: { current: 0, previous: 0, change: 0 },
+};
+
+function readDashboardCache(period: string): DashboardPayload | null {
+  return readClientCache<DashboardPayload>(`instructor:dashboard:${period}`, SHELL_CACHE_MS);
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
@@ -19,17 +42,13 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
   const [selectedCourse, setSelectedCourse] = useState<number | string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const [stats, setStats] = useState({
-    learners: { current: 0, previous: 0, change: 0 },
-    courses: { current: 0, previous: 0, change: 0 },
-    completion: { current: 0, previous: 0, change: 0 },
-    avgTime: { current: 0, previous: 0, change: 0 }
-  });
+  const initialCache = readDashboardCache('7days');
+  const [stats, setStats] = useState(() => initialCache?.stats ?? EMPTY_STATS);
   const [configMissing, setConfigMissing] = useState(false);
-  const [topCourses, setTopCourses] = useState<{ id: number | string; name: string; completion: number; learners: number; trend: string; trendValue: number; avgTime: string; lastUpdated: string; status: string; dropOffPoint: string }[]>([]);
-  const [weeklyData, setWeeklyData] = useState<{ week: string; completions: number; enrollments: number; avgTime: number }[]>([]);
-  const [recentActivity, setRecentActivity] = useState<{ id: number; user: string; action: string; course: string; time: string; avatar: string; score?: number; type: string }[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [topCourses, setTopCourses] = useState(() => initialCache?.topCourses ?? []);
+  const [weeklyData, setWeeklyData] = useState(() => initialCache?.weeklyData ?? []);
+  const [recentActivity, setRecentActivity] = useState(() => initialCache?.recentActivity ?? []);
+  const [loading, setLoading] = useState(() => initialCache?.stats == null);
 
   useEffect(() => {
     const load = async () => {
@@ -40,12 +59,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
       }
       setConfigMissing(false);
       const cacheKey = `instructor:dashboard:${selectedPeriod}`;
-      const cached = readClientCache<{
-        stats?: typeof stats;
-        topCourses?: typeof topCourses;
-        weeklyData?: typeof weeklyData;
-        recentActivity?: typeof recentActivity;
-      }>(cacheKey, 60_000);
+      const cached = readClientCache<DashboardPayload>(cacheKey, SHELL_CACHE_MS);
       if (cached?.stats) {
         setStats(cached.stats);
         if (cached.topCourses) setTopCourses(cached.topCourses);
@@ -54,12 +68,11 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
         setLoading(false);
       }
       try {
-        const { data } = await fetchJsonCached<{
-          stats?: typeof stats;
-          topCourses?: typeof topCourses;
-          weeklyData?: typeof weeklyData;
-          recentActivity?: typeof recentActivity;
-        }>(cacheKey, `/api/instructor/dashboard?period=${selectedPeriod}`);
+        const { data } = await fetchJsonCached<DashboardPayload>(
+          cacheKey,
+          `/api/instructor/dashboard?period=${selectedPeriod}`,
+          { maxAgeMs: SHELL_CACHE_MS }
+        );
         if (data.stats) setStats(data.stats);
         if (Array.isArray(data.topCourses)) setTopCourses(data.topCourses);
         if (Array.isArray(data.weeklyData)) setWeeklyData(data.weeklyData);

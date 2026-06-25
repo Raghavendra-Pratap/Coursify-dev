@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Play, Upload, Edit, Users, BarChart3, Settings, Plus, Check, X, Clock, FileText, Video, Folder, ChevronRight, Menu, Search, Bell, Award, TrendingUp, Home, BookOpen, Zap, Eye, Share2, Download, Target, Mail, User, LogOut, StickyNote, HelpCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -16,6 +16,7 @@ import Reports from './pages/Reports';
 import MyNotes from './pages/MyNotes';
 import QAndA from './pages/QAndA';
 import NotificationsDropdown from './NotificationsDropdown';
+import { prefetchShellData, prefetchShellView } from '@/lib/prefetch-shell-data';
 
 function KeepAliveView({ active, children }: { active: boolean; children: React.ReactNode }) {
   return (
@@ -81,6 +82,7 @@ function TopNavItem({
   currentView,
   onNavigate,
   onAfterNavigate,
+  onPrefetch,
 }: {
   icon: React.ElementType;
   label: string;
@@ -88,6 +90,7 @@ function TopNavItem({
   currentView: string;
   onNavigate: (view: string) => void;
   onAfterNavigate?: () => void;
+  onPrefetch?: (view: string) => void;
 }) {
   const active = currentView === view;
   return (
@@ -97,6 +100,8 @@ function TopNavItem({
         onNavigate(view);
         onAfterNavigate?.();
       }}
+      onMouseEnter={() => onPrefetch?.(view)}
+      onFocus={() => onPrefetch?.(view)}
       className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
         active
           ? 'bg-blue-600 text-white shadow-sm dark:bg-blue-500'
@@ -118,6 +123,7 @@ function CoursifyAppLayout({
   onNavigate,
   onOpenCourse,
   onOpenSettings,
+  onPrefetchView,
   children,
 }: {
   currentView: string;
@@ -128,6 +134,7 @@ function CoursifyAppLayout({
   onNavigate: (view: string) => void;
   onOpenCourse?: (courseId: string) => void;
   onOpenSettings: () => void;
+  onPrefetchView?: (view: string) => void;
   children: React.ReactNode;
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -135,20 +142,20 @@ function CoursifyAppLayout({
 
   const learnerNav = (
     <>
-      <TopNavItem icon={BookOpen} label="My learning" view="courses" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
-      <TopNavItem icon={StickyNote} label="My Notes" view="notes" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
-      <TopNavItem icon={HelpCircle} label="Q & A" view="qa" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
+      <TopNavItem icon={BookOpen} label="My learning" view="courses" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} onPrefetch={onPrefetchView} />
+      <TopNavItem icon={StickyNote} label="My Notes" view="notes" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} onPrefetch={onPrefetchView} />
+      <TopNavItem icon={HelpCircle} label="Q & A" view="qa" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} onPrefetch={onPrefetchView} />
     </>
   );
 
   const instructorNav = (
     <>
-      <TopNavItem icon={Home} label="Dashboard" view="dashboard" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
-      <TopNavItem icon={Video} label="My Courses" view="courses" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
-      <TopNavItem icon={Users} label="Learners" view="learners" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
-      <TopNavItem icon={BarChart3} label="Analytics" view="analytics" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
-      <TopNavItem icon={FileText} label="Reports" view="reports" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
-      <TopNavItem icon={HelpCircle} label="Q & A" view="qa" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} />
+      <TopNavItem icon={Home} label="Dashboard" view="dashboard" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} onPrefetch={onPrefetchView} />
+      <TopNavItem icon={Video} label="My Courses" view="courses" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} onPrefetch={onPrefetchView} />
+      <TopNavItem icon={Users} label="Learners" view="learners" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} onPrefetch={onPrefetchView} />
+      <TopNavItem icon={BarChart3} label="Analytics" view="analytics" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} onPrefetch={onPrefetchView} />
+      <TopNavItem icon={FileText} label="Reports" view="reports" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} onPrefetch={onPrefetchView} />
+      <TopNavItem icon={HelpCircle} label="Q & A" view="qa" currentView={currentView} onNavigate={onNavigate} onAfterNavigate={() => setMobileNavOpen(false)} onPrefetch={onPrefetchView} />
     </>
   );
 
@@ -346,7 +353,17 @@ const CoursifyLMS = () => {
     }
   }, [user]);
 
-  // After sign-in: process pending invites (auto-enroll) and ?enroll= param; default invited users to learner mode
+  useEffect(() => {
+    if (!user?.id || !sessionMode) return;
+    prefetchShellData(sessionMode, user.id);
+  }, [user?.id, sessionMode]);
+
+  const handlePrefetchView = useCallback(
+    (view: string) => prefetchShellView(view, sessionMode, user?.id ?? null),
+    [sessionMode, user?.id]
+  );
+
+  // After sign-in: process pending invites
   useEffect(() => {
     if (!user || typeof window === 'undefined') return;
     (async () => {
@@ -580,6 +597,7 @@ const CoursifyLMS = () => {
         setCurrentView('take');
       }}
       onOpenSettings={() => setCurrentView('settings')}
+      onPrefetchView={handlePrefetchView}
     >
       <KeepAliveView active={currentView === 'dashboard'}>
         <Dashboard setCurrentView={setCurrentView} />

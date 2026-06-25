@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { HelpCircle, ChevronDown, ChevronRight, Send, BookOpen, MessageSquare, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
+import { fetchJsonCached, readClientCache, SHELL_CACHE_MS } from '@/lib/client-fetch-cache';
 
 export type QuestionRow = {
   id: string;
@@ -34,8 +34,10 @@ interface QAndAProps {
 export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QAndAProps) {
   const { user } = useAuth();
   const userId = user?.id ?? null;
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [loading, setLoading] = useState(true);
+  const qaCacheKey = sessionMode === 'instructor' ? 'instructor:questions' : 'learning:my-questions';
+  const initialQaCache = sessionMode ? readClientCache<{ threads?: Thread[] }>(qaCacheKey, SHELL_CACHE_MS) : null;
+  const [threads, setThreads] = useState<Thread[]>(() => initialQaCache?.threads ?? []);
+  const [loading, setLoading] = useState(() => (sessionMode ? initialQaCache == null : true));
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [followUpText, setFollowUpText] = useState<Record<string, string>>({});
@@ -54,7 +56,7 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
     if (!userId) return;
     const url = sessionMode === 'instructor' ? '/api/instructor/questions' : '/api/learning/my-questions';
     const cacheKey = sessionMode === 'instructor' ? 'instructor:questions' : 'learning:my-questions';
-    const cached = readClientCache<{ threads?: Thread[] }>(cacheKey, 60_000);
+    const cached = readClientCache<{ threads?: Thread[] }>(cacheKey, SHELL_CACHE_MS);
     if (cached?.threads) {
       setThreads(cached.threads);
       setLoading(false);
@@ -63,7 +65,7 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
     }
     setError(null);
     try {
-      const { data } = await fetchJsonCached<{ threads?: Thread[] }>(cacheKey, url);
+      const { data } = await fetchJsonCached<{ threads?: Thread[] }>(cacheKey, url, { maxAgeMs: SHELL_CACHE_MS });
       setThreads(Array.isArray(data.threads) ? data.threads : []);
     } catch {
       if (!cached?.threads) {

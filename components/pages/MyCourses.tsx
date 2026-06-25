@@ -9,7 +9,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { getPreferences, getCourseRecommendationScore } from '@/lib/preference-loop';
 import type { LearnerPreferences } from '@/lib/preference-loop';
-import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
+import { fetchJsonCached, readClientCache, SHELL_CACHE_MS } from '@/lib/client-fetch-cache';
 
 type SessionMode = 'instructor' | 'learner' | null;
 
@@ -91,6 +91,26 @@ type EnrolledCourse = {
   my_review?: string | null;
 };
 
+type MyCoursesPayload = {
+  courses?: CourseRow[];
+  totalUniqueLearners?: number;
+  contentMix?: Record<string, { video: number; reading: number; quiz: number }>;
+};
+
+function normalizeCourseRows(rows: CourseRow[]): CourseRow[] {
+  return rows.map((c) => ({
+    ...c,
+    category: c.category ?? 'General',
+    status: c.status as CourseRow['status'],
+    lastUpdated: formatCourseDate(c.lastUpdated),
+    createdDate: formatCourseDate(c.createdDate),
+  }));
+}
+
+function readMyCoursesCache(): MyCoursesPayload | null {
+  return readClientCache<MyCoursesPayload>('instructor:my-courses', SHELL_CACHE_MS);
+}
+
 const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onStartCourse, sessionMode = 'instructor', learningCourseId = null }) => {
   const isLearnerView = sessionMode === 'learner';
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -115,14 +135,20 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [courseOwnerId, setCourseOwnerId] = useState<string | null>(null);
-  const [courses, setCourses] = useState<CourseRow[]>([]);
-  const [enrolledCourses, setEnrolledCourses] = useState<EnrolledCourse[]>([]);
-  const [enrolledLoading, setEnrolledLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const instructorCache = readMyCoursesCache();
+  const enrolledCache = readClientCache<{ courses?: EnrolledCourse[] }>('learning:enrolled', SHELL_CACHE_MS);
+  const [courses, setCourses] = useState<CourseRow[]>(() =>
+    instructorCache?.courses ? normalizeCourseRows(instructorCache.courses) : []
+  );
+  const [enrolledCourses, setEnrolledCourses] = useState<EnrolledCourse[]>(() => enrolledCache?.courses ?? []);
+  const [enrolledLoading, setEnrolledLoading] = useState(() => enrolledCache == null);
+  const [loading, setLoading] = useState(() => instructorCache == null);
   const [configMissing, setConfigMissing] = useState(false);
   const [userId, setUserId] = useState<string | undefined>(undefined);
   const [preferences, setPreferences] = useState<LearnerPreferences | null>(null);
-  const [contentMixByCourse, setContentMixByCourse] = useState<Record<string, { video: number; reading: number; quiz: number }>>({});
+  const [contentMixByCourse, setContentMixByCourse] = useState<Record<string, { video: number; reading: number; quiz: number }>>(
+    () => instructorCache?.contentMix ?? {}
+  );
   const [learnerFilter, setLearnerFilter] = useState<'all' | 'enrolled' | 'in_progress' | 'completed'>('all');
   const [learnerSearch, setLearnerSearch] = useState('');
   const [learnerSort, setLearnerSort] = useState<'recent' | 'name' | 'progress'>('recent');
@@ -131,7 +157,9 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
   const [rateModalReview, setRateModalReview] = useState('');
   const [rateSubmitting, setRateSubmitting] = useState(false);
   const [rateError, setRateError] = useState<string | null>(null);
-  const [totalUniqueLearners, setTotalUniqueLearners] = useState<number | null>(null);
+  const [totalUniqueLearners, setTotalUniqueLearners] = useState<number | null>(
+    () => (typeof instructorCache?.totalUniqueLearners === 'number' ? instructorCache.totalUniqueLearners : null)
+  );
   const [userRole, setUserRole] = useState<'learner' | 'instructor' | 'admin' | null>(null);
 
   useEffect(() => {
@@ -166,14 +194,14 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
 
   useEffect(() => {
     if (!isLearnerView || learningCourseId) return;
-    const hit = readClientCache<{ courses?: EnrolledCourse[] }>('learning:enrolled', 60_000);
-    if (hit?.courses) {
-      setEnrolledCourses(hit.courses);
+    const hit = readClientCache<{ courses?: EnrolledCourse[] }>('learning:enrolled', SHELL_CACHE_MS);
+    if (hit) {
+      setEnrolledCourses(hit.courses ?? []);
       setEnrolledLoading(false);
     } else {
       setEnrolledLoading(true);
     }
-    fetchJsonCached<{ courses?: EnrolledCourse[] }>('learning:enrolled', '/api/learning/enrolled')
+    fetchJsonCached<{ courses?: EnrolledCourse[] }>('learning:enrolled', '/api/learning/enrolled', { maxAgeMs: SHELL_CACHE_MS })
       .then(({ data }) => {
         setEnrolledCourses(Array.isArray(data.courses) ? data.courses : []);
       })
@@ -185,11 +213,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
     if (isLearnerView) return;
     let cancelled = false;
 
-    const applyPayload = (data: {
-      courses?: CourseRow[];
-      totalUniqueLearners?: number;
-      contentMix?: Record<string, { video: number; reading: number; quiz: number }>;
-    }) => {
+    const applyPayload = (data: MyCoursesPayload) => {
       const rows = (data.courses ?? []).map((c) => ({
         ...c,
         category: c.category ?? 'General',
@@ -210,21 +234,17 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
         return;
       }
       setConfigMissing(false);
-      const cached = readClientCache<{
-        courses?: CourseRow[];
-        totalUniqueLearners?: number;
-        contentMix?: Record<string, { video: number; reading: number; quiz: number }>;
-      }>('instructor:my-courses', 60_000);
+      const cached = readMyCoursesCache();
       if (cached) {
         applyPayload(cached);
         setLoading(false);
       }
       try {
-        const { data } = await fetchJsonCached<{
-          courses?: CourseRow[];
-          totalUniqueLearners?: number;
-          contentMix?: Record<string, { video: number; reading: number; quiz: number }>;
-        }>('instructor:my-courses', '/api/instructor/my-courses');
+        const { data } = await fetchJsonCached<MyCoursesPayload>(
+          'instructor:my-courses',
+          '/api/instructor/my-courses',
+          { maxAgeMs: SHELL_CACHE_MS }
+        );
         if (cancelled) return;
         applyPayload(data);
       } catch {
