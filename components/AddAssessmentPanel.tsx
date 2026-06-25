@@ -246,8 +246,10 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
 
   if (!active) return null;
 
+  const builderHeightClass = 'h-[72vh] min-h-[480px] max-h-[900px]';
+
   return (
-    <div className="mb-6 rounded-2xl border-2 border-indigo-300 dark:border-indigo-800 bg-white dark:bg-gray-800 shadow-lg overflow-hidden flex flex-col">
+    <div className={`mb-6 w-full rounded-2xl border-2 border-indigo-300 dark:border-indigo-800 bg-white dark:bg-gray-800 shadow-lg overflow-hidden flex flex-col ${tab === 'builder' ? builderHeightClass : ''}`}>
       {/* Compact header */}
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3 bg-indigo-50 dark:bg-indigo-950/40 flex-shrink-0">
         <Award className="w-5 h-5 text-indigo-600 flex-shrink-0" />
@@ -325,12 +327,12 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
         </p>
       )}
 
-      {/* Main content — builder gets maximum height */}
-      <div className="flex-1 min-h-0">
+      {/* Main content — builder fills panel height */}
+      <div className={`flex-1 min-h-0 w-full flex flex-col ${tab === 'builder' ? 'overflow-hidden' : ''}`}>
         {tab === 'builder' && (
-          <div className="flex flex-col" style={{ minHeight: 'min(72vh, 720px)' }}>
+          <div className="flex flex-col flex-1 min-h-0 w-full">
             {builderEmbedBlocked && builderUrl && (
-              <div className="mx-4 mt-3 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 flex-shrink-0">
+              <div className="mx-3 mt-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 flex-shrink-0">
                 Iframe blocked by Assessment Pro —{' '}
                 <a href={builderUrl} target="_blank" rel="noopener noreferrer" className="underline font-medium">
                   open designer in new tab
@@ -339,9 +341,9 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
               </div>
             )}
 
-            <div className="flex-1 relative min-h-[60vh] p-3 pt-2">
+            <div className="flex-1 min-h-0 w-full p-3">
               {loading && !builderUrl && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-50 dark:bg-gray-900/50 rounded-xl">
+                <div className="w-full h-full flex items-center justify-center bg-gray-50 dark:bg-gray-900/50 rounded-xl">
                   <p className="text-sm text-gray-500 flex items-center gap-2">
                     <Loader2 className="w-5 h-5 animate-spin" /> Loading Assessment Pro designer…
                   </p>
@@ -352,13 +354,13 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
                 <iframe
                   src={builderUrl}
                   title="Assessment Pro builder"
-                  className="absolute inset-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white"
+                  className="block w-full h-full rounded-xl border border-gray-200 dark:border-gray-600 bg-white"
                   allow="clipboard-read; clipboard-write"
                 />
               )}
 
               {builderEmbedBlocked && builderUrl && (
-                <div className="absolute inset-3 flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/40 gap-4">
+                <div className="w-full h-full flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/40 gap-4">
                   <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md text-center px-4">
                     Design your questions in Assessment Pro, then return here. Publishing will link the assessment automatically.
                   </p>
