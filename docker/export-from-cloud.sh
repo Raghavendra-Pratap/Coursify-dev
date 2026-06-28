@@ -3,4 +3,4 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-node scripts/export-cloud-data.mjs
+node docker/export-cloud-data.mjs
