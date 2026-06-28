@@ -110,6 +110,37 @@ sudo systemctl reload caddy
 
 Open https://coursify.bsoc.space
 
+Or run the all-in-one finisher (Caddy + firewall + checklist):
+
+```bash
+export APP_DOMAIN=coursify.bsoc.space
+export API_DOMAIN=api.coursify.bsoc.space
+./docker/finish-vps-setup.sh
+```
+
+---
+
+## 5b. DNS cutover from Vercel
+
+**Important:** If `coursify.bsoc.space` still shows `server: Vercel` or `DEPLOYMENT_NOT_FOUND`, DNS is not on the VPS yet.
+
+In your DNS panel (where `bsoc.space` is managed):
+
+1. **Delete** Vercel CNAME records for `coursify` (e.g. `coursify → …vercel-dns-….com`)
+2. **Add A records** pointing to your VPS IP (`curl -4 ifconfig.me` on the server):
+
+```
+coursify.bsoc.space      A    YOUR_VPS_IP
+api.coursify.bsoc.space  A    YOUR_VPS_IP
+```
+
+3. Wait for propagation (5–30 min), then verify:
+
+```bash
+curl -sI https://coursify.bsoc.space | grep -i server
+# should NOT say Vercel — ideally Caddy or empty
+```
+
 ---
 
 ## 6. Copy data from Supabase Cloud (optional)

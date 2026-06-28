@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Finish VPS setup: Caddy TLS, firewall, health checks.
+# Run on VPS after ./docker/build-app.sh succeeds.
+#
+#   export APP_DOMAIN=coursify.bsoc.space
+#   export API_DOMAIN=api.coursify.bsoc.space
+#   ./docker/finish-vps-setup.sh
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+APP_DOMAIN="${APP_DOMAIN:-coursify.bsoc.space}"
+API_DOMAIN="${API_DOMAIN:-api.coursify.bsoc.space}"
+
+echo "==> VPS public IP (use for DNS A records):"
+curl -4 -s ifconfig.me || curl -4 -s icanhazip.com || echo "(could not detect — run: curl -4 ifconfig.me)"
+echo ""
+echo ""
+
+echo "==> Docker containers"
+docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E 'coursify|supabase-kong|supabase-db|NAMES' || true
+echo ""
+
+echo "==> Local health"
+curl -sf -o /dev/null -w "  app :3000 → %{http_code}\n" http://127.0.0.1:3000/ || echo "  app :3000 → FAIL"
+curl -sf -o /dev/null -w "  api :8000 → %{http_code}\n" http://127.0.0.1:8000/rest/v1/ || echo "  api :8000 → FAIL"
+echo ""
+
+echo "==> Caddy"
+if ! command -v caddy >/dev/null 2>&1; then
+  echo "Installing Caddy…"
+  sudo apt-get update -qq
+  sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+  sudo apt-get update -qq
+  sudo apt-get install -y caddy
+fi
+
+sudo tee /etc/caddy/Caddyfile > /dev/null <<EOF
+${APP_DOMAIN} {
+	encode gzip
+	reverse_proxy 127.0.0.1:3000
+}
+
+${API_DOMAIN} {
+	encode gzip
+	reverse_proxy 127.0.0.1:8000
+}
+EOF
+
+sudo systemctl enable caddy
+sudo systemctl reload caddy || sudo systemctl restart caddy
+echo "Caddy configured for ${APP_DOMAIN} and ${API_DOMAIN}"
+echo ""
+
+echo "==> Firewall (ufw)"
+if command -v ufw >/dev/null 2>&1; then
+  sudo ufw allow OpenSSH >/dev/null 2>&1 || true
+  sudo ufw allow 80/tcp >/dev/null 2>&1 || true
+  sudo ufw allow 443/tcp >/dev/null 2>&1 || true
+  echo "y" | sudo ufw enable 2>/dev/null || sudo ufw status || true
+else
+  echo "ufw not installed — skip or: sudo apt install ufw"
+fi
+echo ""
+
+echo "==> DNS checklist (do this in your domain registrar / Cloudflare)"
+VPS_IP=$(curl -4 -s ifconfig.me 2>/dev/null || true)
+echo "  ${APP_DOMAIN}      A    ${VPS_IP:-YOUR_VPS_IP}"
+echo "  ${API_DOMAIN}  A    ${VPS_IP:-YOUR_VPS_IP}"
+echo ""
+echo "  Remove Vercel CNAME for coursify if still pointing to vercel-dns."
+echo "  Wait 5–30 min after DNS change, then open: https://${APP_DOMAIN}"
+echo ""
+echo "==> Google OAuth (Google Cloud Console → Authorized redirect URIs)"
+echo "  https://${API_DOMAIN}/auth/v1/callback"
+echo ""
+echo "==> Optional: import cloud data"
+echo "  On laptop: ./docker/export-from-cloud.sh && scp -r database/seed root@VPS:~/coursify/database/"
+echo "  On VPS:    ./docker/import-cloud-data.sh"
