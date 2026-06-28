@@ -134,6 +134,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
   const [courseOwnerId, setCourseOwnerId] = useState<string | null>(null);
   const instructorCache = readMyCoursesCache();
   const enrolledCache = readClientCache<{ courses?: EnrolledCourse[] }>('learning:enrolled', SHELL_CACHE_MS);
@@ -471,10 +472,12 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
   const handleInviteCollaborator = async () => {
     if (!courseForCollaborators || typeof courseForCollaborators.id !== 'string' || !inviteEmail.trim()) return;
     setInviteError(null);
+    setInviteSuccess(null);
     setInviteLoading(true);
     try {
       const res = await fetch('/api/courses/invite-collaborator', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ courseId: courseForCollaborators.id, email: inviteEmail.trim() }),
       });
@@ -484,6 +487,11 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
         return;
       }
       setInviteEmail('');
+      setInviteSuccess(
+        data.emailSent
+          ? 'Co-instructor added and notified by email.'
+          : 'Co-instructor added. Enable RESEND_API_KEY to send email notifications.'
+      );
       const { data: collabRows } = await supabase.from('course_collaborators').select('user_id').eq('course_id', courseForCollaborators.id);
       const newIds = (collabRows ?? []).map((r: { user_id: string }) => r.user_id).filter((id) => !collaboratorsList.some((c) => c.id === id));
       if (newIds.length) {
@@ -1567,6 +1575,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                           Invite
                         </button>
                       </div>
+                      {inviteSuccess && <p className="text-sm text-green-600 dark:text-green-400 mt-2">{inviteSuccess}</p>}
                       {inviteError && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{inviteError}</p>}
                     </div>
                   )}

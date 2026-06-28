@@ -40,6 +40,7 @@ Quick index of documentation in `docs/` and related files. Use this for `/docs` 
 | Doc | Description |
 |-----|-------------|
 | [SUPABASE_AUTH_SETUP.md](SUPABASE_AUTH_SETUP.md) | Supabase auth setup |
+| [RESEND_EMAIL.md](RESEND_EMAIL.md) | Resend setup for learner invites and reminders |
 | [QANDA_SETUP.md](QANDA_SETUP.md) | Q&A feature setup |
 | [QUIZ_WEBHOOK_GOOGLE_FORMS.md](QUIZ_WEBHOOK_GOOGLE_FORMS.md) | Quiz webhook and Google Forms |
 | [INSTRUCTOR_COLLABORATION.md](INSTRUCTOR_COLLABORATION.md) | Instructor collaboration |

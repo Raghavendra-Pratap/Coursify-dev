@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Plus, Clock, Search, Mail, Download, Upload, MoreVertical,
   CheckCircle, AlertCircle, TrendingUp, Target, Calendar, BookOpen, Star, Send, UserPlus, UserMinus,
-  Activity, Trophy, FileDown, ArrowUpRight, ArrowDownRight, Zap, X, Play, FileText, Bell, Award, Eye
+  Activity, Trophy, FileDown, ArrowUpRight, ArrowDownRight, Zap, X, Play, FileText, Bell, Award, Eye, Loader2
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { fetchJsonCached, readClientCache, SHELL_CACHE_MS } from '@/lib/client-fetch-cache';
@@ -102,6 +102,8 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   const [learnersError, setLearnersError] = useState<string | null>(null);
   const [learnersEmptyReason, setLearnersEmptyReason] = useState<'no_courses' | 'no_enrollments' | null>(null);
   const [pendingInvites, setPendingInvites] = useState<{ id: string; email: string; course_id: string | null; status: string; created_at: string }[]>([]);
+  const [inviteSending, setInviteSending] = useState(false);
+  const [emailConfigured, setEmailConfigured] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(
     () => readClientCache<Record<string, unknown>>('instructor:learners', SHELL_CACHE_MS) == null
   );
@@ -246,26 +248,34 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   }, []);
 
   useEffect(() => {
-    const fetchPendingInvites = async () => {
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return;
-      const { data: { session } } = await supabase.auth.getSession();
-      const currentUserId = session?.user?.id ?? null;
-      if (!currentUserId) {
-        setPendingInvites([]);
-        return;
-      }
-      const { data, error } = await supabase
-        .from('learner_invites')
-        .select('id, email, course_id, status, created_at')
-        .eq('created_by', currentUserId)
-        .order('created_at', { ascending: false });
-      if (error) {
-        setPendingInvites([]);
-        return;
-      }
-      setPendingInvites((data as { id: string; email: string; course_id: string | null; status: string; created_at: string }[]) ?? []);
-    };
-    fetchPendingInvites();
+    fetch('/api/email/status', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((d) => setEmailConfigured(Boolean(d?.configured)))
+      .catch(() => setEmailConfigured(null));
+  }, []);
+
+  const refreshPendingInvites = async () => {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const currentUserId = session?.user?.id ?? null;
+    if (!currentUserId) {
+      setPendingInvites([]);
+      return;
+    }
+    const { data, error } = await supabase
+      .from('learner_invites')
+      .select('id, email, course_id, status, created_at')
+      .eq('created_by', currentUserId)
+      .order('created_at', { ascending: false });
+    if (error) {
+      setPendingInvites([]);
+      return;
+    }
+    setPendingInvites((data as { id: string; email: string; course_id: string | null; status: string; created_at: string }[]) ?? []);
+  };
+
+  useEffect(() => {
+    void refreshPendingInvites();
   }, []);
 
   useEffect(() => {
@@ -365,26 +375,35 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
       status: 'pending',
       created_by: session.user.id,
     }));
+    setInviteSending(true);
     const { error } = await (supabase as any).from('learner_invites').insert(rows);
     if (error) {
+      setInviteSending(false);
       showActionMessage('Invites could not be saved. Ensure the learner_invites table exists (see database/schema.sql).');
       return;
     }
+    void refreshPendingInvites();
     const courseTitle = publishedCourses.find((c) => c.id === courseId)?.title;
     try {
       const res = await fetch('/api/email/invite', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emails: allEmails, courseId: courseId || undefined, courseTitle }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data?.ok) {
-        showActionMessage(`Invites saved and emails sent to ${data.sent ?? allEmails.length} recipient(s).`);
+        const failedNote = data.failed?.length ? ` (${data.failed.length} failed)` : '';
+        showActionMessage(`Invites saved and emails sent to ${data.sent ?? allEmails.length} recipient(s)${failedNote}.`);
+      } else if (res.status === 503) {
+        showActionMessage(`Saved ${allEmails.length} invite(s). Add RESEND_API_KEY in Vercel to send emails.`);
       } else {
-        showActionMessage(`Invites saved. ${data?.error || 'Set RESEND_API_KEY to send invite emails.'}`);
+        showActionMessage(`Invites saved. ${data?.error || 'Email could not be sent.'}`);
       }
     } catch {
-      showActionMessage(`Saved ${allEmails.length} invitation(s). Set RESEND_API_KEY to send emails.`);
+      showActionMessage(`Saved ${allEmails.length} invitation(s). Email delivery failed — try again later.`);
+    } finally {
+      setInviteSending(false);
     }
     setShowInviteModal(false);
     setInviteEmails('');
@@ -422,6 +441,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
       if (error) throw error;
       const res = await fetch('/api/email/reminder', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId,
@@ -461,6 +481,11 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
 
   return (
     <div className="min-h-full dark:bg-gray-900">
+      {emailConfigured === false && (
+        <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-8 py-2 text-sm text-amber-800 dark:text-amber-200">
+          Email delivery is not configured. Invites are saved; add <code className="font-mono text-xs">RESEND_API_KEY</code> in Vercel to send invitation emails.
+        </div>
+      )}
       {configMissing && (
         <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-8 py-2 text-sm text-amber-800 dark:text-amber-200">
           Configure Supabase to load learners.
@@ -813,49 +838,54 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
 
       {/* Invite Learners Modal */}
       {showInviteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 border border-gray-200 dark:border-gray-700">
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <h3 className="text-2xl font-bold dark:text-white">Invite Learners</h3>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-gray-200 dark:border-gray-700">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between sticky top-0 bg-white dark:bg-gray-800 z-10">
+              <div>
+                <h3 className="text-2xl font-bold dark:text-white">Invite learners</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Invites are saved and an email is sent when Resend is configured.</p>
+              </div>
               <button 
                 onClick={() => {
                   setShowInviteModal(false);
                   setInviteEmails('');
                   setBulkUploadFile(null);
                 }}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-all"
+                aria-label="Close"
               >
                 <X className="w-6 h-6" />
               </button>
             </div>
 
             <div className="p-6">
-              {/* Email Input */}
               <div className="mb-6">
-                <label className="block text-sm font-semibold mb-2 dark:text-gray-200">Email Addresses</label>
+                <label htmlFor="invite-emails" className="block text-sm font-semibold mb-2 dark:text-gray-200">Email addresses</label>
                 <textarea 
+                  id="invite-emails"
                   value={inviteEmails}
                   onChange={(e) => setInviteEmails(e.target.value)}
-                  placeholder="Enter email addresses separated by commas or new lines&#10;e.g., john@company.com, jane@company.com"
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-32 resize-none"
+                  placeholder={'john@company.com\njane@company.com'}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent h-32 resize-none placeholder:text-gray-400"
                 />
-                <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">Separate multiple emails with commas or line breaks</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Separate emails with commas or line breaks.</p>
               </div>
 
-              {/* Divider */}
               <div className="flex items-center my-6">
-                <div className="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
-                <span className="px-4 text-sm text-gray-600 dark:text-gray-400 font-semibold">OR</span>
-                <div className="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
+                <div className="flex-1 border-t border-gray-200 dark:border-gray-600" />
+                <span className="px-4 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 font-medium">or</span>
+                <div className="flex-1 border-t border-gray-200 dark:border-gray-600" />
               </div>
 
-              {/* Bulk Upload */}
               <div className="mb-6">
-                <label className="block text-sm font-semibold mb-2 dark:text-gray-200">Bulk Upload CSV</label>
-                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center hover:border-blue-500 transition-all cursor-pointer dark:bg-gray-800/50">
-                  <Upload className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-3" />
-                  <p className="font-semibold mb-1 dark:text-white">Drop CSV file here or click to browse</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Upload a CSV with columns: name, email, department</p>
+                <label className="block text-sm font-semibold mb-2 dark:text-gray-200">Bulk upload (CSV)</label>
+                <label
+                  htmlFor="csv-upload"
+                  className="block border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center hover:border-blue-500 dark:hover:border-blue-500 transition-all cursor-pointer dark:bg-gray-800/50"
+                >
+                  <Upload className="w-10 h-10 text-gray-400 dark:text-gray-500 mx-auto mb-3" />
+                  <p className="font-medium mb-1 dark:text-white">Drop a CSV here or click to browse</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Include an <code className="text-xs">email</code> column</p>
                   <input
                     type="file"
                     accept=".csv"
@@ -863,74 +893,80 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                     className="hidden"
                     id="csv-upload"
                   />
-                  <label
-                    htmlFor="csv-upload"
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm cursor-pointer inline-block"
-                  >
-                    Choose File
-                  </label>
-                </div>
+                </label>
                 {bulkUploadFile && (
                   <div className="mt-3 flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
-                    <div className="flex items-center">
-                      <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-2" />
-                      <span className="text-sm font-semibold dark:text-white">{bulkUploadFile.name}</span>
+                    <div className="flex items-center min-w-0">
+                      <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-2 shrink-0" />
+                      <span className="text-sm font-medium dark:text-white truncate">{bulkUploadFile.name}</span>
                     </div>
-                    <button onClick={() => setBulkUploadFile(null)} className="text-red-600 hover:text-red-700">
+                    <button type="button" onClick={() => setBulkUploadFile(null)} className="text-red-600 dark:text-red-400 hover:text-red-700 p-1">
                       <X className="w-5 h-5" />
                     </button>
                   </div>
                 )}
               </div>
 
-              {/* Course Assignment */}
               <div className="mb-6">
-                <label className="block text-sm font-semibold mb-2">Auto-Enroll in Courses (Optional)</label>
+                <label htmlFor="invite-course" className="block text-sm font-semibold mb-2 dark:text-gray-200">Course (optional)</label>
                 <select
+                  id="invite-course"
                   value={inviteCourseId}
                   onChange={(e) => setInviteCourseId(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="">Select courses to auto-enroll</option>
+                  <option value="">No auto-enroll — general invite</option>
                   {publishedCourses.map((c) => (
                     <option key={c.id} value={c.id}>{c.title}</option>
                   ))}
                 </select>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">When selected, learners are auto-enrolled after sign-up and the email links directly to this course.</p>
               </div>
 
-              {/* Info Box */}
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 mb-6">
-                <div className="flex items-start">
-                  <CheckCircle className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
-                  <div className="text-sm text-blue-900">
-                    <p className="font-semibold mb-1">What happens next?</p>
-                    <ul className="space-y-1 text-blue-800">
-                      <li>• Learners will receive an email invitation</li>
-                      <li>• They can create an account and access assigned courses</li>
-                      <li>• You&apos;ll be able to track their progress immediately</li>
+                <div className="flex items-start gap-3">
+                  <CheckCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                  <div className="text-sm text-blue-900 dark:text-blue-100">
+                    <p className="font-semibold mb-1">What happens next</p>
+                    <ul className="space-y-1 text-blue-800 dark:text-blue-200/90 list-disc list-inside">
+                      <li>Invitation is recorded in pending invites</li>
+                      <li>Learner receives an email with a sign-up link</li>
+                      <li>They appear here once enrolled</li>
                     </ul>
                   </div>
                 </div>
               </div>
 
-              {/* Actions */}
-              <div className="flex space-x-3">
+              <div className="flex gap-3">
                 <button 
+                  type="button"
                   onClick={() => {
                     setShowInviteModal(false);
                     setInviteEmails('');
                     setBulkUploadFile(null);
                   }}
-                  className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold transition-all"
+                  disabled={inviteSending}
+                  className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold transition-all disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button 
+                  type="button"
                   onClick={handleInviteLearners}
-                  className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold transition-all shadow-lg flex items-center justify-center"
+                  disabled={inviteSending}
+                  className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold transition-all shadow-lg flex items-center justify-center disabled:opacity-60"
                 >
-                  <Send className="w-5 h-5 mr-2" />
-                  Send Invitations
+                  {inviteSending ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Sending…
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5 mr-2" />
+                      Send invitations
+                    </>
+                  )}
                 </button>
               </div>
             </div>

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { buildCollaboratorInviteEmail, isResendConfigured, sendEmail } from '@/lib/resend-email';
 import { createClient } from '@supabase/supabase-js';
 import { createServerClient } from '@supabase/ssr';
 
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
 
     const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-    const { data: course } = await admin.from('courses').select('id, created_by').eq('id', courseId).maybeSingle();
+    const { data: course } = await admin.from('courses').select('id, created_by, title').eq('id', courseId).maybeSingle();
     if (!course || (course as { created_by: string }).created_by !== user.id) {
       return NextResponse.json({ error: 'Course not found or you are not the owner' }, { status: 403 });
     }
@@ -73,7 +74,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    let emailSent = false;
+    if (isResendConfigured() && invitee.email) {
+      try {
+        const { data: profile } = await admin.from('user_profiles').select('full_name').eq('id', user.id).maybeSingle();
+        const inviterName = (profile as { full_name?: string | null } | null)?.full_name?.trim() || user.email?.split('@')[0];
+        const courseTitle = (course as { title?: string }).title || 'your course';
+        const { subject, html } = buildCollaboratorInviteEmail({
+          courseTitle,
+          courseId: String(courseId),
+          inviterName,
+        });
+        await sendEmail({ to: invitee.email, subject, html });
+        emailSent = true;
+      } catch {
+        // collaborator added; email is best-effort
+      }
+    }
+
+    return NextResponse.json({ ok: true, emailSent });
   } catch (e) {
     console.error('invite-collaborator', e);
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
