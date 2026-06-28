@@ -1,0 +1,4 @@
+# Cloud DB exports — may contain user emails; do not commit.
+cloud-data.json
+cloud-data.sql
+auth-users.json

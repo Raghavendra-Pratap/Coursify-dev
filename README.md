@@ -69,16 +69,9 @@ See `project_plan.md` for detailed roadmap:
 
 Shell navigation (Dashboard, My Courses, Learners, Q&A, Notes, etc.) uses keep-alive views, client-side cache, and login prefetch for instant tab switching. See [docs/OPTIMIZATION_REFACTOR.md](docs/OPTIMIZATION_REFACTOR.md).
 
-## Docker / VPS
+## Self-hosted (local + VPS)
 
-Self-host the app on your VPS while keeping Supabase for auth and database:
-
-```bash
-cp .env.production.example .env.production   # fill in values
-docker compose up -d --build
-```
-
-See [docs/VPS_DOCKER_DEPLOY.md](docs/VPS_DOCKER_DEPLOY.md) for HTTPS, Supabase URL updates, and updates.
+To run Supabase and Coursify in Docker without Supabase Cloud (local test env + production on your VPS), see [docs/SELF_HOSTED_DOCKER.md](docs/SELF_HOSTED_DOCKER.md).
 
 ## Cost Optimization
 

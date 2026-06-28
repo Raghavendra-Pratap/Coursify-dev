@@ -1,5 +1,5 @@
 # Coursify LMS — production image (Next.js standalone)
-# Build: docker build --build-arg NEXT_PUBLIC_APP_URL=https://your.domain ...
+# Build: docker compose build (see docs/SELF_HOSTED_DOCKER.md)
 
 FROM node:20-alpine AS base
 RUN apk add --no-cache libc6-compat
@@ -15,7 +15,6 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# NEXT_PUBLIC_* are embedded at build time
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3000

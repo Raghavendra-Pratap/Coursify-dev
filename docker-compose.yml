@@ -1,8 +1,10 @@
-# Coursify on your VPS — app only (Supabase Auth + DB stay hosted on Supabase)
+# Coursify Next.js app — use with self-hosted Supabase (see docs/SELF_HOSTED_DOCKER.md)
 #
-# 1. cp .env.production.example .env.production  and fill values
-# 2. docker compose up -d --build
-# 3. Point nginx/Caddy at localhost:3000 (see docs/VPS_DOCKER_DEPLOY.md)
+# Local (after ./docker/setup-supabase.sh):
+#   cp .env.selfhosted.example .env.production
+#   docker compose up -d --build
+#
+# Production VPS: same file, .env.production with public HTTPS URLs
 
 services:
   coursify:
@@ -12,14 +14,16 @@ services:
       args:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
         NEXT_PUBLIC_ASSESSMENT_PRO_ORIGIN: ${NEXT_PUBLIC_ASSESSMENT_PRO_ORIGIN:-}
     image: coursify-lms:latest
     container_name: coursify
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "${APP_PORT:-3001}:3000"
     env_file:
       - .env.production
     environment:
       NODE_ENV: production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
