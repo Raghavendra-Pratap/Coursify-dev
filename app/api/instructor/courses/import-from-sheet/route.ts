@@ -1,5 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
-import { createServerClient as createServiceClient } from '@/lib/supabase';
+import { createServerClient as createServiceClient } from '@/lib/supabase-admin';
 import { NextRequest, NextResponse } from 'next/server';
 import { parseCourseSheet } from '@/lib/parseCourseSheet';
 

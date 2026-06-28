@@ -3,7 +3,7 @@
  * Security: (1) Token signed by us, (2) one-time use, (3) strict validation, (4) rate limit.
  */
 import { NextResponse } from "next/server";
-import { createServerClient as createServiceClient } from "@/lib/supabase";
+import { createServerClient as createServiceClient } from "@/lib/supabase-admin";
 import { verifyQuizToken, hashToken } from "@/lib/webhook-quiz-token";
 
 const RATE_LIMIT_WINDOW_MS = 60000;

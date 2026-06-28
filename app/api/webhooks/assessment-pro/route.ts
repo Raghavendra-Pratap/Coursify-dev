@@ -3,7 +3,7 @@
  * Security: Bearer secret, rate limit, idempotent event keys.
  */
 import { NextResponse } from 'next/server';
-import { createServerClient as createServiceClient } from '@/lib/supabase';
+import { createServerClient as createServiceClient } from '@/lib/supabase-admin';
 import { syncAssessmentProgress } from '@/lib/assessment-progress';
 
 const RATE_LIMIT_WINDOW_MS = 60000;

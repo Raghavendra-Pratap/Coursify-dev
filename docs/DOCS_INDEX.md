@@ -41,6 +41,7 @@ Quick index of documentation in `docs/` and related files. Use this for `/docs` 
 |-----|-------------|
 | [SUPABASE_AUTH_SETUP.md](SUPABASE_AUTH_SETUP.md) | Supabase auth setup |
 | [RESEND_EMAIL.md](RESEND_EMAIL.md) | Resend setup for learner invites and reminders |
+| [SECRETS_AND_ROTATION.md](SECRETS_AND_ROTATION.md) | Rotate Supabase service role key; mark Vercel env vars Sensitive |
 | [QANDA_SETUP.md](QANDA_SETUP.md) | Q&A feature setup |
 | [QUIZ_WEBHOOK_GOOGLE_FORMS.md](QUIZ_WEBHOOK_GOOGLE_FORMS.md) | Quiz webhook and Google Forms |
 | [INSTRUCTOR_COLLABORATION.md](INSTRUCTOR_COLLABORATION.md) | Instructor collaboration |
@@ -79,7 +80,6 @@ Quick index of documentation in `docs/` and related files. Use this for `/docs` 
 | Doc | Description |
 |-----|-------------|
 | [BRANCH_AND_DEPLOY.md](BRANCH_AND_DEPLOY.md) | Branching and deployment |
-| [VPS_DOCKER_DEPLOY.md](VPS_DOCKER_DEPLOY.md) | Docker + VPS deployment (self-hosted app) |
 | [DEV_DEMO_CREDENTIALS.md](DEV_DEMO_CREDENTIALS.md) | Dev/demo credentials |
 | [LIVE_TESTING_CHECKLIST.md](LIVE_TESTING_CHECKLIST.md) | Live testing checklist |
 | [PR_MERGE_STEPS.md](PR_MERGE_STEPS.md) | PR/merge notes (develop merge) |

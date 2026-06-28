@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createServerClient as createServiceClient } from '@/lib/supabase'
+import { createServerClient as createServiceClient } from '@/lib/supabase-admin';
 
 /** Cron/worker endpoint: generate enrollment CSV snapshot. Requires Authorization: Bearer CRON_SECRET */
 export async function GET(request: Request) {

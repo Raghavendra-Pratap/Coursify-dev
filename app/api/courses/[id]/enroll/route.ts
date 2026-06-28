@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { createServerClient as createServiceClient } from '@/lib/supabase'
+import { createServerClient as createServiceClient } from '@/lib/supabase-admin';
 import { getNotificationPreferencesMap } from '@/lib/notification-preferences'
 
 export async function POST(

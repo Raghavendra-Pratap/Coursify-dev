@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireInstructor } from '@/lib/instructor-auth';
 import { isResendConfigured, sendInviteEmails } from '@/lib/resend-email';
-import { createServerClient } from '@/lib/supabase';
+import { createServerClient } from '@/lib/supabase-admin';
 
 export async function POST(request: NextRequest) {
   const auth = await requireInstructor(request);

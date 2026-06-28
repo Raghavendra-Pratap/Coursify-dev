@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
-import { createServerClient as createServiceClient } from '@/lib/supabase';
+import { createServerClient as createServiceClient } from '@/lib/supabase-admin';
 import { getInstructorCourseIds } from '@/lib/instructor-course-access';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;

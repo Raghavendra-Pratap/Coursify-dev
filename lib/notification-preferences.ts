@@ -1,4 +1,4 @@
-import { createServerClient as createServiceClient } from '@/lib/supabase';
+import { createServerClient as createServiceClient } from '@/lib/supabase-admin';
 
 export type NotificationPreferenceKey =
   | 'notify_course_updates'

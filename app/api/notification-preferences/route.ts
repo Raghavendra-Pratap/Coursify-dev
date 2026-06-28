@@ -1,5 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
-import { createServerClient as createServiceClient } from '@/lib/supabase';
+import { createServerClient as createServiceClient } from '@/lib/supabase-admin';
 import { DEFAULT_NOTIFICATION_PREFERENCES, createDefaultPreferences, type NotificationPreferencesRow } from '@/lib/notification-preferences';
 import { NextResponse } from 'next/server';
 

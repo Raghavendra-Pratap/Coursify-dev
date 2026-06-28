@@ -20,22 +20,7 @@ function getSupabaseClient() {
 
 export const supabase = getSupabaseClient()
 
-// Server-side Supabase client (for use in API routes and server components)
-// This uses the service role key for admin operations
-export const createServerClient = () => {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  
-  if (!serviceRoleKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY is required for server-side operations')
-  }
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  })
-}
+// Service role client: import from '@/lib/supabase-admin' (server-only).
 
 // Helper function to get authenticated user
 export const getCurrentUser = async () => {
