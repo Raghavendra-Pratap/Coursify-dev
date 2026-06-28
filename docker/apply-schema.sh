@@ -35,15 +35,16 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-# shellcheck disable=SC1090
-source "$ENV_FILE"
+# shellcheck source=docker/_env.sh
+source "$(dirname "$0")/_env.sh"
 
-POSTGRES_HOST="${POSTGRES_HOST:-localhost}"
-POSTGRES_PORT="${POSTGRES_PORT:-5432}"
-POSTGRES_DB="${POSTGRES_DB:-postgres}"
-POSTGRES_USER="${POSTGRES_USER:-postgres}"
+POSTGRES_HOST=$(read_supabase_env POSTGRES_HOST "$ENV_FILE" 2>/dev/null || echo localhost)
+POSTGRES_PORT=$(read_supabase_env POSTGRES_PORT "$ENV_FILE" 2>/dev/null || echo 5432)
+POSTGRES_DB=$(read_supabase_env POSTGRES_DB "$ENV_FILE" 2>/dev/null || echo postgres)
+POSTGRES_USER=$(read_supabase_env POSTGRES_USER "$ENV_FILE" 2>/dev/null || echo postgres)
+POSTGRES_PASSWORD=$(read_supabase_env POSTGRES_PASSWORD "$ENV_FILE" || true)
 
-if [ -z "${POSTGRES_PASSWORD:-}" ]; then
+if [ -z "${POSTGRES_PASSWORD}" ]; then
   echo "POSTGRES_PASSWORD not set in $ENV_FILE"
   exit 1
 fi
@@ -55,13 +56,16 @@ run_sql() {
     return 0
   fi
   echo "Applying $(basename "$file") …"
-  if command -v psql >/dev/null 2>&1; then
+  if docker ps --format '{{.Names}}' | grep -qx supabase-db; then
+    docker exec -i supabase-db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=0 < "$file"
+  elif command -v psql >/dev/null 2>&1; then
     PGPASSWORD="$POSTGRES_PASSWORD" psql \
-      -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+      -h localhost -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
       -v ON_ERROR_STOP=0 \
       -f "$file"
   else
-    docker exec -i supabase-db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=0 < "$file"
+    echo "Need supabase-db container or psql on PATH"
+    exit 1
   fi
 }
 

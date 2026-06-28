@@ -198,7 +198,7 @@ CREATE TABLE IF NOT EXISTS google_drive_connections (
 
 -- User Profiles table (extends auth.users)
 CREATE TABLE IF NOT EXISTS user_profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   full_name TEXT,
   avatar_url TEXT,
   role TEXT DEFAULT 'learner' CHECK (role IN ('learner', 'instructor', 'admin')),
