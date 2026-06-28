@@ -87,7 +87,7 @@ Then:
 
 ```bash
 ./docker/configure-google-oauth.sh
-docker compose up -d --build
+./docker/build-app.sh
 ```
 
 **Google Cloud Console** → OAuth client → **Authorized redirect URIs**:
@@ -153,7 +153,7 @@ Kong (`8000`) and Coursify (`3000`) stay on localhost — Caddy proxies them.
 ```bash
 cd ~/coursify
 git pull origin main
-docker compose up -d --build
+./docker/build-app.sh
 # if schema changed:
 ./docker/apply-schema.sh
 ```

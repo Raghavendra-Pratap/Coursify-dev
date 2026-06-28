@@ -31,7 +31,7 @@ else
 fi
 
 echo "==> Build & start Coursify"
-docker compose up -d --build
+./docker/build-app.sh
 
 echo ""
 echo "Deploy complete (app on :3000, API on :8000)."

@@ -1,10 +1,10 @@
 # Coursify Next.js app — use with self-hosted Supabase (see docs/SELF_HOSTED_DOCKER.md)
 #
-# Local (after ./docker/setup-supabase.sh):
-#   cp .env.selfhosted.example .env.production
-#   docker compose up -d --build
+# IMPORTANT: docker compose only reads .env by default — NOT .env.production.
+# Use ./docker/build-app.sh (wraps --env-file .env.production) so NEXT_PUBLIC_*
+# vars are available at build time (required for next build).
 #
-# Production VPS: same file, .env.production with public HTTPS URLs
+#   ./docker/build-app.sh
 
 services:
   coursify:

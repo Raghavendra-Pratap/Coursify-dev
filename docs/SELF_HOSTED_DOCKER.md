@@ -147,7 +147,7 @@ Open http://localhost:3000 — API at http://localhost:8000.
 cp .env.selfhosted.example .env.production
 # Fill keys; keep NEXT_PUBLIC_APP_URL=http://localhost:3001 and APP_PORT=3001
 
-docker compose up -d --build
+./docker/build-app.sh
 ```
 
 Open http://localhost:3001 (Studio stays on :3000).
@@ -270,7 +270,7 @@ docker compose logs -f coursify
 cd docker/vendor/supabase/docker && docker compose logs -f
 
 # Rebuild app after code changes
-docker compose up -d --build
+./docker/build-app.sh
 ```
 
 ### Backups (production)
@@ -293,7 +293,7 @@ Store off-server.
 | OAuth redirect mismatch | Align `NEXT_PUBLIC_APP_URL`, GoTrue `SITE_URL`, and Google redirect URI |
 | Port 3000 in use | Use `APP_PORT=3001` for Coursify; leave Studio on 3000 |
 | `apply-schema` fails | Ensure Supabase is up: `curl http://localhost:8000/rest/v1/` |
-| Service role errors | Run `./docker/print-keys.sh`; set `SUPABASE_SERVICE_ROLE_KEY` in `.env.production` |
+| `docker compose up -d --build` without env file | Use `./docker/build-app.sh` (loads `.env.production` for build args) |
 
 ---
 
