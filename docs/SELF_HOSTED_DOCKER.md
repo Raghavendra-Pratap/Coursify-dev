@@ -293,7 +293,7 @@ Store off-server.
 | OAuth redirect mismatch | Align `NEXT_PUBLIC_APP_URL`, GoTrue `SITE_URL`, and Google redirect URI |
 | Port 3000 in use | Use `APP_PORT=3001` for Coursify; leave Studio on 3000 |
 | `apply-schema` fails | Ensure Supabase is up: `curl http://localhost:8000/rest/v1/` |
-| `docker compose up -d --build` without env file | Use `./docker/build-app.sh` (loads `.env.production` for build args) |
+| `failed to read .env.production: key cannot contain a space` | Regenerate: `./docker/configure-vps-production.sh` — do not leave comment lines like `# VPS production: https://...` in the file |
 
 ---
 

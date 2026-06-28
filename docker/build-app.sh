@@ -28,5 +28,7 @@ fi
 echo "Building with NEXT_PUBLIC_SUPABASE_URL=${URL}"
 echo "                  NEXT_PUBLIC_APP_URL=${APP:-"(not set)"}"
 
+"$(dirname "$0")/validate-env.sh" "$ENV_FILE"
+
 cd "$ROOT"
 exec docker compose --env-file "$ENV_FILE" up -d --build "$@"
