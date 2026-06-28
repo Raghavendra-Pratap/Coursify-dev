@@ -1,0 +1,19 @@
+# Caddy — TLS reverse proxy for Coursify VPS
+# Install: sudo apt install caddy
+# Copy:    sudo cp docker/Caddyfile.example /etc/caddy/Caddyfile
+# Replace domains, then: sudo systemctl reload caddy
+
+coursify.bsoc.space {
+	encode gzip
+	reverse_proxy 127.0.0.1:3000
+}
+
+api.coursify.bsoc.space {
+	encode gzip
+	reverse_proxy 127.0.0.1:8000
+}
+
+# Optional: block public Studio access (use SSH tunnel instead)
+# studio.coursify.bsoc.space {
+# 	reverse_proxy 127.0.0.1:54323
+# }

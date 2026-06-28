@@ -79,7 +79,23 @@ Re-runs may show “already exists” — usually safe.
 
 Copy output into your env file (next section).
 
-### 4. (Optional) Copy data from Supabase Cloud
+### 4. Enable Google sign-in (required if users use Gmail OAuth)
+
+Cloud users sign in with Google, not passwords. After Supabase is running:
+
+```bash
+./docker/configure-google-oauth.sh
+```
+
+Then in [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → your OAuth client → **Authorized redirect URIs**, add:
+
+```
+http://localhost:8000/auth/v1/callback
+```
+
+Use **Sign in with Google** at http://localhost:3000. Imported users keep the same UUIDs so courses still match.
+
+### 5. (Optional) Copy data from Supabase Cloud
 
 If you already have courses on Supabase Cloud and want the same data locally or on VPS:
 
@@ -92,7 +108,7 @@ If you already have courses on Supabase Cloud and want the same data locally or 
 ./docker/import-cloud-data.sh
 ```
 
-Exports land in `database/seed/` (gitignored). Auth user **passwords** are not exportable; `auth-users.json` lists emails for recreating accounts in Studio or via invite/magic link.
+Exports land in `database/seed/` (gitignored). Auth users are created without passwords — use Google OAuth (step 4 above).
 
 For a full Postgres dump (including `auth.users` hashes), use your [database password](https://supabase.com/dashboard/project/_/settings/database) with `pg_dump`:
 
@@ -144,11 +160,17 @@ Use a **dedicated** directory — do not share Postgres with other apps.
 
 ```bash
 git clone https://github.com/Raghavendra-Pratap/Coursify-dev.git
-cd Coursify-dev && git checkout develop
+cd Coursify-dev && git checkout main
+```
 
-chmod +x docker/*.sh
-./docker/setup-supabase.sh
-./docker/apply-schema.sh
+See **[VPS_DEPLOY.md](VPS_DEPLOY.md)** for the full checklist (DNS, Caddy, OAuth, data import).
+
+Quick start:
+
+```bash
+export APP_DOMAIN=coursify.yourdomain.com
+export API_DOMAIN=api.coursify.yourdomain.com
+./docker/deploy-vps.sh
 ```
 
 ### Configure Supabase for production

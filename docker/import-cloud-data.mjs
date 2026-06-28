@@ -153,13 +153,12 @@ async function main() {
   const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
 
   const authUsers = payload.auth_users || []
-  console.error(`Creating ${authUsers.length} auth users (password: LocalDev123!)…`)
+  console.error(`Creating ${authUsers.length} auth users (Google OAuth — no password)…`)
   for (const u of authUsers) {
     if (!u.email) continue
     const { error } = await supabase.auth.admin.createUser({
       id: u.id,
       email: u.email,
-      password: 'LocalDev123!',
       email_confirm: true,
       user_metadata: u.user_metadata || {},
       app_metadata: u.app_metadata || {},
@@ -200,7 +199,7 @@ async function main() {
     }
   }
 
-  console.log('Import complete. Sign in with your cloud email + password LocalDev123!')
+  console.log('Import complete. Run ./docker/configure-google-oauth.sh then sign in with Google.')
 }
 
 main().catch((e) => {

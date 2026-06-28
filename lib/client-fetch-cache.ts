@@ -97,8 +97,11 @@ export async function fetchJsonCached<T>(
       credentials: options?.credentials ?? 'include',
       cache: 'default',
     });
-    const data = (await res.json().catch(() => ({}))) as T;
-    if (!res.ok) throw new Error('fetch failed');
+    const data = (await res.json().catch(() => ({}))) as T & { error?: string };
+    if (!res.ok) {
+      const msg = typeof data?.error === 'string' ? data.error : res.statusText || 'fetch failed';
+      throw new Error(msg);
+    }
     writeClientCache(key, data);
     return data;
   };

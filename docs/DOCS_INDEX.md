@@ -79,7 +79,8 @@ Quick index of documentation in `docs/` and related files. Use this for `/docs` 
 
 | Doc | Description |
 |-----|-------------|
-| [SELF_HOSTED_DOCKER.md](SELF_HOSTED_DOCKER.md) | **Self-hosted Supabase + Docker** — local test env and VPS prod |
+| [SELF_HOSTED_DOCKER.md](SELF_HOSTED_DOCKER.md) | Self-hosted Supabase Docker — local dev + VPS production |
+| [VPS_DEPLOY.md](VPS_DEPLOY.md) | **VPS production deploy** — step-by-step with Caddy |
 | [BRANCH_AND_DEPLOY.md](BRANCH_AND_DEPLOY.md) | Branching and deployment (Vercel + Supabase Cloud) |
 | [DEV_DEMO_CREDENTIALS.md](DEV_DEMO_CREDENTIALS.md) | Dev/demo credentials |
 | [LIVE_TESTING_CHECKLIST.md](LIVE_TESTING_CHECKLIST.md) | Live testing checklist |
