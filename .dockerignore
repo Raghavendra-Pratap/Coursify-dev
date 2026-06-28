@@ -1,0 +1,30 @@
+# Dependencies and build output
+node_modules
+.next
+out
+build
+
+# Git and IDE
+.git
+.gitignore
+.cursor
+.cursorignore
+*.md
+!README.md
+
+# Local env (inject at runtime via compose / -e)
+.env
+.env.*
+!.env.production.example
+
+# Docs, samples, alternate app tree (not used by root build)
+docs
+sample ui
+coursify-app
+agent-transcripts
+
+# Tests and misc
+coverage
+*.log
+.DS_Store
+.vercel

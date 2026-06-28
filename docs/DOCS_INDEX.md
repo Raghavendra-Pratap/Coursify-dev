@@ -79,6 +79,7 @@ Quick index of documentation in `docs/` and related files. Use this for `/docs` 
 | Doc | Description |
 |-----|-------------|
 | [BRANCH_AND_DEPLOY.md](BRANCH_AND_DEPLOY.md) | Branching and deployment |
+| [VPS_DOCKER_DEPLOY.md](VPS_DOCKER_DEPLOY.md) | Docker + VPS deployment (self-hosted app) |
 | [DEV_DEMO_CREDENTIALS.md](DEV_DEMO_CREDENTIALS.md) | Dev/demo credentials |
 | [LIVE_TESTING_CHECKLIST.md](LIVE_TESTING_CHECKLIST.md) | Live testing checklist |
 | [PR_MERGE_STEPS.md](PR_MERGE_STEPS.md) | PR/merge notes (develop merge) |
