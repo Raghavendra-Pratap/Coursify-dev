@@ -35,9 +35,9 @@ ensure_node() {
 
 ensure_node
 
-if [ ! -d node_modules/@supabase/supabase-js ]; then
-  echo "Installing @supabase/supabase-js…"
-  npm install @supabase/supabase-js --no-save --silent
+if [ ! -d node_modules/@supabase/supabase-js ] || [ ! -d node_modules/ws ]; then
+  echo "Installing @supabase/supabase-js and ws (Node 20 WebSocket polyfill)…"
+  npm install @supabase/supabase-js ws --no-save --silent
 fi
 
 echo "==> Export from Supabase Cloud"

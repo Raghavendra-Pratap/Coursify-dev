@@ -4,7 +4,7 @@
  *        ./docker/export-from-cloud.sh (laptop with .env.local)
  * Output: database/seed/cloud-data.json (gitignored)
  */
-import { createClient } from '@supabase/supabase-js'
+import { createNodeSupabaseClient } from './supabase-node-client.mjs'
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
@@ -130,7 +130,7 @@ async function main() {
 
   console.error(`Exporting from ${url} …`)
 
-  const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
+  const supabase = createNodeSupabaseClient(url, key)
   const outDir = join(root, 'database', 'seed')
   mkdirSync(outDir, { recursive: true })
 

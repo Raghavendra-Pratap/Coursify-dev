@@ -2,7 +2,7 @@
  * Import cloud-data.json into local self-hosted Supabase.
  * Creates auth users (same UUIDs), then upserts public tables with column filtering.
  */
-import { createClient } from '@supabase/supabase-js'
+import { createNodeSupabaseClient } from './supabase-node-client.mjs'
 import { execSync } from 'child_process'
 import { readFileSync, existsSync } from 'fs'
 import { dirname, join } from 'path'
@@ -150,7 +150,7 @@ async function main() {
   }
 
   const payload = JSON.parse(readFileSync(SEED, 'utf8'))
-  const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
+  const supabase = createNodeSupabaseClient(url, key)
 
   const authUsers = payload.auth_users || []
   console.error(`Creating ${authUsers.length} auth users (Google OAuth — no password)…`)
