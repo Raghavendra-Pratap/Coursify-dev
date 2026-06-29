@@ -1,12 +1,13 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { getPublicOrigin } from '@/lib/public-origin'
 
 const DEBUG_AUTH = process.env.NODE_ENV === 'development'
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
-  const origin = requestUrl.origin
+  const origin = getPublicOrigin(request)
   const next = requestUrl.searchParams.get('next') ?? '/'
 
   const response = NextResponse.redirect(`${origin}${next}`)
