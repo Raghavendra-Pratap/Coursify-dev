@@ -24,7 +24,7 @@ function parseEnvFile(path) {
     if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
       val = val.slice(1, -1)
     }
-    env[t.slice(0, i).trim()] = val
+    env[t.slice(0, i).trim()] = val.trim()
   }
   return env
 }
@@ -54,6 +54,45 @@ function loadEnv() {
   }
 
   return { url: '', key: '' }
+}
+
+function decodeJwtPayload(token) {
+  const part = token.trim().split('.')[1]
+  if (!part) return null
+  const b64 = part.replace(/-/g, '+').replace(/_/g, '/')
+  return JSON.parse(Buffer.from(b64, 'base64').toString())
+}
+
+function validateCloudCredentials(url, key) {
+  const trimmedKey = key.trim()
+  const trimmedUrl = url.trim().replace(/\/$/, '')
+
+  let payload
+  try {
+    payload = decodeJwtPayload(trimmedKey)
+  } catch {
+    throw new Error(
+      'CLOUD_SUPABASE_SERVICE_ROLE_KEY is not a valid JWT. Copy the full service_role key from Supabase Dashboard → Project Settings → API.',
+    )
+  }
+
+  if (payload?.role === 'anon') {
+    throw new Error(
+      'CLOUD_SUPABASE_SERVICE_ROLE_KEY is the anon key. Use the service_role key (secret) from Supabase Dashboard → Project Settings → API.',
+    )
+  }
+  if (payload?.role !== 'service_role') {
+    throw new Error(`Expected a service_role key, got role="${payload?.role ?? 'unknown'}".`)
+  }
+
+  const projectRef = payload?.ref
+  if (projectRef && !trimmedUrl.includes(projectRef)) {
+    throw new Error(
+      `URL/key mismatch: key is for project "${projectRef}" but URL is ${trimmedUrl}. Both must be from the same Supabase Cloud project.`,
+    )
+  }
+
+  return { url: trimmedUrl, key: trimmedKey }
 }
 
 /** FK-safe order for import */
@@ -109,7 +148,9 @@ async function fetchAll(supabase, table) {
       if (error.code === '42P01' || error.message?.includes('does not exist')) {
         return null
       }
-      throw new Error(`${table}: ${error.message}`)
+      throw new Error(
+        `${table}: ${error.message}. Check CLOUD_SUPABASE_SERVICE_ROLE_KEY in .env.cloud — use the Cloud service_role key, not anon or your VPS local key.`,
+      )
     }
     if (!data?.length) break
     rows.push(...data)
@@ -120,11 +161,20 @@ async function fetchAll(supabase, table) {
 }
 
 async function main() {
-  const { url, key } = loadEnv()
-  if (!url || !key) {
+  const loaded = loadEnv()
+  if (!loaded.url || !loaded.key) {
     console.error('Need Supabase Cloud credentials in one of:')
     console.error('  .env.cloud  (CLOUD_SUPABASE_URL + CLOUD_SUPABASE_SERVICE_ROLE_KEY)')
     console.error('  .env.local  (NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)')
+    process.exit(1)
+  }
+
+  let url
+  let key
+  try {
+    ;({ url, key } = validateCloudCredentials(loaded.url, loaded.key))
+  } catch (err) {
+    console.error(String(err.message || err))
     process.exit(1)
   }
 
