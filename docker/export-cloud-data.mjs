@@ -1,18 +1,18 @@
 /**
  * Export public schema data from Supabase Cloud using the service role key.
- * Usage: ./docker/export-from-cloud.sh
+ * Usage: ./docker/pull-cloud-data.sh  (VPS / Hostinger terminal)
+ *        ./docker/export-from-cloud.sh (laptop with .env.local)
  * Output: database/seed/cloud-data.json (gitignored)
  */
 import { createClient } from '@supabase/supabase-js'
-import { readFileSync, mkdirSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = join(__dirname, '..')
 
-function loadEnv() {
-  const path = join(root, '.env.local')
+function parseEnvFile(path) {
   const raw = readFileSync(path, 'utf8')
   const env = {}
   for (const line of raw.split('\n')) {
@@ -20,9 +20,40 @@ function loadEnv() {
     if (!t || t.startsWith('#')) continue
     const i = t.indexOf('=')
     if (i === -1) continue
-    env[t.slice(0, i).trim()] = t.slice(i + 1).trim()
+    let val = t.slice(i + 1).trim()
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1)
+    }
+    env[t.slice(0, i).trim()] = val
   }
   return env
+}
+
+function loadEnv() {
+  if (process.env.CLOUD_SUPABASE_URL && process.env.CLOUD_SUPABASE_SERVICE_ROLE_KEY) {
+    return {
+      url: process.env.CLOUD_SUPABASE_URL,
+      key: process.env.CLOUD_SUPABASE_SERVICE_ROLE_KEY,
+    }
+  }
+
+  const cloudPath = join(root, '.env.cloud')
+  if (existsSync(cloudPath)) {
+    const e = parseEnvFile(cloudPath)
+    const url = e.CLOUD_SUPABASE_URL || e.NEXT_PUBLIC_SUPABASE_URL
+    const key = e.CLOUD_SUPABASE_SERVICE_ROLE_KEY || e.SUPABASE_SERVICE_ROLE_KEY
+    if (url && key) return { url, key }
+  }
+
+  const localPath = join(root, '.env.local')
+  if (existsSync(localPath)) {
+    const e = parseEnvFile(localPath)
+    const url = e.NEXT_PUBLIC_SUPABASE_URL
+    const key = e.SUPABASE_SERVICE_ROLE_KEY
+    if (url && key) return { url, key }
+  }
+
+  return { url: '', key: '' }
 }
 
 /** FK-safe order for import */
@@ -89,13 +120,15 @@ async function fetchAll(supabase, table) {
 }
 
 async function main() {
-  const env = loadEnv()
-  const url = env.NEXT_PUBLIC_SUPABASE_URL
-  const key = env.SUPABASE_SERVICE_ROLE_KEY
+  const { url, key } = loadEnv()
   if (!url || !key) {
-    console.error('Need NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local')
+    console.error('Need Supabase Cloud credentials in one of:')
+    console.error('  .env.cloud  (CLOUD_SUPABASE_URL + CLOUD_SUPABASE_SERVICE_ROLE_KEY)')
+    console.error('  .env.local  (NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)')
     process.exit(1)
   }
+
+  console.error(`Exporting from ${url} …`)
 
   const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
   const outDir = join(root, 'database', 'seed')
@@ -152,7 +185,7 @@ async function main() {
   writeFileSync(join(outDir, 'cloud-data.sql'), sqlLines.join('\n') + '\n')
   writeFileSync(join(outDir, 'auth-users.json'), JSON.stringify(authUsers, null, 2))
 
-  console.log(`Wrote database/seed/cloud-data.json, cloud-data.sql, auth-users.json`)
+  console.log('Wrote database/seed/cloud-data.json — run ./docker/import-cloud-data.sh next')
 }
 
 main().catch((e) => {

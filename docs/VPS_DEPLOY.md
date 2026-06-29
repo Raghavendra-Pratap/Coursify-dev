@@ -145,6 +145,41 @@ curl -sI https://coursify.bsoc.space | grep -i server
 
 ## 6. Copy data from Supabase Cloud (optional)
 
+### Option A — Hostinger web terminal only (no SSH)
+
+If SSH is down, use **Hostinger → VPS → Browser terminal**:
+
+```bash
+cd ~/coursify
+git pull origin main
+
+cp .env.cloud.example .env.cloud
+nano .env.cloud
+```
+
+Paste from [Supabase Dashboard → API](https://supabase.com/dashboard/project/ddzmkeogkytjqmtiyjxf/settings/api):
+
+```
+CLOUD_SUPABASE_URL=https://ddzmkeogkytjqmtiyjxf.supabase.co
+CLOUD_SUPABASE_SERVICE_ROLE_KEY=eyJ...your-service-role-key...
+```
+
+Then pull everything in one command:
+
+```bash
+./docker/pull-cloud-data.sh
+```
+
+This exports from Cloud over HTTPS and imports into your VPS Postgres. No `scp` needed.
+
+Sign in with **Google** (same Gmail as cloud). Optional:
+
+```bash
+./docker/seed-dev-enrollments.sh
+```
+
+### Option B — Laptop + scp
+
 On your **laptop** (with cloud `.env.local` service role key):
 
 ```bash
@@ -157,10 +192,20 @@ On **VPS**:
 ```bash
 cd ~/coursify
 ./docker/import-cloud-data.sh
-./docker/configure-google-oauth.sh   # if not done
 ```
 
 Gmail users sign in with **Sign in with Google** (same as cloud).
+
+### Fix SSH (optional)
+
+In Hostinger terminal:
+
+```bash
+sudo ufw allow 22/tcp
+sudo systemctl enable ssh
+sudo systemctl start ssh
+sudo systemctl status ssh
+```
 
 ---
 

@@ -48,4 +48,5 @@ sample ui/                  # Reference UI only; exclude from repo to keep repo 
 coursify-app/.env.local     # Already covered by .env*.local; add if nested env not ignored
 *.log                       # All log files (npm-debug already above)
 .env.production
+.env.cloud
 docker/vendor
