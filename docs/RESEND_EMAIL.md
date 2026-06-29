@@ -22,6 +22,7 @@ NEXT_PUBLIC_APP_URL=https://coursify.bsoc.space
 
 - **`RESEND_API_KEY`** — required for any email to send.
 - **`RESEND_FROM_EMAIL`** — optional. Defaults to `Coursify <onboarding@resend.dev>` (Resend test sender; only delivers to your Resend account email in dev).
+- **`RESEND_REPLY_TO`** — optional. Defaults to the address inside `RESEND_FROM_EMAIL`. Set a monitored inbox so replies do not bounce.
 - **`NEXT_PUBLIC_APP_URL`** — used in invite links (`?enroll={courseId}` for course-specific invites).
 
 ## Production checklist
@@ -36,9 +37,20 @@ NEXT_PUBLIC_APP_URL=https://coursify.bsoc.space
 
 ## Invite email content
 
+- **Multipart (HTML + plain text)** — every send includes a plain-text body and a simple subject line (no special characters). This improves inbox placement vs HTML-only mail.
+- **Invitation card design** — dark wide card with copper accents, course code, enrollment code, and enroll CTA (see `lib/email/boarding-pass-invite.ts`).
 - Includes inviter name (from profile) when available.
-- If a course is selected, subject and CTA link to `?enroll={courseId}` for auto-enroll on sign-up.
-- One email per recipient (not a shared To: list).
+- Subject examples: `Raghavendra invited you to Advanced UX Research` or `Invitation to Advanced UX Research on Coursify`.
+- If a course is selected, CTA links to `?enroll={courseId}` for auto-enroll on sign-up.
+- One personalized email per recipient (name derived from email local-part).
+
+## Deliverability (reduce spam folder)
+
+1. **Verify `bsoc.space` in Resend** — SPF, DKIM, and DMARC must show as verified (Resend → Domains).
+2. **Use a real From address** on that domain (`invite@bsoc.space` is fine once verified).
+3. **Set `RESEND_REPLY_TO`** to a monitored inbox (e.g. same as From).
+4. **Ask recipients** to mark the first message as “Not spam” and add the sender to contacts.
+5. **Warm up** — avoid blasting many invites at once from a new domain.
 
 ## Troubleshooting
 

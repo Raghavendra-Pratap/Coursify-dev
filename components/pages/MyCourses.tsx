@@ -107,6 +107,32 @@ function normalizeCourseRows(rows: CourseRow[]): CourseRow[] {
   }));
 }
 
+function parseInviteEmails(text: string): string[] {
+  return Array.from(
+    new Set(
+      text
+        .split(/[\s,;\n]+/)
+        .map((e) => e.trim().toLowerCase())
+        .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
+    ),
+  );
+}
+
+function resolveCourseOwnerId(course: CourseRow | null, fetchedOwnerId: string | null): string | null {
+  if (typeof course?.createdBy === 'string') return course.createdBy;
+  return fetchedOwnerId;
+}
+
+function canInviteCollaborators(
+  course: CourseRow | null,
+  userId: string | undefined,
+  fetchedOwnerId: string | null,
+): boolean {
+  if (!userId || !course) return false;
+  const ownerId = resolveCourseOwnerId(course, fetchedOwnerId);
+  return ownerId === userId;
+}
+
 function readMyCoursesCache(): MyCoursesPayload | null {
   return readClientCache<MyCoursesPayload>('instructor:my-courses', SHELL_CACHE_MS);
 }
@@ -126,6 +152,10 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
   const [shareMagicLink, setShareMagicLink] = useState<string | null>(null);
   const [shareMagicLinkLoading, setShareMagicLinkLoading] = useState(false);
   const [shareMagicLinkError, setShareMagicLinkError] = useState<string | null>(null);
+  const [shareInviteEmails, setShareInviteEmails] = useState('');
+  const [shareInviteLoading, setShareInviteLoading] = useState(false);
+  const [shareInviteError, setShareInviteError] = useState<string | null>(null);
+  const [shareInviteSuccess, setShareInviteSuccess] = useState<string | null>(null);
   const [activeDropdown, setActiveDropdown] = useState<CourseId | null>(null);
   const [showCollaboratorsModal, setShowCollaboratorsModal] = useState(false);
   const [courseForCollaborators, setCourseForCollaborators] = useState<CourseRow | null>(null);
@@ -349,6 +379,9 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
     setCourseToShare(course);
     setShareMagicLink(null);
     setShareMagicLinkError(null);
+    setShareInviteEmails('');
+    setShareInviteError(null);
+    setShareInviteSuccess(null);
     setShowShareModal(true);
   };
 
@@ -431,9 +464,10 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
     setCourseForCollaborators(course);
     setShowCollaboratorsModal(true);
     setCollaboratorsList([]);
-    setCourseOwnerId(null);
+    setCourseOwnerId(typeof course.createdBy === 'string' ? course.createdBy : null);
     setInviteEmail('');
     setInviteError(null);
+    setInviteSuccess(null);
     setActiveDropdown(null);
   };
 
@@ -444,12 +478,15 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
     (async () => {
       try {
         const { data: courseRow } = await supabase.from('courses').select('created_by').eq('id', courseId).maybeSingle();
-        const ownerId = (courseRow as { created_by?: string } | null)?.created_by ?? null;
-        setCourseOwnerId(ownerId);
+        const fetchedOwnerId = (courseRow as { created_by?: string } | null)?.created_by ?? null;
+        const effectiveOwnerId =
+          fetchedOwnerId ??
+          (typeof courseForCollaborators.createdBy === 'string' ? courseForCollaborators.createdBy : null);
+        setCourseOwnerId(effectiveOwnerId);
         const { data: collabRows } = await supabase.from('course_collaborators').select('user_id').eq('course_id', courseId);
-        const userIds = Array.from(new Set([...(ownerId ? [ownerId] : []), ...(collabRows ?? []).map((r: { user_id: string }) => r.user_id)]));
+        const userIds = Array.from(new Set([...(effectiveOwnerId ? [effectiveOwnerId] : []), ...(collabRows ?? []).map((r: { user_id: string }) => r.user_id)]));
         if (userIds.length === 0) {
-          setCollaboratorsList(ownerId ? [{ id: ownerId, full_name: null, isOwner: true }] : []);
+          setCollaboratorsList(effectiveOwnerId ? [{ id: effectiveOwnerId, full_name: null, isOwner: true }] : []);
           return;
         }
         const { data: profiles } = await supabase.from('user_profiles').select('id, full_name, role').in('id', userIds);
@@ -457,7 +494,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
         const list = userIds
           .map((id) => {
             const p = map.get(id);
-            return { id, full_name: p?.full_name ?? null, isOwner: id === ownerId, role: p?.role };
+            return { id, full_name: p?.full_name ?? null, isOwner: id === effectiveOwnerId, role: p?.role };
           })
           .filter((c) => c.role !== 'admin');
         setCollaboratorsList(list);
@@ -507,11 +544,72 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
     }
   };
 
+  const handleShareInviteLearners = async () => {
+    if (!courseToShare || typeof courseToShare.id !== 'string') return;
+    const emails = parseInviteEmails(shareInviteEmails);
+    if (emails.length === 0) {
+      setShareInviteError('Enter at least one valid email address.');
+      setShareInviteSuccess(null);
+      return;
+    }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) {
+      setShareInviteError('Sign in to send invitations.');
+      return;
+    }
+    setShareInviteLoading(true);
+    setShareInviteError(null);
+    setShareInviteSuccess(null);
+    const courseId = courseToShare.id;
+    const rows = emails.map((email) => ({
+      email,
+      course_id: courseId,
+      status: 'pending' as const,
+      created_by: session.user.id,
+    }));
+    const { error } = await (supabase as any).from('learner_invites').insert(rows);
+    if (error) {
+      setShareInviteLoading(false);
+      setShareInviteError('Could not save invites. Ensure learner_invites table exists.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/email/invite', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emails,
+          courseId,
+          courseTitle: courseToShare.title,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.ok) {
+        const failedNote = data.failed?.length ? ` (${data.failed.length} failed)` : '';
+        setShareInviteSuccess(`Invites sent to ${data.sent ?? emails.length} recipient(s)${failedNote}.`);
+        setShareInviteEmails('');
+      } else if (res.status === 503) {
+        setShareInviteSuccess(`Saved ${emails.length} invite(s). Add RESEND_API_KEY to send emails.`);
+        setShareInviteEmails('');
+      } else {
+        setShareInviteSuccess(`Saved ${emails.length} invite(s). ${data?.error || 'Email could not be sent.'}`);
+        setShareInviteEmails('');
+      }
+    } catch {
+      setShareInviteSuccess(`Saved ${emails.length} invitation(s). Email delivery failed — try again later.`);
+      setShareInviteEmails('');
+    } finally {
+      setShareInviteLoading(false);
+    }
+  };
+
   const handleRemoveCollaborator = async (userIdToRemove: string) => {
     if (!courseForCollaborators || typeof courseForCollaborators.id !== 'string' || !userId) return;
-    const isOwnerRow = courseOwnerId === userIdToRemove;
+    const effectiveOwnerId = resolveCourseOwnerId(courseForCollaborators, courseOwnerId);
+    const isOwnerRow = effectiveOwnerId === userIdToRemove;
     if (isOwnerRow) return;
-    const amOwner = courseOwnerId === userId;
+    const amOwner = effectiveOwnerId === userId;
     const canRemove = amOwner ? true : userIdToRemove === userId;
     if (!canRemove) return;
     try {
@@ -1515,9 +1613,12 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
       )}
 
       {/* Collaborators Modal */}
-      {showCollaboratorsModal && courseForCollaborators && (
+      {showCollaboratorsModal && courseForCollaborators && (() => {
+        const effectiveOwnerId = resolveCourseOwnerId(courseForCollaborators, courseOwnerId);
+        const showCollaboratorInvite = canInviteCollaborators(courseForCollaborators, userId, courseOwnerId);
+        return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full mx-4 max-h-[90vh] flex flex-col">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] flex flex-col">
             <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
               <h3 className="text-xl font-bold text-gray-900 dark:text-white">Collaborators — {courseForCollaborators.title}</h3>
               <button
@@ -1542,7 +1643,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                           {c.full_name ?? 'Unknown'}
                           {c.isOwner && <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">(Owner)</span>}
                         </span>
-                        {!c.isOwner && (courseOwnerId === userId || c.id === userId) && (
+                        {!c.isOwner && (effectiveOwnerId === userId || c.id === userId) && (
                           <button
                             type="button"
                             onClick={() => handleRemoveCollaborator(c.id)}
@@ -1554,9 +1655,10 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                       </li>
                     ))}
                   </ul>
-                  {courseOwnerId === userId && (
+                  {showCollaboratorInvite ? (
                     <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
                       <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Invite co-instructor</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">They must already have a Coursify account with this email.</p>
                       <div className="flex gap-2">
                         <input
                           type="email"
@@ -1578,13 +1680,18 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                       {inviteSuccess && <p className="text-sm text-green-600 dark:text-green-400 mt-2">{inviteSuccess}</p>}
                       {inviteError && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{inviteError}</p>}
                     </div>
+                  ) : (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 pt-4 border-t border-gray-200 dark:border-gray-700">
+                      Only the course owner can invite co-instructors.
+                    </p>
                   )}
                 </>
               )}
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Share Modal */}
       {showShareModal && courseToShare && (() => {
@@ -1622,6 +1729,9 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                     setShareCopyFeedback(false);
                     setShareMagicLink(null);
                     setShareMagicLinkError(null);
+                    setShareInviteEmails('');
+                    setShareInviteError(null);
+                    setShareInviteSuccess(null);
                   }}
                   className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
                 >
@@ -1652,6 +1762,34 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                       {shareCopyFeedback ? 'Copied!' : 'Copy'}
                     </button>
                   </div>
+                </div>
+
+                <div className="mb-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                  <p className="text-sm font-semibold mb-2 dark:text-gray-200 flex items-center gap-2">
+                    <Mail className="w-4 h-4" />
+                    Invite learners by email
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                    Sends an invitation to enroll in <strong className="font-medium text-gray-700 dark:text-gray-300">{courseTitle}</strong>. Learners sign in with the same email.
+                  </p>
+                  <textarea
+                    value={shareInviteEmails}
+                    onChange={(e) => { setShareInviteEmails(e.target.value); setShareInviteError(null); setShareInviteSuccess(null); }}
+                    placeholder="email@example.com, one per line or comma-separated"
+                    rows={3}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white placeholder-gray-500 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleShareInviteLearners}
+                    disabled={shareInviteLoading || !shareInviteEmails.trim()}
+                    className="mt-3 w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {shareInviteLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                    Send invitations
+                  </button>
+                  {shareInviteSuccess && <p className="text-sm text-green-600 dark:text-green-400 mt-2">{shareInviteSuccess}</p>}
+                  {shareInviteError && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{shareInviteError}</p>}
                 </div>
 
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">

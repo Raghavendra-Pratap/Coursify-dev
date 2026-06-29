@@ -43,8 +43,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { subject, html } = buildReminderEmail({ learnerName, note });
-    const { id } = await sendEmail({ to: email, subject, html });
+    const { subject, html, text } = buildReminderEmail({ learnerName, note });
+    const { id } = await sendEmail({ to: email, subject, html, text });
     return NextResponse.json({ ok: true, id });
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to send reminder email';

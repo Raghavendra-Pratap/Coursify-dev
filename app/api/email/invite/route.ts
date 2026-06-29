@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireInstructor } from '@/lib/instructor-auth';
+import { fetchCourseInviteDetails } from '@/lib/email/fetch-course-invite-details';
 import { isResendConfigured, sendInviteEmails } from '@/lib/resend-email';
 import { createServerClient } from '@/lib/supabase-admin';
 
@@ -26,17 +27,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'emails array is required' }, { status: 400 });
     }
 
-    let resolvedTitle = typeof courseTitle === 'string' ? courseTitle : undefined;
-    if (courseId && !resolvedTitle && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      try {
-        const db = createServerClient();
-        const { data } = await db.from('courses').select('title').eq('id', courseId).maybeSingle();
-        resolvedTitle = (data as { title?: string } | null)?.title ?? undefined;
-      } catch {
-        // optional
-      }
-    }
-
     let inviterName: string | undefined;
     try {
       const db = createServerClient();
@@ -50,11 +40,28 @@ export async function POST(request: NextRequest) {
       inviterName = auth.user.email?.split('@')[0];
     }
 
+    const resolvedCourseId = typeof courseId === 'string' ? courseId : undefined;
+    const courseDetails = resolvedCourseId
+      ? await fetchCourseInviteDetails(resolvedCourseId, inviterName)
+      : null;
+
+    let resolvedTitle = courseDetails?.courseTitle ?? (typeof courseTitle === 'string' ? courseTitle : undefined);
+    if (resolvedCourseId && !courseDetails && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      try {
+        const db = createServerClient();
+        const { data } = await db.from('courses').select('title').eq('id', resolvedCourseId).maybeSingle();
+        resolvedTitle = (data as { title?: string } | null)?.title ?? resolvedTitle;
+      } catch {
+        // optional
+      }
+    }
+
     const { sent, failed } = await sendInviteEmails({
       emails,
-      courseId: typeof courseId === 'string' ? courseId : undefined,
+      courseId: resolvedCourseId,
       courseTitle: resolvedTitle,
       inviterName,
+      courseDetails,
     });
 
     if (sent === 0) {
@@ -68,6 +75,14 @@ export async function POST(request: NextRequest) {
       ok: true,
       sent,
       failed: failed.length ? failed : undefined,
+      courseStats: courseDetails
+        ? {
+            
+            moduleCount: courseDetails.moduleCount,
+            lessonCount: courseDetails.lessonCount,
+            durationLabel: courseDetails.durationLabel,
+          }
+        : undefined,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to send invite emails';

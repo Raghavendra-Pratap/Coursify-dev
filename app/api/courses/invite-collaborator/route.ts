@@ -80,12 +80,12 @@ export async function POST(req: Request) {
         const { data: profile } = await admin.from('user_profiles').select('full_name').eq('id', user.id).maybeSingle();
         const inviterName = (profile as { full_name?: string | null } | null)?.full_name?.trim() || user.email?.split('@')[0];
         const courseTitle = (course as { title?: string }).title || 'your course';
-        const { subject, html } = buildCollaboratorInviteEmail({
+        const { subject, html, text } = buildCollaboratorInviteEmail({
           courseTitle,
           courseId: String(courseId),
           inviterName,
         });
-        await sendEmail({ to: invitee.email, subject, html });
+        await sendEmail({ to: invitee.email, subject, html, text });
         emailSent = true;
       } catch {
         // collaborator added; email is best-effort
