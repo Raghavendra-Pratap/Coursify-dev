@@ -59,7 +59,7 @@ set_env_val() {
 set_env_val SITE_URL "$APP_URL" "$SUPABASE_ENV"
 set_env_val API_EXTERNAL_URL "$API_URL" "$SUPABASE_ENV"
 set_env_val SUPABASE_PUBLIC_URL "$API_URL" "$SUPABASE_ENV"
-set_env_val ADDITIONAL_REDIRECT_URLS "${APP_URL},${APP_URL}/**,${APP_URL}/oauth/consent" "$SUPABASE_ENV"
+set_env_val ADDITIONAL_REDIRECT_URLS "${APP_URL},${APP_URL}/auth/callback,${APP_URL}/**" "$SUPABASE_ENV"
 
 cat > "$OUT" <<EOF
 NEXT_PUBLIC_SUPABASE_URL=${API_URL}
