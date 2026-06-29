@@ -35,6 +35,18 @@ fi
 APP_URL="${APP_URL:-$(read_supabase_env NEXT_PUBLIC_APP_URL "$APP_ENV" 2>/dev/null || echo http://localhost:3000)}"
 API_URL="${API_URL:-$(read_supabase_env NEXT_PUBLIC_SUPABASE_URL "$APP_ENV" 2>/dev/null || echo http://localhost:8000)}"
 
+if [[ "$APP_URL" == *"0.0.0.0"* ]] || [[ "$APP_URL" == *"127.0.0.1"* ]]; then
+  echo "ERROR: NEXT_PUBLIC_APP_URL must be your public domain (https://coursify.bsoc.space), not ${APP_URL}"
+  echo "Run: APP_DOMAIN=coursify.bsoc.space API_DOMAIN=api.coursify.bsoc.space ./docker/configure-vps-production.sh"
+  echo "Then: APP_URL=https://coursify.bsoc.space API_URL=https://api.coursify.bsoc.space $0"
+  exit 1
+fi
+if [ "$APP_ENV" = "$ROOT/.env.production" ] && [[ "$APP_URL" == http://localhost* ]]; then
+  echo "ERROR: .env.production still has localhost for NEXT_PUBLIC_APP_URL."
+  echo "Run: APP_DOMAIN=your.app API_DOMAIN=api.your.app ./docker/configure-vps-production.sh"
+  exit 1
+fi
+
 set_env_val() {
   local key="$1" val="$2" file="$3"
   if grep -q "^${key}=" "$file"; then
@@ -50,7 +62,7 @@ set_env_val GOOGLE_SECRET "$CLIENT_SECRET" "$SUPABASE_ENV"
 set_env_val API_EXTERNAL_URL "$API_URL" "$SUPABASE_ENV"
 set_env_val SUPABASE_PUBLIC_URL "$API_URL" "$SUPABASE_ENV"
 set_env_val SITE_URL "$APP_URL" "$SUPABASE_ENV"
-set_env_val ADDITIONAL_REDIRECT_URLS "${APP_URL},${APP_URL}/**,${APP_URL}/oauth/consent" "$SUPABASE_ENV"
+set_env_val ADDITIONAL_REDIRECT_URLS "${APP_URL},${APP_URL}/auth/callback,${APP_URL}/**" "$SUPABASE_ENV"
 set_env_val ENABLE_EMAIL_AUTOCONFIRM true "$SUPABASE_ENV"
 
 if grep -q '^      # GOTRUE_EXTERNAL_GOOGLE_ENABLED' "$COMPOSE"; then

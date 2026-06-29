@@ -251,6 +251,7 @@ docker exec supabase-db pg_dump -U postgres postgres > ~/backups/coursify-$(date
 | Issue | Fix |
 |-------|-----|
 | OAuth redirect error | Match `NEXT_PUBLIC_APP_URL`, Supabase `SITE_URL`, Google callback URL |
+| Redirect to `0.0.0.0:3000` after Google sign-in | `SITE_URL` wrong — run `APP_DOMAIN=coursify.bsoc.space API_DOMAIN=api.coursify.bsoc.space ./docker/fix-oauth-redirects.sh` then sign in again |
 | Empty My learning | Run `./docker/seed-dev-enrollments.sh` or import cloud data |
 | 502 from Caddy | `docker ps` — ensure `coursify` and `supabase-kong` are up |
 | Build fails: `key cannot contain a space` line 17 | Regenerate env (no comments): `export APP_DOMAIN=... API_DOMAIN=... && ./docker/configure-vps-production.sh` then add Google keys and rebuild |
