@@ -26,34 +26,18 @@ curl -sf -o /dev/null -w "  app :3000 → %{http_code}\n" http://127.0.0.1:3000/
 curl -s -o /dev/null -w "  api :8000 → %{http_code} (401 is OK)\n" http://127.0.0.1:8000/rest/v1/ || echo "  api :8000 → FAIL"
 echo ""
 
-echo "==> Reverse proxy (Caddy or nginx)"
-PORT80=$(sudo ss -tlnp 2>/dev/null | grep ':80 ' || true)
-if echo "$PORT80" | grep -q nginx; then
-  echo "nginx already uses port 80 — configuring nginx proxy (Caddy would conflict)."
-  "$(dirname "$0")/setup-nginx-proxy.sh"
-elif echo "$PORT80" | grep -q caddy; then
-  echo "Caddy already on port 80 — updating Caddyfile only."
-  _setup_caddy=true
-elif [ -n "$PORT80" ]; then
-  echo "Port 80 in use by another process — using nginx setup script."
-  echo "$PORT80"
-  "$(dirname "$0")/setup-nginx-proxy.sh"
-else
-  _setup_caddy=true
+echo "==> Caddy"
+if ! command -v caddy >/dev/null 2>&1; then
+  echo "Installing Caddy…"
+  sudo apt-get update -qq
+  sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+  sudo apt-get update -qq
+  sudo apt-get install -y caddy
 fi
 
-if [ "${_setup_caddy:-false}" = true ]; then
-  if ! command -v caddy >/dev/null 2>&1; then
-    echo "Installing Caddy…"
-    sudo apt-get update -qq
-    sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-    sudo apt-get update -qq
-    sudo apt-get install -y caddy
-  fi
-
-  sudo tee /etc/caddy/Caddyfile > /dev/null <<EOF
+sudo tee /etc/caddy/Caddyfile > /dev/null <<EOF
 ${APP_DOMAIN} {
 	encode gzip
 	reverse_proxy 127.0.0.1:3000
@@ -65,19 +49,18 @@ ${API_DOMAIN} {
 }
 EOF
 
-  sudo systemctl stop nginx 2>/dev/null || true
-  sudo systemctl disable nginx 2>/dev/null || true
-  sudo systemctl enable caddy
-  sudo systemctl restart caddy
-  if ! sudo systemctl is-active --quiet caddy; then
-    echo "Caddy failed — logs:"
-    sudo journalctl -u caddy -n 20 --no-pager || true
-    echo "Try nginx instead: ./docker/setup-nginx-proxy.sh"
-    exit 1
-  fi
-  sudo systemctl --no-pager status caddy | head -5 || true
-  echo "Caddy OK for ${APP_DOMAIN} and ${API_DOMAIN}"
+sudo systemctl enable caddy
+sudo systemctl start caddy 2>/dev/null || true
+if ! sudo systemctl reload caddy 2>/dev/null; then
+  sudo systemctl restart caddy || true
 fi
+if ! sudo systemctl is-active --quiet caddy; then
+  echo ""
+  echo "WARNING: Caddy failed to start. Run: ./docker/fix-caddy.sh"
+  echo "  (often nginx/apache on port 80, or: sudo journalctl -u caddy -n 30)"
+fi
+sudo systemctl --no-pager status caddy 2>/dev/null | head -8 || true
+echo "Caddy configured for ${APP_DOMAIN} and ${API_DOMAIN}"
 echo ""
 
 echo "==> Firewall (ufw) — SSH (port 22) is allowed BEFORE enable"
