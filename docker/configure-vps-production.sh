@@ -45,6 +45,7 @@ GOOGLE_SECRET=$(read_old GOOGLE_CLIENT_SECRET)
 RESEND_KEY=$(read_old RESEND_API_KEY)
 RESEND_FROM=$(read_old RESEND_FROM_EMAIL)
 ASSESSMENT_ORIGIN=$(read_old NEXT_PUBLIC_ASSESSMENT_PRO_ORIGIN)
+YOUTUBE_KEY=$(read_old YOUTUBE_API_KEY)
 
 # Supabase GoTrue / Kong
 set_env_val() {
@@ -72,6 +73,7 @@ GOOGLE_CLIENT_SECRET=${GOOGLE_SECRET}
 RESEND_API_KEY=${RESEND_KEY}
 RESEND_FROM_EMAIL=${RESEND_FROM}
 NEXT_PUBLIC_ASSESSMENT_PRO_ORIGIN=${ASSESSMENT_ORIGIN}
+YOUTUBE_API_KEY=${YOUTUBE_KEY}
 EOF
 
 echo "Wrote $OUT (no comments — safe for docker compose)"
@@ -81,6 +83,7 @@ echo ""
 echo "Edit secrets: nano $OUT"
 echo "  GOOGLE_CLIENT_ID=....apps.googleusercontent.com"
 echo "  GOOGLE_CLIENT_SECRET=...."
+echo "  YOUTUBE_API_KEY=.... (YouTube Data API v3 — Import from YouTube)"
 echo "Values with spaces must be quoted, e.g. RESEND_FROM_EMAIL=\"Coursify <noreply@domain.com>\""
 echo ""
 echo "Then: ./docker/configure-google-oauth.sh && ./docker/build-app.sh"
