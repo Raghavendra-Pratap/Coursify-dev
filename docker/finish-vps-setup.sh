@@ -10,6 +10,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DOMAIN="${APP_DOMAIN:-coursify.bsoc.space}"
 API_DOMAIN="${API_DOMAIN:-api.coursify.bsoc.space}"
+ENV_FILE="$ROOT/.env.production"
+APP_PORT="3000"
+if [ -f "$ENV_FILE" ]; then
+  line=$(grep -E '^APP_PORT=' "$ENV_FILE" | head -1 || true)
+  if [ -n "$line" ]; then
+    APP_PORT="${line#APP_PORT=}"
+    APP_PORT="${APP_PORT//$'\r'/}"
+  fi
+fi
 
 echo "==> VPS public IP (use for DNS A records):"
 VPS_IP=$(curl -4 -s ifconfig.me 2>/dev/null || curl -4 -s icanhazip.com 2>/dev/null || true)
@@ -20,8 +29,8 @@ echo "==> Docker containers"
 docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E 'coursify|supabase-kong|supabase-db|NAMES' || true
 echo ""
 
-echo "==> Local health"
-curl -sf -o /dev/null -w "  app :3000 → %{http_code}\n" http://127.0.0.1:3000/ || echo "  app :3000 → FAIL"
+echo "==> Local health (Coursify host port ${APP_PORT})"
+curl -sf -o /dev/null -w "  app :${APP_PORT} → %{http_code}\n" "http://127.0.0.1:${APP_PORT}/" || echo "  app :${APP_PORT} → FAIL"
 # 401 on /rest/v1/ without apikey is expected — do not use curl -f
 curl -s -o /dev/null -w "  api :8000 → %{http_code} (401 is OK)\n" http://127.0.0.1:8000/rest/v1/ || echo "  api :8000 → FAIL"
 echo ""
@@ -40,7 +49,7 @@ fi
 sudo tee /etc/caddy/Caddyfile > /dev/null <<EOF
 ${APP_DOMAIN} {
 	encode gzip
-	reverse_proxy 127.0.0.1:3000
+	reverse_proxy 127.0.0.1:${APP_PORT}
 }
 
 ${API_DOMAIN} {
