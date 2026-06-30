@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { getFromEmail, getResendApiKey, isResendConfigured } from '@/lib/resend-email';
 import { runtimeEnvDiagnostics } from '@/lib/runtime-env';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 /** GET: whether outbound email (Resend) is configured on this deployment. */
 export async function GET() {
   const key = getResendApiKey();

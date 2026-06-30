@@ -25,6 +25,7 @@ services:
       - .env.production
     environment:
       NODE_ENV: production
+      COURSIFY_RUNTIME_ENV_FILE: /app/config/runtime.env
     volumes:
       # Coursify container only — server secrets read at runtime (Next.js trims process.env).
       - ./.env.production:/app/config/production.env:ro

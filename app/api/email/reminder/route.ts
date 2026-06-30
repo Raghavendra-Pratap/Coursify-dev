@@ -3,6 +3,8 @@ import { requireInstructor } from '@/lib/instructor-auth';
 import { buildReminderEmail, isResendConfigured, sendEmail } from '@/lib/resend-email';
 import { createServerClient } from '@/lib/supabase-admin';
 
+export const runtime = 'nodejs';
+
 export async function POST(request: NextRequest) {
   const auth = await requireInstructor(request);
   if ('error' in auth) return auth.error;

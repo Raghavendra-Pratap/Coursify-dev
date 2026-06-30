@@ -3,6 +3,8 @@ import { buildCollaboratorInviteEmail, isResendConfigured, sendEmail } from '@/l
 import { createClient } from '@supabase/supabase-js';
 import { createServerClient } from '@supabase/ssr';
 
+export const runtime = 'nodejs';
+
 function createAuthClient(request: Request, url: string, anonKey: string) {
   return createServerClient(url, anonKey, {
     cookies: {
