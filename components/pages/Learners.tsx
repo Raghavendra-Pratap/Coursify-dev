@@ -411,7 +411,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
         const failedNote = data.failed?.length ? ` (${data.failed.length} failed)` : '';
         showActionMessage(`Invites saved and emails sent to ${data.sent ?? allEmails.length} recipient(s)${failedNote}.`);
       } else if (res.status === 503) {
-        showActionMessage(`Saved ${allEmails.length} invite(s). Add RESEND_API_KEY in Vercel to send emails.`);
+        showActionMessage(`Saved ${allEmails.length} invite(s). Add RESEND_API_KEY in .env.production on your server to send emails.`);
       } else {
         showActionMessage(`Invites saved. ${data?.error || 'Email could not be sent.'}`);
       }
@@ -554,7 +554,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
     <div className="min-h-full dark:bg-gray-900">
       {emailConfigured === false && (
         <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-8 py-2 text-sm text-amber-800 dark:text-amber-200">
-          Email delivery is not configured. Invites are saved; add <code className="font-mono text-xs">RESEND_API_KEY</code> in Vercel to send invitation emails.
+          Email delivery is not configured. Invites are saved; add <code className="font-mono text-xs">RESEND_API_KEY</code> to <code className="font-mono text-xs">.env.production</code> on your server and restart the app to send invitation emails.
         </div>
       )}
       {configMissing && (

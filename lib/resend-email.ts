@@ -11,12 +11,18 @@ import { lookupRecipientDisplayNames } from '@/lib/email/lookup-recipient-name';
 
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 
+/** Read Resend API key at runtime (Docker injects .env.production when the container is created). */
+export function getResendApiKey(): string | undefined {
+  const key = process.env.RESEND_API_KEY?.trim();
+  return key || undefined;
+}
+
 export function isResendConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY);
+  return Boolean(getResendApiKey());
 }
 
 export function getResendClient(): Resend | null {
-  const key = process.env.RESEND_API_KEY;
+  const key = getResendApiKey();
   return key ? new Resend(key) : null;
 }
 
