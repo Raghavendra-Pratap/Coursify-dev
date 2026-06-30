@@ -37,7 +37,7 @@ NEXT_PUBLIC_APP_URL=https://coursify.bsoc.space
 
 ## Invite email content
 
-- **Multipart (HTML + plain text)** — every send includes a plain-text body and a simple subject line (no special characters). This improves inbox placement vs HTML-only mail.
+- **Personal message + boarding pass** — optional creator note at the top, then the invitation card. Plain-text fallback is included for clients that prefer text.
 - **Invitation card design** — dark wide card with copper accents, course code, enrollment code, and enroll CTA (see `lib/email/boarding-pass-invite.ts`).
 - Includes inviter name (from profile) when available.
 - Subject examples: `Raghavendra invited you to Advanced UX Research` or `Invitation to Advanced UX Research on Coursify`.

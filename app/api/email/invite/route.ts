@@ -17,10 +17,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { emails, courseId, courseTitle } = body as {
+    const { emails, courseId, courseTitle, customMessage } = body as {
       emails?: string[];
       courseId?: string;
       courseTitle?: string;
+      customMessage?: string;
     };
 
     if (!emails || !Array.isArray(emails) || emails.length === 0) {
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
       courseTitle: resolvedTitle,
       inviterName,
       courseDetails,
+      customMessage: typeof customMessage === 'string' ? customMessage : undefined,
     });
 
     if (sent === 0) {

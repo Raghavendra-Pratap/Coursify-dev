@@ -4,12 +4,19 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Play, Pause, Plus, Clock, Video, ChevronRight, Edit, X, Save, Zap, Folder, Upload, Eye, RotateCcw,
   Trash2, CheckCircle, Info, ChevronDown, ChevronUp, Download, Copy, FileText, Menu,
-  Youtube, HelpCircle, Radio, AlertCircle, BookOpen, Link, FileSpreadsheet, Award
+  Youtube, HelpCircle, Radio, AlertCircle, BookOpen, Link, FileSpreadsheet, Award, LayoutList
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { invalidateClientCache } from '@/lib/client-fetch-cache';
 import { ReadingContentRenderer } from '@/components/ReadingContentRenderer';
 import { AssessmentGradingPanel } from '@/components/AssessmentGradingPanel';
 import { AddAssessmentPanel } from '@/components/AddAssessmentPanel';
+import { AssessmentPreviewEmbed } from '@/components/AssessmentPreviewEmbed';
+import { YouTubeImportPanel } from '@/components/YouTubeImportPanel';
+import { SheetImportPanel } from '@/components/SheetImportPanel';
+import { CourseStructurePanel } from '@/components/CourseStructurePanel';
+import type { YouTubeImportModule } from '@/lib/youtube-import';
+import { moveContentItem, moveLesson } from '@/lib/course-structure';
 
 interface CreateCourseProps {
   setCurrentView: (view: string) => void;
@@ -17,7 +24,18 @@ interface CreateCourseProps {
   onBackToCourses?: () => void;
   /** When course is created from sheet import, open it in the editor (parent sets editingCourseId and stays on create view). */
   onImportSuccess?: (courseId: string) => void;
+  /** Called after a successful save so the shell can track the real course id (URL + My Courses). */
+  onCourseSaved?: (courseId: string) => void;
+  /** Expose import / organize actions to the app shell top nav while editing. */
+  onRegisterEditorActions?: (actions: {
+    openImportYouTube: () => void;
+    openImportSheet: () => void;
+    openOrganize: () => void;
+  }) => void;
 }
+
+const courseEditorPillBtn =
+  'flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-sm font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors';
 
 // Updated data structure: Lessons contain content items (video segments, quizzes, forms, reading)
 type ContentType = 'video' | 'quiz' | 'form' | 'reading' | 'assessment';
@@ -109,6 +127,58 @@ interface Module {
   duration: string;
 }
 
+function createDefaultModules(): Module[] {
+  const baseId = Date.now();
+  return [
+    {
+      id: baseId,
+      title: 'New Module',
+      order: 0,
+      duration: '0 min',
+      lessons: [
+        {
+          id: baseId + 1,
+          title: 'Lesson 1',
+          order: 0,
+          duration: '0 min',
+          content: [],
+        },
+      ],
+    },
+  ];
+}
+
+function createNewCourseBoilerplate(overrides?: { title?: string; description?: string; status?: 'draft' | 'published' }) {
+  return {
+    title: overrides?.title ?? 'Untitled Course',
+    description: overrides?.description ?? '',
+    lastEdited: 'Just now',
+    status: overrides?.status ?? ('draft' as const),
+    modules: createDefaultModules(),
+  };
+}
+
+function isEmptyCourseBoilerplate(modules: Module[]): boolean {
+  if (modules.length === 0) return true;
+  const totalContent = modules.reduce(
+    (count, mod) => count + mod.lessons.reduce((lessonCount, lesson) => lessonCount + lesson.content.length, 0),
+    0
+  );
+  return totalContent === 0;
+}
+
+function renumberCourseStructure(modules: Module[]): Module[] {
+  return modules.map((mod, modIdx) => ({
+    ...mod,
+    order: modIdx,
+    lessons: mod.lessons.map((lesson, lessonIdx) => ({
+      ...lesson,
+      order: lessonIdx,
+      content: lesson.content.map((item, contentIdx) => ({ ...item, order: contentIdx })),
+    })),
+  }));
+}
+
 /** Normalize course snapshot for change detection (order-independent; ignore ids and volatile fields like lastEdited). Only creates a new version when content actually changed. */
 function normalizeSnapshotForCompare(snapshot: { title?: string; description?: string; modules?: Array<{ title?: string; order?: number; lessons?: Array<{ title?: string; order?: number; duration?: string; content?: Array<Record<string, unknown>> }> }> } | null): string {
   if (!snapshot || typeof snapshot !== 'object') return '';
@@ -159,7 +229,7 @@ function getYouTubeVideoId(url: string): string | null {
 /** Build YouTube embed URL with optional start/end and limited UI options */
 function getYouTubeEmbedUrl(videoId: string, startSeconds?: number, endSeconds?: number): string {
   const params = new URLSearchParams();
-  if (startSeconds != null && startSeconds > 0) params.set('start', String(Math.floor(startSeconds)));
+  if (startSeconds != null && startSeconds >= 0) params.set('start', String(Math.floor(startSeconds)));
   if (endSeconds != null && endSeconds > 0) params.set('end', String(Math.floor(endSeconds)));
   params.set('rel', '0');           // No related videos at end (or only from same channel)
   params.set('modestbranding', '1'); // Minimal YouTube logo
@@ -374,6 +444,7 @@ function YouTubeSegmentPlayer({
   const embedUrl = getYouTubeEmbedUrl(videoId, startSeconds, endSeconds);
   return (
     <iframe
+      key={`${videoId}-${startSeconds ?? 0}-${endSeconds ?? 'full'}`}
       title={title ?? 'YouTube segment'}
       src={embedUrl}
       className={className}
@@ -383,7 +454,7 @@ function YouTubeSegmentPlayer({
   );
 }
 
-const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCourseId, onBackToCourses, onImportSuccess }) => {
+const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCourseId, onBackToCourses, onImportSuccess, onCourseSaved, onRegisterEditorActions }) => {
   const [currentModule, setCurrentModule] = useState(0);
   const [currentLesson, setCurrentLesson] = useState(0);
   const [selectedContent, setSelectedContent] = useState(0);
@@ -410,23 +481,51 @@ const CreateCourse: React.FC<CreateCourseProps> = ({ setCurrentView, initialCour
   const [startTime, setStartTime] = useState('');
   const [duration, setDuration] = useState('');
   const [videoMaxDuration, setVideoMaxDuration] = useState(''); // Optional HH:MM:SS for validation
-  const [showImportSheet, setShowImportSheet] = useState(false);
-  const [importFile, setImportFile] = useState<File | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
-  const [importLoading, setImportLoading] = useState(false);
+  const [showYouTubeImport, setShowYouTubeImport] = useState(false);
+  const [showSheetImport, setShowSheetImport] = useState(false);
+  const [showStructurePanel, setShowStructurePanel] = useState(false);
+
+  useEffect(() => {
+    onRegisterEditorActions?.({
+      openImportYouTube: () => setShowYouTubeImport(true),
+      openImportSheet: () => setShowSheetImport(true),
+      openOrganize: () => setShowStructurePanel(true),
+    });
+  }, [onRegisterEditorActions]);
   const [startTimeError, setStartTimeError] = useState<string | null>(null);
   const [endTimeError, setEndTimeError] = useState<string | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [draggedItem, setDraggedItem] = useState<{type: 'module' | 'lesson' | 'content', id: number, moduleId?: number, lessonId?: number} | null>(null);
-  const [showQuizModal, setShowQuizModal] = useState(false);
+  const [showGoogleFormModal, setShowGoogleFormModal] = useState(false);
+  const [googleFormKind, setGoogleFormKind] = useState<'quiz' | 'form'>('form');
   const [quizModalTitle, setQuizModalTitle] = useState('');
   const [quizModalPassingScore, setQuizModalPassingScore] = useState(70);
   const [quizModalFormUrl, setQuizModalFormUrl] = useState('');
   const [quizModalFormEntryIdWebhook, setQuizModalFormEntryIdWebhook] = useState('');
   const [quizModalScriptCopied, setQuizModalScriptCopied] = useState(false);
   const [quizModalRecordScoresOpen, setQuizModalRecordScoresOpen] = useState(false);
-  const [showFormModal, setShowFormModal] = useState(false);
-  const [formModalTitle, setFormModalTitle] = useState('');
+
+  const resetGoogleFormModal = () => {
+    setShowGoogleFormModal(false);
+    setGoogleFormKind('form');
+    setQuizModalTitle('');
+    setQuizModalFormUrl('');
+    setQuizModalPassingScore(70);
+    setQuizModalFormEntryIdWebhook('');
+    setQuizModalScriptCopied(false);
+    setQuizModalRecordScoresOpen(false);
+  };
+
+  const openGoogleFormModal = (kind: 'quiz' | 'form' = 'form') => {
+    setGoogleFormKind(kind);
+    setQuizModalTitle('');
+    setQuizModalFormUrl('');
+    setQuizModalPassingScore(70);
+    setQuizModalFormEntryIdWebhook('');
+    setQuizModalScriptCopied(false);
+    setQuizModalRecordScoresOpen(false);
+    setShowGoogleFormModal(true);
+  };
 
   /** Build Apps Script code with custom webhook URL. Entry ID can be empty (placeholder used). */
   const getQuizWebhookScript = (entryId: string, passingScore: number) => {
@@ -487,12 +586,14 @@ function onFormSubmit(e) {
 }
 `;
   };
-  const [formModalFormUrl, setFormModalFormUrl] = useState('');
   const [showAssessmentPanel, setShowAssessmentPanel] = useState(false);
+  const [assessmentAddSession, setAssessmentAddSession] = useState(0);
+  const [editingAssessmentContentId, setEditingAssessmentContentId] = useState<number | null>(null);
   const [showStreamSettings, setShowStreamSettings] = useState(false);
   const [savedCourseId, setSavedCourseId] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [editingModuleId, setEditingModuleId] = useState<number | null>(null);
+  const [collapsedSidebarModules, setCollapsedSidebarModules] = useState<Set<number>>(new Set());
   const [showReadingModal, setShowReadingModal] = useState(false);
   const [readingTitle, setReadingTitle] = useState('');
   const [readingType, setReadingType] = useState<'url' | 'native'>('url');
@@ -620,45 +721,65 @@ function onFormSubmit(e) {
     };
   }, [showUploadModal, uploadType, unifiedVideoUrl]);
 
+  const handleYouTubeImportApply = (modules: YouTubeImportModule[], courseTitle?: string) => {
+    setCourseData((prev) => {
+      const replaceBoiler = prev.modules.length === 0 || isEmptyCourseBoilerplate(prev.modules);
+      const base = Date.now();
+      const normalized = modules.map((m, mi) => ({
+        ...m,
+        id: replaceBoiler && mi === 0 ? m.id : base + mi,
+        order: replaceBoiler ? mi : prev.modules.length + mi,
+        lessons: m.lessons.map((l, li) => ({
+          ...l,
+          id: base + mi * 1000 + li + 1,
+          order: li,
+          content: l.content.map((c, ci) => ({
+            ...c,
+            id: base + mi * 1000 + li * 100 + ci + 1,
+            order: ci,
+            videoSegment: c.videoSegment
+              ? { ...c.videoSegment, id: base + mi * 1000 + li * 100 + ci + 1 }
+              : c.videoSegment,
+          })),
+        })),
+      }));
+      return {
+        ...prev,
+        title: courseTitle && prev.title === 'Untitled Course' ? courseTitle : prev.title,
+        modules: renumberCourseStructure(replaceBoiler ? normalized : [...prev.modules, ...normalized]),
+        lastEdited: 'Just now',
+      };
+    });
+    setCurrentModule(0);
+    setCurrentLesson(0);
+    setSelectedContent(0);
+    setCombinedSegmentIndex(0);
+    showSaveMessage('YouTube content added to your course. Click Save Changes to persist.');
+  };
+
+  const handleStructureChange = (modules: Module[]) => {
+    setCourseData((prev) => ({ ...prev, modules, lastEdited: 'Just now' }));
+    setCurrentModule((idx) => Math.min(idx, Math.max(0, modules.length - 1)));
+    setCurrentLesson((idx) => {
+      const modIdx = Math.min(currentModule, Math.max(0, modules.length - 1));
+      const mod = modules[modIdx];
+      return Math.min(idx, Math.max(0, (mod?.lessons.length ?? 1) - 1));
+    });
+  };
+
+  const handleStructureNavigate = (moduleIndex: number, lessonIndex: number, contentIndex?: number) => {
+    setCurrentModule(moduleIndex);
+    setCurrentLesson(lessonIndex);
+    if (contentIndex != null) {
+      setSelectedContent(contentIndex);
+      setCombinedSegmentIndex(contentIndex);
+    }
+    setShowStructurePanel(false);
+  };
+
   const showSaveMessage = (msg: string) => {
     setSaveMessage(msg);
     setTimeout(() => setSaveMessage(null), 4000);
-  };
-
-  const handleImportSheet = async () => {
-    if (!importFile) {
-      setImportError('Choose a CSV file first.');
-      return;
-    }
-    setImportError(null);
-    setImportLoading(true);
-    try {
-      const formData = new FormData();
-      formData.set('sheet', importFile);
-      const res = await fetch('/api/instructor/courses/import-from-sheet', {
-        method: 'POST',
-        credentials: 'include',
-        body: formData,
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const details = Array.isArray(json.details) ? json.details.map((d: { row?: number; message?: string }) => `Row ${d.row}: ${d.message}`).join('; ') : json.details || json.error;
-        setImportError(details || res.statusText || 'Import failed.');
-        return;
-      }
-      const courseId = json.courseId;
-      setShowImportSheet(false);
-      setImportFile(null);
-      if (courseId && onImportSuccess) {
-        onImportSuccess(courseId);
-      } else if (courseId) {
-        showSaveMessage('Course created. Reload the page to edit it.');
-      }
-    } catch (e) {
-      setImportError(e instanceof Error ? e.message : 'Import failed.');
-    } finally {
-      setImportLoading(false);
-    }
   };
 
   // Updated course structure: Modules -> Lessons -> Content Items (videos/quizzes/forms)
@@ -668,19 +789,14 @@ function onFormSubmit(e) {
     lastEdited: string;
     status: 'draft' | 'published';
     modules: Module[];
-  }>({
-    title: 'Untitled Course',
-    description: '',
-    lastEdited: 'Just now',
-    status: 'draft',
-    modules: []
-  });
+  }>(createNewCourseBoilerplate());
 
   // Version history (loaded from course_versions when savedCourseId is set)
   const [versions, setVersions] = useState<{ id: string; name: string; changes: string; timestamp: string; isCurrent: boolean; author: string }[]>([]);
 
   // Drive files (populated when Google Drive is connected)
-  const [driveFiles] = useState<{ id: number; name: string; size: string; type: string; modified: string }[]>([]);
+  const [driveFiles, setDriveFiles] = useState<{ id: number; name: string; size: string; type: string; modified: string }[]>([]);
+  const driveUploadInputRef = useRef<HTMLInputElement>(null);
 
   // Edit load state: when opening a course by initialCourseId
   const [courseLoadState, setCourseLoadState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
@@ -704,6 +820,8 @@ function onFormSubmit(e) {
         currentModule?: number;
         currentLesson?: number;
         selectedContent?: number;
+        combinedSegmentIndex?: number;
+        editingAssessmentContentId?: number | null;
         savedCourseId?: string | null;
       };
       if (parsed?.courseData?.modules && Array.isArray(parsed.courseData.modules)) {
@@ -716,10 +834,28 @@ function onFormSubmit(e) {
           return;
         }
 
-        setCourseData(parsed.courseData);
+        // "Create New Course" must not restore empty drafts — start with default module + lesson.
+        if (!initialCourseId && parsed.courseData.modules.length === 0) {
+          return;
+        }
+
+        // "Create New Course" must not restore a draft tied to a saved course id.
+        if (!initialCourseId && parsed.savedCourseId) {
+          return;
+        }
+
+        setCourseData({
+          ...parsed.courseData,
+          // Status comes from the database after publish — never trust local draft for invites/My Courses.
+          status: 'draft',
+        });
         setCurrentModule(typeof parsed.currentModule === 'number' ? parsed.currentModule : 0);
         setCurrentLesson(typeof parsed.currentLesson === 'number' ? parsed.currentLesson : 0);
         setSelectedContent(typeof parsed.selectedContent === 'number' ? parsed.selectedContent : 0);
+        setCombinedSegmentIndex(typeof parsed.combinedSegmentIndex === 'number' ? parsed.combinedSegmentIndex : (typeof parsed.selectedContent === 'number' ? parsed.selectedContent : 0));
+        if (typeof parsed.editingAssessmentContentId === 'number') {
+          setEditingAssessmentContentId(parsed.editingAssessmentContentId);
+        }
         if (typeof parsed.savedCourseId === 'string' && parsed.savedCourseId) setSavedCourseId(parsed.savedCourseId);
         setCourseLoadState('loaded');
         restoredDraftKeyRef.current = draftKey;
@@ -727,17 +863,24 @@ function onFormSubmit(e) {
     } catch {
       // ignore invalid local draft
     }
-  }, [getDraftStorageKey]);
+  }, [getDraftStorageKey, initialCourseId]);
 
   // Persist unsaved editor draft frequently to avoid losing work.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
       const payload = JSON.stringify({
-        courseData,
+        courseData: {
+          title: courseData.title,
+          description: courseData.description,
+          lastEdited: courseData.lastEdited,
+          modules: courseData.modules,
+        },
         currentModule,
         currentLesson,
         selectedContent,
+        combinedSegmentIndex,
+        editingAssessmentContentId,
         savedCourseId,
         updatedAt: Date.now(),
       });
@@ -745,7 +888,33 @@ function onFormSubmit(e) {
     } catch {
       // ignore storage errors
     }
-  }, [courseData, currentModule, currentLesson, selectedContent, savedCourseId, getDraftStorageKey]);
+  }, [courseData.title, courseData.description, courseData.lastEdited, courseData.modules, currentModule, currentLesson, selectedContent, combinedSegmentIndex, editingAssessmentContentId, savedCourseId, getDraftStorageKey]);
+
+  // Keep editor status in sync with the database (draft restore must not show "published" falsely).
+  useEffect(() => {
+    const courseId = initialCourseId || savedCourseId;
+    if (!courseId || !process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/instructor/courses/${encodeURIComponent(courseId)}`, {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const data = (await res.json().catch(() => ({}))) as { status?: string; error?: string };
+        if (cancelled || !res.ok || !data.status) return;
+        const dbStatus = data.status as 'draft' | 'published' | 'archived';
+        if (dbStatus === 'draft' || dbStatus === 'published') {
+          setCourseData((prev) => (prev.status === dbStatus ? prev : { ...prev, status: dbStatus }));
+        }
+      } catch {
+        // ignore — editor still usable from local draft
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialCourseId, savedCourseId]);
 
   // Load existing course when editing from My Courses
   useEffect(() => {
@@ -769,7 +938,13 @@ function onFormSubmit(e) {
         const { data: modRows } = await db.from('modules').select('id, title, order_index').eq('course_id', initialCourseId).order('order_index');
         const modules: Module[] = [];
         if (!modRows?.length) {
-          setCourseData({ title: c.title, description: c.description || '', lastEdited: 'Just now', status: (c.status as 'draft' | 'published') || 'draft', modules: [] });
+          setCourseData(
+            createNewCourseBoilerplate({
+              title: c.title,
+              description: c.description || '',
+              status: (c.status as 'draft' | 'published') || 'draft',
+            })
+          );
           setCourseLoadState('loaded');
           return;
         }
@@ -846,9 +1021,33 @@ function onFormSubmit(e) {
     })();
   }, [initialCourseId, getDraftStorageKey]);
 
+  const toggleSidebarModule = (moduleId: number) => {
+    setCollapsedSidebarModules((prev) => {
+      const next = new Set(prev);
+      if (next.has(moduleId)) next.delete(moduleId);
+      else next.add(moduleId);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const activeModule = courseData.modules[currentModule];
+    if (!activeModule) return;
+    setCollapsedSidebarModules((prev) => {
+      if (!prev.has(activeModule.id)) return prev;
+      const next = new Set(prev);
+      next.delete(activeModule.id);
+      return next;
+    });
+  }, [currentModule, courseData.modules]);
+
   const currentModuleData = courseData.modules[currentModule];
   const currentLessonData = currentModuleData?.lessons[currentLesson];
   const currentContent = currentLessonData?.content?.[selectedContent];
+  const editingAssessmentContent =
+    editingAssessmentContentId != null
+      ? currentLessonData?.content.find((c) => c.id === editingAssessmentContentId)
+      : null;
 
   // Combined lesson preview: simulated playback position (we can't read iframe currentTime for YT/Drive)
   const [combinedPreviewElapsedSeconds, setCombinedPreviewElapsedSeconds] = useState(0);
@@ -925,8 +1124,24 @@ function onFormSubmit(e) {
   const segForCombined = lessonPreviewMode === 'combined' ? currentSegmentInCombined?.videoSegment : null;
   const ytIdCombined = segForCombined?.source === 'youtube' && segForCombined?.sourceUrl ? getYouTubeVideoId(segForCombined.sourceUrl) : null;
   const driveIdCombined = segForCombined?.source === 'google_drive' && segForCombined?.sourceUrl ? getGoogleDriveFileId(segForCombined.sourceUrl) : null;
-  const ytStartCombined = segForCombined?.startTimestamp ?? 0;
-  const ytEndCombined = segForCombined?.endTimestamp ?? 0;
+  const ytStartCombined = (() => {
+    if (!segForCombined) return 0;
+    if (segForCombined.startTimestamp != null) return segForCombined.startTimestamp;
+    if (segForCombined.startTime) {
+      const fromHms = parseHHMMSSToSeconds(segForCombined.startTime);
+      if (fromHms != null) return fromHms;
+    }
+    return 0;
+  })();
+  const ytEndCombined = (() => {
+    if (!segForCombined) return 0;
+    if (segForCombined.endTimestamp != null) return segForCombined.endTimestamp;
+    if (segForCombined.endTime) {
+      const fromHms = parseHHMMSSToSeconds(segForCombined.endTime);
+      if (fromHms != null) return fromHms;
+    }
+    return 0;
+  })();
 
   useEffect(() => {
     if (!driveIdCombined) setCombinedDrivePlayerReady(false);
@@ -1127,22 +1342,59 @@ function onFormSubmit(e) {
         modules.forEach((m, idx) => { m.order = idx; });
         setCourseData({ ...courseData, modules });
       }
-    } else if (draggedItem.type === 'lesson' && targetType === 'lesson' && draggedItem.moduleId === targetModuleId) {
-      // Reorder lessons within same module
-      const modules = [...courseData.modules];
-      const moduleItem = modules.find(m => m.id === draggedItem.moduleId);
-      if (moduleItem) {
+    } else if (draggedItem.type === 'lesson' && targetType === 'lesson') {
+      const fromModuleIdx = courseData.modules.findIndex((m) => m.id === draggedItem.moduleId);
+      const toModuleIdx = courseData.modules.findIndex((m) => m.id === targetModuleId);
+      if (fromModuleIdx === -1 || toModuleIdx === -1) {
+        setDraggedItem(null);
+        return;
+      }
+      const fromLessonIdx = courseData.modules[fromModuleIdx].lessons.findIndex((l) => l.id === draggedItem.id);
+      const toLessonIdx = courseData.modules[toModuleIdx].lessons.findIndex((l) => l.id === targetId);
+      if (fromLessonIdx === -1 || toLessonIdx === -1) {
+        setDraggedItem(null);
+        return;
+      }
+      if (fromModuleIdx === toModuleIdx && fromLessonIdx !== toLessonIdx) {
+        const modules = [...courseData.modules];
+        const moduleItem = modules[fromModuleIdx];
         const lessons = [...moduleItem.lessons];
-        const draggedIndex = lessons.findIndex(l => l.id === draggedItem.id);
-        const targetIndex = lessons.findIndex(l => l.id === targetId);
-        
-        if (draggedIndex !== -1 && targetIndex !== -1) {
-          const [removed] = lessons.splice(draggedIndex, 1);
-          lessons.splice(targetIndex, 0, removed);
-          lessons.forEach((l, idx) => { l.order = idx; });
-          moduleItem.lessons = lessons;
-          setCourseData({ ...courseData, modules });
-        }
+        const [removed] = lessons.splice(fromLessonIdx, 1);
+        lessons.splice(toLessonIdx, 0, removed);
+        lessons.forEach((l, idx) => { l.order = idx; });
+        moduleItem.lessons = lessons;
+        setCourseData({ ...courseData, modules });
+      } else if (fromModuleIdx !== toModuleIdx) {
+        setCourseData((prev) => ({
+          ...prev,
+          modules: moveLesson(prev.modules, { moduleIndex: fromModuleIdx, lessonIndex: fromLessonIdx }, toModuleIdx, toLessonIdx),
+          lastEdited: 'Just now',
+        }));
+      }
+    } else if (draggedItem.type === 'content' && targetType === 'lesson' && targetModuleId != null && targetLessonId != null) {
+      const fromModuleIdx = courseData.modules.findIndex((m) => m.id === draggedItem.moduleId);
+      const toModuleIdx = courseData.modules.findIndex((m) => m.id === targetModuleId);
+      if (fromModuleIdx === -1 || toModuleIdx === -1) {
+        setDraggedItem(null);
+        return;
+      }
+      const fromLessonIdx = courseData.modules[fromModuleIdx].lessons.findIndex((l) => l.id === draggedItem.lessonId);
+      const toLessonIdx = courseData.modules[toModuleIdx].lessons.findIndex((l) => l.id === targetLessonId);
+      const fromContentIdx = courseData.modules[fromModuleIdx]?.lessons[fromLessonIdx]?.content.findIndex((c) => c.id === draggedItem.id) ?? -1;
+      if (fromLessonIdx === -1 || toLessonIdx === -1 || fromContentIdx === -1) {
+        setDraggedItem(null);
+        return;
+      }
+      if (fromModuleIdx !== toModuleIdx || fromLessonIdx !== toLessonIdx) {
+        setCourseData((prev) => ({
+          ...prev,
+          modules: moveContentItem(
+            prev.modules,
+            { moduleIndex: fromModuleIdx, lessonIndex: fromLessonIdx, contentIndex: fromContentIdx },
+            { moduleIndex: toModuleIdx, lessonIndex: toLessonIdx }
+          ),
+          lastEdited: 'Just now',
+        }));
       }
     } else if (draggedItem.type === 'content' && targetType === 'content' && draggedItem.lessonId === targetLessonId) {
       // Reorder content within same lesson (immutable update so UI and save see new order)
@@ -1215,17 +1467,6 @@ function onFormSubmit(e) {
       setDuration('');
       setUploadType('link');
       setShowUploadModal(true);
-    } else if (type === 'quiz') {
-      setQuizModalTitle('');
-      setQuizModalFormUrl('');
-      setQuizModalPassingScore(70);
-      setQuizModalFormEntryIdWebhook('');
-      setQuizModalRecordScoresOpen(false);
-      setShowQuizModal(true);
-    } else if (type === 'form') {
-      setFormModalTitle('');
-      setFormModalFormUrl('');
-      setShowFormModal(true);
     } else if (type === 'reading') {
       setReadingTitle('');
       setReadingType('url');
@@ -1233,8 +1474,52 @@ function onFormSubmit(e) {
       setReadingBody('');
       setShowReadingModal(true);
     } else if (type === 'assessment') {
-      setShowAssessmentPanel((open) => !open);
+      setEditingAssessmentContentId(null);
+      if (showAssessmentPanel) {
+        setShowAssessmentPanel(false);
+      } else {
+        setAssessmentAddSession((n) => n + 1);
+        setShowAssessmentPanel(true);
+      }
     }
+  };
+
+  const handleStartEditAssessment = (content: ContentItem, contentIndex: number) => {
+    setSelectedContent(contentIndex);
+    setCombinedSegmentIndex(contentIndex);
+    setShowAssessmentPanel(false);
+    setEditingAssessmentContentId(content.id);
+  };
+
+  const handleCloseAssessmentEdit = () => {
+    setEditingAssessmentContentId(null);
+  };
+
+  const handleUpdateAssessmentContent = (assessment: {
+    title: string;
+    description?: string;
+    assessmentProId: string;
+    accessMode: 'lms_embed' | 'proctored_portal';
+    passingScore: number;
+  }) => {
+    if (editingAssessmentContentId == null) return;
+    const modules = [...courseData.modules];
+    const moduleItem = modules[currentModule];
+    const lesson = moduleItem.lessons[currentLesson];
+    const idx = lesson.content.findIndex((c) => c.id === editingAssessmentContentId);
+    if (idx < 0) return;
+    lesson.content[idx] = {
+      ...lesson.content[idx],
+      assessment: {
+        title: assessment.title,
+        description: assessment.description,
+        assessmentProId: assessment.assessmentProId,
+        accessMode: assessment.accessMode,
+        passingScore: assessment.passingScore,
+      },
+    };
+    setCourseData({ ...courseData, modules });
+    setEditingAssessmentContentId(null);
   };
 
   const handleAddAssessmentContent = (assessment: {
@@ -1416,33 +1701,55 @@ function onFormSubmit(e) {
   };
 
   const handleDeleteContent = (lessonId: number, contentId: number) => {
-    const modules = [...courseData.modules];
-    const moduleItem = modules[currentModule];
-    const lesson = moduleItem.lessons.find(l => l.id === lessonId);
-    if (lesson) {
-      lesson.content = lesson.content.filter(c => c.id !== contentId);
-      lesson.content.forEach((c, idx) => { c.order = idx; });
-      
-      // Update lesson duration
-      const totalDuration = lesson.content
-        .filter(c => c.type === 'video' && c.videoSegment)
-        .reduce((acc, c) => {
-          const vs = c.videoSegment!;
-          if (vs.startTimestamp != null && vs.endTimestamp != null) return acc + (vs.endTimestamp - vs.startTimestamp);
-          return acc + parseTimeToSeconds(vs.duration || '0:00');
-        }, 0);
-      lesson.duration = formatSecondsToTime(totalDuration);
+    if (editingAssessmentContentId === contentId) {
+      setEditingAssessmentContentId(null);
+      setShowAssessmentPanel(false);
+    }
 
-      setCourseData({ ...courseData, modules });
-      if (selectedContent >= lesson.content.length) {
-        setSelectedContent(Math.max(0, lesson.content.length - 1));
-      }
+    const moduleItem = courseData.modules[currentModule];
+    const lesson = moduleItem?.lessons.find((l) => l.id === lessonId);
+    const newContentLen = lesson ? lesson.content.filter((c) => c.id !== contentId).length : 0;
+
+    setCourseData((prev) => {
+      const modules = prev.modules.map((mod, mi) => {
+        if (mi !== currentModule) return mod;
+        return {
+          ...mod,
+          lessons: mod.lessons.map((les) => {
+            if (les.id !== lessonId) return les;
+            const content = les.content.filter((c) => c.id !== contentId);
+            content.forEach((c, idx) => {
+              c.order = idx;
+            });
+            const totalDuration = content
+              .filter((c) => c.type === 'video' && c.videoSegment)
+              .reduce((acc, c) => {
+                const vs = c.videoSegment!;
+                if (vs.startTimestamp != null && vs.endTimestamp != null) return acc + (vs.endTimestamp - vs.startTimestamp);
+                return acc + parseTimeToSeconds(vs.duration || '0:00');
+              }, 0);
+            return {
+              ...les,
+              content,
+              duration: formatSecondsToTime(totalDuration),
+            };
+          }),
+        };
+      });
+      return { ...prev, modules };
+    });
+
+    if (selectedContent >= newContentLen) {
+      setSelectedContent(Math.max(0, newContentLen - 1));
+    }
+    if (combinedSegmentIndex >= newContentLen) {
+      setCombinedSegmentIndex(Math.max(0, newContentLen - 1));
     }
   };
 
   const handleDeleteModule = (moduleId: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    const modules = courseData.modules.filter(m => m.id !== moduleId);
+    const modules = renumberCourseStructure(courseData.modules.filter((m) => m.id !== moduleId));
     const newIdx = Math.min(currentModule, Math.max(0, modules.length - 1));
     setCurrentModule(newIdx);
     setCurrentLesson(0);
@@ -1455,12 +1762,13 @@ function onFormSubmit(e) {
     const modules = [...courseData.modules];
     const mod = modules[moduleIdx];
     if (!mod) return;
-    const lessons = mod.lessons.filter(l => l.id !== lessonId);
+    const lessons = mod.lessons.filter((l) => l.id !== lessonId);
     modules[moduleIdx] = { ...mod, lessons };
+    const renumbered = renumberCourseStructure(modules);
     const newLessonIdx = currentModule === moduleIdx ? Math.min(currentLesson, Math.max(0, lessons.length - 1)) : currentLesson;
     if (currentModule === moduleIdx) setCurrentLesson(newLessonIdx);
     setSelectedContent(0);
-    setCourseData({ ...courseData, modules });
+    setCourseData({ ...courseData, modules: renumbered });
   };
 
   const handleRestoreVersion = async (versionId: string) => {
@@ -1497,6 +1805,39 @@ function onFormSubmit(e) {
     }, 1000);
   };
 
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handleDriveUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const type = file.type.startsWith('video/') ? 'video' : 'document';
+    setDriveFiles((prev) => [
+      {
+        id: Date.now(),
+        name: file.name,
+        size: formatFileSize(file.size),
+        type,
+        modified: new Date().toLocaleDateString(),
+      },
+      ...prev,
+    ]);
+    showSaveMessage(`Added "${file.name}" to your Drive file list (local session).`);
+  };
+
+  const handleCopyDriveFileName = async (name: string) => {
+    try {
+      await navigator.clipboard.writeText(name);
+      showSaveMessage(`Copied "${name}" to clipboard.`);
+    } catch {
+      showSaveMessage('Could not copy file name.');
+    }
+  };
+
   const parseTimeToSecondsForSave = (time: string): number => {
     const parsed = parseHHMMSSToSeconds(time);
     if (parsed !== null) return parsed;
@@ -1506,18 +1847,75 @@ function onFormSubmit(e) {
     return 0;
   };
 
-  const handleSave = async () => {
+  /** Strip editor-only fields before POST so large imports serialize reliably. */
+  const buildStructureSaveBody = () => ({
+    title: courseData.title,
+    description: courseData.description,
+    modules: courseData.modules.map((mod, mi) => ({
+      title: mod.title,
+      order: mod.order ?? mi,
+      lessons: mod.lessons.map((les, li) => ({
+        title: les.title,
+        order: les.order ?? li,
+        duration: les.duration,
+        content: les.content.map((item, ci) => {
+          const base = { type: item.type, order: item.order ?? ci };
+          if (item.type === 'video' && item.videoSegment) {
+            const vs = item.videoSegment;
+            return {
+              ...base,
+              videoSegment: {
+                name: vs.name,
+                source: vs.source,
+                sourceUrl: vs.sourceUrl,
+                startTime: vs.startTime,
+                endTime: vs.endTime,
+                duration: vs.duration,
+                startTimestamp: vs.startTimestamp,
+                endTimestamp: vs.endTimestamp,
+              },
+            };
+          }
+          if (item.type === 'reading' && item.reading) {
+            return { ...base, reading: item.reading };
+          }
+          if (item.type === 'quiz' && item.quiz) {
+            return {
+              ...base,
+              quiz: {
+                title: item.quiz.title,
+                passingScore: item.quiz.passingScore,
+                formUrl: item.quiz.formUrl,
+                formEntryIdWebhook: item.quiz.formEntryIdWebhook,
+              },
+            };
+          }
+          if (item.type === 'form' && item.form) {
+            return { ...base, form: { title: item.form.title, formUrl: item.form.formUrl } };
+          }
+          if (item.type === 'assessment' && item.assessment) {
+            return { ...base, assessment: item.assessment };
+          }
+          return base;
+        }),
+      })),
+    })),
+  });
+
+  const handleSave = async (options?: { silent?: boolean }): Promise<string | null> => {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
       setCourseData(prev => ({ ...prev, lastEdited: 'Just now' }));
-      showSaveMessage('Demo mode: course not persisted. Set NEXT_PUBLIC_SUPABASE_URL in .env.local and sign in to save.');
-      return;
+      if (!options?.silent) {
+        showSaveMessage('Demo mode: course not persisted. Set NEXT_PUBLIC_SUPABASE_URL in .env.local and sign in to save.');
+      }
+      return null;
     }
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const userId = session?.user?.id;
       if (!userId) {
         showSaveMessage('Sign in to save courses. Use the "Sign In" button in the sidebar.');
-        return;
+        return null;
       }
       // Supabase generated types may omit schema tables
       const db = supabase as any;
@@ -1546,17 +1944,18 @@ function onFormSubmit(e) {
         if (!courseId) throw new Error('Course created but no id returned');
         setSavedCourseId(courseId);
         finalCourseId = courseId;
+        try {
+          localStorage.removeItem('create_course_draft_new');
+        } catch {
+          // ignore
+        }
       }
 
       const structRes = await fetch(`/api/instructor/courses/${finalCourseId}/structure`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          title: courseData.title,
-          description: courseData.description,
-          modules: courseData.modules,
-        }),
+        body: JSON.stringify(buildStructureSaveBody()),
       });
       if (!structRes.ok) {
         const errData = await structRes.json().catch(() => ({}));
@@ -1614,16 +2013,23 @@ function onFormSubmit(e) {
       }
 
       setCourseData(prev => ({ ...prev, lastEdited: 'Just now' }));
-      const baseMsg = wasNewCourse ? 'Course saved to database.' : 'Course updated.';
-      const notifyMsg = notifiedCount === null
-        ? ''
-        : notifiedCount > 0
-          ? ` Notified ${notifiedCount} learner${notifiedCount === 1 ? '' : 's'}.`
-          : ' No enrolled learners to notify yet.';
-      showSaveMessage(baseMsg + notifyMsg);
+      if (!options?.silent) {
+        const baseMsg = wasNewCourse ? 'Course saved to database.' : 'Course updated.';
+        const notifyMsg = notifiedCount === null
+          ? ''
+          : notifiedCount > 0
+            ? ` Notified ${notifiedCount} learner${notifiedCount === 1 ? '' : 's'}.`
+            : ' No enrolled learners to notify yet.';
+        showSaveMessage(baseMsg + notifyMsg);
+      }
+      onCourseSaved?.(finalCourseId);
+      return finalCourseId;
     } catch (e: unknown) {
       const err = e as { message?: string; code?: string; details?: string };
       let msg = err?.message || 'Failed to save course.';
+      if (msg === 'Failed to fetch') {
+        msg = 'Network error while saving. Ensure the dev server is running, SUPABASE_SERVICE_ROLE_KEY is set in .env.local (then restart npm run dev), and try Save again.';
+      }
       if (typeof err?.details === 'string') msg += ` (${err.details})`;
       if (msg.includes('row-level security') || msg.includes('RLS') || msg.includes('policy')) {
         const mentionsCoursesTable = /table\s+[`'"]?courses[`'"]?/i.test(msg) || /\bcourses\b/i.test(msg) && msg.toLowerCase().includes('row-level security');
@@ -1633,13 +2039,17 @@ function onFormSubmit(e) {
           msg += ' Run database/FIX_LESSONS_RLS.sql in Supabase SQL Editor. Stay signed in to the app when saving (so your session is sent). For more help run database/DEBUG_LESSONS_RLS.sql.';
         }
       }
-      if (msg.toLowerCase().includes('video_segments')) {
+      if (msg.toLowerCase().includes('video_segments') && !/column|schema cache|does not exist/i.test(msg)) {
         msg += ' Run database/FIX_VIDEO_SEGMENTS_RLS.sql in Supabase SQL Editor so video links and timestamps can be saved.';
       }
       if (msg.toLowerCase().includes('reading_materials') || msg.toLowerCase().includes('does not exist')) {
         msg += ' Run database/ADD_READING_SUPPORT.sql in Supabase if you use reading content.';
       }
+      if (msg.toLowerCase().includes('external_assessments') || msg.toLowerCase().includes('content_type') && msg.toLowerCase().includes('assessment')) {
+        msg += ' Run database/ADD_EXTERNAL_ASSESSMENTS.sql in Supabase SQL Editor to save assessment content.';
+      }
       showSaveMessage(msg);
+      return null;
     }
   };
 
@@ -1654,41 +2064,64 @@ function onFormSubmit(e) {
       showSaveMessage('Sign in first, then Save your course, then Publish. Use "Sign In" in the sidebar.');
       return;
     }
-    if (savedCourseId) {
-      try {
-        await (supabase as any).from('courses').update({ status: 'published', updated_at: new Date().toISOString() }).eq('id', savedCourseId);
-        let notifiedCount: number | null = null;
-        try {
-          const notifyRes = await fetch(`/api/instructor/courses/${savedCourseId}/notify-update`, {
-            method: 'POST',
-            credentials: 'include',
-          });
-          if (notifyRes.ok) {
-            const body = await notifyRes.json().catch(() => ({}));
-            notifiedCount = typeof (body as { notified?: number }).notified === 'number' ? (body as { notified: number }).notified : null;
-          } else {
-            const body = await notifyRes.json().catch(() => ({}));
-            const apiError = (body as { error?: string })?.error;
-            showSaveMessage(`Course published, but notifications failed${apiError ? `: ${apiError}` : '.'}`);
-          }
-        } catch {
-          // Publish should remain successful if notifications fail.
-        }
-        setCourseData(prev => ({ ...prev, status: 'published', lastEdited: 'Just now' }));
-        const notifyMsg = notifiedCount === null
-          ? ''
-          : notifiedCount > 0
-            ? ` Notified ${notifiedCount} learner${notifiedCount === 1 ? '' : 's'}.`
-            : ' No enrolled learners to notify yet.';
-        showSaveMessage('Course published.' + notifyMsg);
-        return;
-      } catch (e: unknown) {
-        showSaveMessage(e instanceof Error ? e.message : 'Failed to publish.');
+
+    // Save latest structure first (assessment-only courses are valid — no minimum content check).
+    const savedId = await handleSave({ silent: true });
+    const courseId = initialCourseId || savedCourseId || savedId;
+    if (!courseId) {
+      showSaveMessage('Save the course first, then click Publish again.');
+      return;
+    }
+    if (savedId === null) {
+      showSaveMessage('Could not save course before publishing. Fix any save errors above, then try again.');
+      return;
+    }
+
+    try {
+      const publishRes = await fetch(`/api/instructor/courses/${courseId}/publish`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const publishData = await publishRes.json().catch(() => ({})) as { error?: string; course?: { status?: string } };
+      if (!publishRes.ok) {
+        showSaveMessage(publishData.error ?? 'Failed to publish course.');
         return;
       }
+      if (publishData.course?.status !== 'published') {
+        showSaveMessage('Publish did not update course status. Check SUPABASE_SERVICE_ROLE_KEY and try again.');
+        return;
+      }
+
+      let notifiedCount: number | null = null;
+      try {
+        const notifyRes = await fetch(`/api/instructor/courses/${courseId}/notify-update`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (notifyRes.ok) {
+          const body = await notifyRes.json().catch(() => ({}));
+          notifiedCount = typeof (body as { notified?: number }).notified === 'number' ? (body as { notified: number }).notified : null;
+        } else {
+          const body = await notifyRes.json().catch(() => ({}));
+          const apiError = (body as { error?: string })?.error;
+          showSaveMessage(`Course published, but notifications failed${apiError ? `: ${apiError}` : '.'}`);
+        }
+      } catch {
+        // Publish succeeded even if notifications fail.
+      }
+
+      setCourseData(prev => ({ ...prev, status: 'published', lastEdited: 'Just now' }));
+      invalidateClientCache('instructor:my-courses');
+      onCourseSaved?.(courseId);
+      const notifyMsg = notifiedCount === null
+        ? ''
+        : notifiedCount > 0
+          ? ` Notified ${notifiedCount} learner${notifiedCount === 1 ? '' : 's'}.`
+          : ' No enrolled learners to notify yet.';
+      showSaveMessage('Course published.' + notifyMsg);
+    } catch (e: unknown) {
+      showSaveMessage(e instanceof Error ? e.message : 'Failed to publish.');
     }
-    setCourseData(prev => ({ ...prev, status: 'published', lastEdited: 'Just now' }));
-    showSaveMessage('Save the course first, then click Publish again.');
   };
 
   if (initialCourseId && courseLoadState === 'loading') {
@@ -1721,53 +2154,10 @@ function onFormSubmit(e) {
       )}
       <div className="flex flex-1 min-h-0">
       {/* Course Structure Sidebar */}
-      <div className="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 overflow-auto flex-shrink-0">
+      <div className="w-96 min-w-[20rem] bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 overflow-auto flex-shrink-0">
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <button 
-            onClick={() => { onBackToCourses ? onBackToCourses() : setCurrentView('courses'); }} 
-            className="flex items-center text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 mb-4 transition-all"
-          >
-            <ChevronRight className="w-5 h-5 rotate-180" />
-            <span className="ml-2 font-semibold">Back to Courses</span>
-          </button>
           <h3 className="text-lg font-bold mb-2 dark:text-white">Course Structure</h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400">Drag to reorder modules, lessons, and content</p>
-          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
-            <button
-              type="button"
-              onClick={() => { setShowImportSheet(!showImportSheet); setImportError(null); setImportFile(null); }}
-              className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              Import from sheet
-            </button>
-            {showImportSheet && (
-              <div className="mt-3 space-y-2">
-                <a
-                  href="/course-import-template.csv"
-                  download="course-import-template.csv"
-                  className="block text-xs text-gray-500 dark:text-gray-400 hover:underline"
-                >
-                  Download CSV template
-                </a>
-                <input
-                  type="file"
-                  accept=".csv"
-                  onChange={(e) => { setImportFile(e.target.files?.[0] ?? null); setImportError(null); }}
-                  className="block w-full text-xs text-gray-600 dark:text-gray-300 file:mr-2 file:py-1.5 file:px-2 file:rounded file:border-0 file:text-xs file:font-medium file:bg-blue-50 file:text-blue-700 dark:file:bg-blue-900/30 dark:file:text-blue-300"
-                />
-                {importError && <p className="text-xs text-red-600 dark:text-red-400">{importError}</p>}
-                <button
-                  type="button"
-                  disabled={importLoading}
-                  onClick={handleImportSheet}
-                  className="w-full py-1.5 px-2 rounded bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {importLoading ? 'Importing…' : 'Upload and create draft'}
-                </button>
-              </div>
-            )}
-          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Drag to reorder modules and lessons. Use the top bar for import and organize.</p>
         </div>
 
         {savedCourseId && (
@@ -1778,7 +2168,9 @@ function onFormSubmit(e) {
 
         <div className="p-6">
           <div className="space-y-3">
-            {courseData.modules.map((module, moduleIdx) => (
+            {courseData.modules.map((module, moduleIdx) => {
+              const moduleCollapsed = collapsedSidebarModules.has(module.id);
+              return (
               <div 
                 key={module.id}
                 draggable
@@ -1791,9 +2183,24 @@ function onFormSubmit(e) {
                     : 'border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500 hover:bg-gray-50 dark:hover:bg-gray-700'
                 } ${draggedItem?.type === 'module' && draggedItem.id === module.id ? 'opacity-50' : ''}`}
               >
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center flex-1 min-w-0">
-                    <Menu className="w-4 h-4 text-gray-400 mr-2 cursor-move flex-shrink-0" />
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="flex items-start flex-1 min-w-0 gap-1">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleSidebarModule(module.id);
+                      }}
+                      className="p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 flex-shrink-0 mt-0.5"
+                      aria-label={moduleCollapsed ? 'Expand module' : 'Collapse module'}
+                    >
+                      {moduleCollapsed ? (
+                        <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                      )}
+                    </button>
+                    <Menu className="w-4 h-4 text-gray-400 mr-1 cursor-move flex-shrink-0 mt-0.5" />
                     {editingModuleId === module.id ? (
                       <input
                         type="text"
@@ -1809,12 +2216,12 @@ function onFormSubmit(e) {
                           if (e.key === 'Enter') setEditingModuleId(null);
                         }}
                         onClick={(e) => e.stopPropagation()}
-                        className="font-semibold text-sm flex-1 border border-blue-500 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-0 bg-white dark:bg-gray-700 dark:text-white dark:border-blue-400"
+                        className="font-semibold text-sm w-full border border-blue-500 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white dark:border-blue-400"
                         autoFocus
                       />
                     ) : (
                       <p
-                        className="font-semibold text-sm flex-1 cursor-pointer truncate dark:text-white"
+                        className="font-semibold text-sm flex-1 cursor-pointer break-words leading-snug dark:text-white"
                         onClick={(e) => {
                           e.stopPropagation();
                           setEditingModuleId(module.id);
@@ -1841,13 +2248,13 @@ function onFormSubmit(e) {
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400 mb-2">
+                <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400 mb-2 pl-6">
                   <span>{module.lessons.length} lessons</span>
                   <span>{module.duration}</span>
                 </div>
                 
                 {/* Lessons within module */}
-                {module.lessons.length > 0 && (
+                {!moduleCollapsed && module.lessons.length > 0 && (
                   <div className="mt-3 space-y-2 pl-4 border-l-2 border-gray-200 dark:border-gray-600">
                     {module.lessons.map((lesson, lessonIdx) => (
                       <div
@@ -1855,7 +2262,7 @@ function onFormSubmit(e) {
                         draggable
                         onDragStart={(e) => handleDragStart(e, 'lesson', lesson.id, module.id)}
                         onDragOver={handleDragOver}
-                        onDrop={(e) => handleDrop(e, 'lesson', lesson.id, module.id)}
+                        onDrop={(e) => handleDrop(e, 'lesson', lesson.id, module.id, lesson.id)}
                         onClick={() => {
                           setCurrentModule(moduleIdx);
                           setCurrentLesson(lessonIdx);
@@ -1867,13 +2274,13 @@ function onFormSubmit(e) {
                             : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500'
                         } ${draggedItem?.type === 'lesson' && draggedItem.id === lesson.id ? 'opacity-50' : ''}`}
                       >
-                        <div className="flex items-center w-full">
-                          <Menu className="w-3 h-3 text-gray-400 mr-2 cursor-move flex-shrink-0" />
+                        <div className="flex items-start w-full gap-2">
+                          <Menu className="w-3 h-3 text-gray-400 cursor-move flex-shrink-0 mt-0.5" />
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold truncate dark:text-white">{lesson.order + 1}. {lesson.title}</p>
-                            <div className="flex items-center justify-between mt-1 text-xs text-gray-500 dark:text-gray-400">
-                              <span>{lesson.content.length} items</span>
-                              <span>{lesson.duration}</span>
+                            <p className="text-xs font-semibold break-words leading-snug dark:text-white">{lesson.order + 1}. {lesson.title}</p>
+                            <div className="flex items-center justify-between mt-1 text-xs text-gray-500 dark:text-gray-400 gap-2">
+                              <span className="flex-shrink-0">{lesson.content.length} items</span>
+                              <span className="flex-shrink-0">{lesson.duration}</span>
                             </div>
                           </div>
                           <button
@@ -1891,6 +2298,7 @@ function onFormSubmit(e) {
                   </div>
                 )}
                 
+                {!moduleCollapsed && (
                 <button
                   onClick={() => handleAddLesson(module.id)}
                   className="mt-2 w-full text-xs px-3 py-1.5 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:border-blue-500 hover:text-blue-600 dark:hover:border-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-gray-700 transition-all flex items-center justify-center"
@@ -1898,8 +2306,10 @@ function onFormSubmit(e) {
                   <Plus className="w-3 h-3 mr-1" />
                   Add Lesson
                 </button>
+                )}
               </div>
-            ))}
+            );
+            })}
             
             <button 
               onClick={handleAddModule}
@@ -1980,9 +2390,19 @@ function onFormSubmit(e) {
                     modules[currentModule].lessons[currentLesson].title = e.target.value;
                     setCourseData({ ...courseData, modules });
                   }}
-                  className="text-2xl font-bold border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 bg-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                  className="text-2xl font-bold w-full max-w-4xl border border-transparent focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-lg px-3 py-2 bg-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                 />
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{currentLessonData.duration} • {currentLessonData.content.length} content items</p>
+                <div className="flex flex-wrap items-center justify-between gap-3 mt-2">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">{currentLessonData.duration} • {currentLessonData.content.length} content items</p>
+                  <button
+                    type="button"
+                    onClick={() => setShowStructurePanel(true)}
+                    className={`${courseEditorPillBtn} flex-shrink-0`}
+                  >
+                    <LayoutList className="w-4 h-4" />
+                    Organize structure
+                  </button>
+                </div>
               </div>
 
               {/* Content Items */}
@@ -1991,9 +2411,9 @@ function onFormSubmit(e) {
                   <div
                     key={content.id}
                     draggable
-                    onDragStart={(e) => handleDragStart(e, 'content', content.id, currentModule, currentLessonData.id)}
+                    onDragStart={(e) => handleDragStart(e, 'content', content.id, currentModuleData.id, currentLessonData.id)}
                     onDragOver={handleDragOver}
-                    onDrop={(e) => handleDrop(e, 'content', content.id, currentModule, currentLessonData.id)}
+                    onDrop={(e) => handleDrop(e, 'content', content.id, currentModuleData.id, currentLessonData.id)}
                     onClick={() => {
                       setSelectedContent(idx);
                       if (lessonPreviewMode === 'combined') setCombinedSegmentIndex(idx);
@@ -2150,6 +2570,10 @@ function onFormSubmit(e) {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            if (content.type === 'assessment' && content.assessment) {
+                              handleStartEditAssessment(content, idx);
+                              return;
+                            }
                             if (content.type === 'video') {
                               setContentToReplace({ lessonId: currentLessonData.id, contentId: content.id });
                               setSegmentName(content.videoSegment?.name || '');
@@ -2204,11 +2628,11 @@ function onFormSubmit(e) {
                   Add Video
                 </button>
                 <button
-                  onClick={() => handleAddContent('quiz')}
-                  className="px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-semibold flex items-center transition-all shadow-lg"
+                  onClick={() => handleAddContent('reading')}
+                  className="px-6 py-3 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-semibold flex items-center transition-all shadow-lg"
                 >
-                  <Award className="w-5 h-5 mr-2" />
-                  Add Quiz
+                  <BookOpen className="w-5 h-5 mr-2" />
+                  Add Reading
                 </button>
                 <button
                   onClick={() => handleAddContent('assessment')}
@@ -2222,29 +2646,47 @@ function onFormSubmit(e) {
                   {showAssessmentPanel ? 'Close Assessment' : 'Add Assessment'}
                 </button>
                 <button
-                  onClick={() => handleAddContent('form')}
-                  className="px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold flex items-center transition-all shadow-lg"
+                  onClick={() => openGoogleFormModal('form')}
+                  className="px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-semibold flex items-center transition-all shadow-lg"
                 >
                   <FileText className="w-5 h-5 mr-2" />
-                  Add Form
-                </button>
-                <button
-                  onClick={() => handleAddContent('reading')}
-                  className="px-6 py-3 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-semibold flex items-center transition-all shadow-lg"
-                >
-                  <BookOpen className="w-5 h-5 mr-2" />
-                  Add Reading
+                  Add Google Form
                 </button>
               </div>
 
-              <AddAssessmentPanel
-                active={showAssessmentPanel}
-                onClose={() => setShowAssessmentPanel(false)}
-                onAdd={handleAddAssessmentContent}
-              />
+              {showAssessmentPanel && editingAssessmentContentId == null && (
+                <AddAssessmentPanel
+                  key={`add-assessment-${assessmentAddSession}`}
+                  sessionKey={assessmentAddSession}
+                  active
+                  onClose={() => setShowAssessmentPanel(false)}
+                  onAdd={handleAddAssessmentContent}
+                />
+              )}
+
+              {editingAssessmentContent?.type === 'assessment' && editingAssessmentContent.assessment && (
+                <div className="mb-6 rounded-2xl border-2 border-indigo-300 dark:border-indigo-800 bg-white dark:bg-gray-800 shadow-lg overflow-hidden">
+                  <AddAssessmentPanel
+                    key={`edit-assessment-${editingAssessmentContentId}-${editingAssessmentContent.assessment.assessmentProId}`}
+                    active
+                    embedded
+                    mode="edit"
+                    initialAssessment={{
+                      title: editingAssessmentContent.assessment.title,
+                      description: editingAssessmentContent.assessment.description,
+                      assessmentProId: editingAssessmentContent.assessment.assessmentProId,
+                      accessMode: editingAssessmentContent.assessment.accessMode,
+                      passingScore: editingAssessmentContent.assessment.passingScore,
+                    }}
+                    onClose={handleCloseAssessmentEdit}
+                    onAdd={() => {}}
+                    onUpdate={handleUpdateAssessmentContent}
+                  />
+                </div>
+              )}
 
               {/* Combined (learner) view — one window: video + reading + quiz + form in order, like TakeCourse (from e359e8bd) */}
-              {totalSteps > 0 && currentStepContent && (
+              {totalSteps > 0 && currentStepContent && !editingAssessmentContentId && (
                 <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-sm border-2 border-blue-200 dark:border-blue-900/50 mb-6">
                   <div className="rounded-2xl overflow-hidden shadow-xl relative bg-gray-900 dark:bg-gray-950" style={{ minHeight: '50vh' }}>
                     {currentStepContent.type === 'video' && currentStepContent.videoSegment && (() => {
@@ -2253,9 +2695,11 @@ function onFormSubmit(e) {
                       const ytId = seg.source === 'youtube' ? getYouTubeVideoId(sourceUrl) : null;
                       const driveId = seg.source === 'google_drive' ? getGoogleDriveFileId(sourceUrl) : null;
                       const externalUrl = seg.source === 'external_url' && sourceUrl ? sourceUrl : null;
-                      const useYtSegmentPlayer = ytId && seg.endTimestamp != null && seg.endTimestamp > 0;
+                      const segStartSec = seg.startTimestamp ?? parseHHMMSSToSeconds(seg.startTime || '00:00:00') ?? parseTimeToSeconds(seg.startTime || '0:00');
+                      const segEndSec = seg.endTimestamp ?? parseHHMMSSToSeconds(seg.endTime || '00:00:00') ?? parseTimeToSeconds(seg.endTime || seg.duration || '0:00');
+                      const useYtSegmentPlayer = ytId && segEndSec > segStartSec;
                       const embedUrl = ytId && !useYtSegmentPlayer
-                        ? getYouTubeEmbedUrl(ytId, seg.startTimestamp ?? undefined, seg.endTimestamp ?? undefined)
+                        ? getYouTubeEmbedUrl(ytId, segStartSec, segEndSec)
                         : driveId
                           ? getGoogleDriveEmbedUrl(driveId, seg.startTimestamp ?? undefined)
                           : (externalUrl ? getExternalVideoEmbedUrl(externalUrl, seg.startTimestamp ?? undefined) : null);
@@ -2263,32 +2707,37 @@ function onFormSubmit(e) {
                         <>
                           {lessonPreviewMode === 'combined' && (ytIdCombined || driveIdCombined) && currentSegmentInCombined?.videoSegment ? (
                             <div className="aspect-video w-full relative">
-                              {/* Same window: both players always mounted; visibility switches by segment source */}
-                              <div
-                                id="create-course-combined-yt"
-                                className="absolute inset-0 w-full h-full"
-                                style={{ display: ytIdCombined ? 'block' : 'none' }}
-                              />
-                              <video
-                                ref={combinedDriveVideoRef}
-                                src={driveIdCombined ? getDriveProxyVideoUrl(driveIdCombined) : undefined}
-                                onCanPlay={() => setCombinedDrivePlayerReady(true)}
-                                onError={() => setCombinedDrivePlayerReady(false)}
-                                className="absolute inset-0 w-full h-full object-contain"
-                                controls
-                                onPlay={() => setCombinedPlaying(true)}
-                                onPause={() => setCombinedPlaying(false)}
-                                style={{ display: driveIdCombined ? 'block' : 'none' }}
-                              />
+                              {ytIdCombined ? (
+                                <YouTubeSegmentPlayer
+                                  key={`combined-yt-${ytIdCombined}-${segStartSec}-${segEndSec}-${combinedSegmentIndex}`}
+                                  videoId={ytIdCombined}
+                                  startSeconds={segStartSec}
+                                  endSeconds={segEndSec > segStartSec ? segEndSec : undefined}
+                                  title={seg.name}
+                                  className="absolute inset-0 w-full h-full"
+                                />
+                              ) : (
+                                <video
+                                  ref={combinedDriveVideoRef}
+                                  key={`combined-drive-${driveIdCombined}-${segStartSec}-${combinedSegmentIndex}`}
+                                  src={driveIdCombined ? getDriveProxyVideoUrl(driveIdCombined) : undefined}
+                                  onCanPlay={() => setCombinedDrivePlayerReady(true)}
+                                  onError={() => setCombinedDrivePlayerReady(false)}
+                                  className="absolute inset-0 w-full h-full object-contain"
+                                  controls
+                                  onPlay={() => setCombinedPlaying(true)}
+                                  onPause={() => setCombinedPlaying(false)}
+                                />
+                              )}
                               <div className="absolute top-2 right-2 bg-purple-600 text-white px-2 py-1 rounded text-xs font-semibold flex items-center pointer-events-none">
-                                <Radio className="w-3 h-3 mr-1" /> Segment: {formatSecondsToTime(seg.startTimestamp ?? 0)} - {formatSecondsToTime(seg.endTimestamp || 0)}
+                                <Radio className="w-3 h-3 mr-1" /> Segment: {formatSecondsToTime(segStartSec)} - {formatSecondsToTime(segEndSec || 0)}
                               </div>
                             </div>
                           ) : useYtSegmentPlayer ? (
                             <div className="aspect-video w-full relative">
-                              <YouTubeSegmentPlayer videoId={ytId!} startSeconds={seg.startTimestamp ?? 0} endSeconds={seg.endTimestamp ?? undefined} title={seg.name} className="absolute inset-0 w-full h-full" />
+                              <YouTubeSegmentPlayer key={`seg-yt-${ytId}-${segStartSec}-${segEndSec}-${selectedContent}`} videoId={ytId!} startSeconds={segStartSec} endSeconds={segEndSec > segStartSec ? segEndSec : undefined} title={seg.name} className="absolute inset-0 w-full h-full" />
                               <div className="absolute top-2 right-2 bg-purple-600 text-white px-2 py-1 rounded text-xs font-semibold flex items-center">
-                                <Radio className="w-3 h-3 mr-1" /> Segment: {formatSecondsToTime(seg.startTimestamp ?? 0)} - {formatSecondsToTime(seg.endTimestamp || 0)}
+                                <Radio className="w-3 h-3 mr-1" /> Segment: {formatSecondsToTime(segStartSec)} - {formatSecondsToTime(segEndSec || 0)}
                               </div>
                             </div>
                           ) : embedUrl ? (
@@ -2368,16 +2817,38 @@ function onFormSubmit(e) {
                             <Award className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                             {currentStepContent.assessment?.title || 'Assessment'}
                           </span>
+                          {currentStepContent.assessment && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const idx = currentLessonData?.content.findIndex((c) => c.id === currentStepContent.id) ?? -1;
+                                if (idx >= 0) handleStartEditAssessment(currentStepContent, idx);
+                              }}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                              Edit
+                            </button>
+                          )}
                         </div>
-                        <div className="p-8 flex flex-col items-center justify-center flex-1 text-center">
-                          <Award className="w-10 h-10 text-indigo-600 mb-3" />
-                          <p className="font-medium text-gray-900 dark:text-white">{currentStepContent.assessment?.title || 'Assessment'}</p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 max-w-md">
-                            {currentStepContent.assessment?.accessMode === 'proctored_portal'
-                              ? 'Learners open this final exam in Assessment Pro (new tab).'
-                              : 'Learners take this module quiz embedded in Take Course.'}
-                          </p>
-                        </div>
+                        {currentStepContent.assessment?.assessmentProId ? (
+                          <div className="flex-1 min-h-0 overflow-auto bg-white dark:bg-gray-900 flex flex-col">
+                            <AssessmentPreviewEmbed
+                              key={`${currentStepContent.assessment.assessmentProId}-${currentStepContent.assessment.accessMode}`}
+                              assessmentProId={currentStepContent.assessment.assessmentProId}
+                              title={currentStepContent.assessment.title || 'Assessment'}
+                              accessMode={currentStepContent.assessment.accessMode}
+                            />
+                          </div>
+                        ) : (
+                          <div className="p-8 flex flex-col items-center justify-center flex-1 text-center">
+                            <Award className="w-10 h-10 text-indigo-600 mb-3" />
+                            <p className="font-medium text-gray-900 dark:text-white">{currentStepContent.assessment?.title || 'Assessment'}</p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 max-w-md">
+                              Link an Assessment Pro quiz to preview it here.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2467,6 +2938,7 @@ function onFormSubmit(e) {
                     {useYtSegmentPlayer ? (
                       <>
                         <YouTubeSegmentPlayer
+                          key={`select-yt-${ytId}-${segStartSec}-${segEndSec}-${selectedContent}`}
                           videoId={ytId}
                           startSeconds={segStartSec}
                           endSeconds={segEndSec}
@@ -2903,7 +3375,18 @@ function onFormSubmit(e) {
               <>
                 <div className="flex items-center justify-between mb-4">
                   <p className="font-semibold">Your Files</p>
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center text-sm">
+                  <input
+                    ref={driveUploadInputRef}
+                    type="file"
+                    accept="video/*,.pdf,.doc,.docx"
+                    className="hidden"
+                    onChange={handleDriveUpload}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => driveUploadInputRef.current?.click()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center text-sm"
+                  >
                     <Upload className="w-4 h-4 mr-2" />
                     Upload New
                   </button>
@@ -2924,7 +3407,12 @@ function onFormSubmit(e) {
                       <p className="text-sm font-semibold truncate mb-1">{file.name}</p>
                       <div className="flex items-center justify-between text-xs text-gray-600">
                         <span>{file.size}</span>
-                        <button className="p-1 hover:bg-gray-100 rounded">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyDriveFileName(file.name)}
+                          className="p-1 hover:bg-gray-100 rounded"
+                          title="Copy file name"
+                        >
                           <Copy className="w-4 h-4" />
                         </button>
                       </div>
@@ -3536,14 +4024,14 @@ function onFormSubmit(e) {
         </div>
       )}
 
-      {/* Quiz Modal — Google Form based */}
-      {showQuizModal && (
+      {/* Google Form modal — survey or graded quiz */}
+      {showGoogleFormModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 border border-gray-200 dark:border-gray-700">
             <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Add Quiz (Google Form)</h3>
-              <button 
-                onClick={() => { setShowQuizModal(false); setQuizModalTitle(''); setQuizModalFormUrl(''); setQuizModalPassingScore(70); setQuizModalFormEntryIdWebhook(''); setQuizModalScriptCopied(false); setQuizModalRecordScoresOpen(false); }}
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Add Google Form</h3>
+              <button
+                onClick={resetGoogleFormModal}
                 className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
               >
                 <X className="w-6 h-6 dark:text-gray-200" />
@@ -3554,229 +4042,179 @@ function onFormSubmit(e) {
                 <div className="flex items-start">
                   <Info className="w-5 h-5 text-purple-600 dark:text-purple-400 mr-3 mt-0.5 flex-shrink-0" />
                   <div className="text-sm text-purple-900 dark:text-purple-200">
-                    <p className="font-semibold mb-1">Add a quiz in 3 steps</p>
-                    <p>Enter a title, paste your Google Form link, and set a passing score. Learners will see the form in the lesson and click <strong>Continue</strong> when done. That’s it — no extra setup required.</p>
+                    <p className="font-semibold mb-1">Paste a Google Form link</p>
+                    <p>Choose <strong>Survey / feedback</strong> for forms with no scoring, or <strong>Graded quiz</strong> to set a passing score and optionally record results in Coursify.</p>
                   </div>
                 </div>
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Quiz Title</label>
-                  <input 
-                    type="text" 
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Type</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setGoogleFormKind('form')}
+                      className={`px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                        googleFormKind === 'form'
+                          ? 'bg-purple-600 text-white border-purple-600'
+                          : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      Survey / feedback
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGoogleFormKind('quiz')}
+                      className={`px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                        googleFormKind === 'quiz'
+                          ? 'bg-purple-600 text-white border-purple-600'
+                          : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      Graded quiz
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Title</label>
+                  <input
+                    type="text"
                     value={quizModalTitle}
                     onChange={(e) => setQuizModalTitle(e.target.value)}
-                    placeholder="e.g., Introduction Quiz"
+                    placeholder={googleFormKind === 'quiz' ? 'e.g., Introduction Quiz' : 'e.g., Feedback Form'}
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Google Form URL</label>
-                  <input 
-                    type="url" 
+                  <input
+                    type="url"
                     value={quizModalFormUrl}
                     onChange={(e) => setQuizModalFormUrl(e.target.value)}
                     placeholder="https://docs.google.com/forms/d/e/.../viewform"
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Passing Score (%)</label>
-                  <input 
-                    type="number" 
-                    value={quizModalPassingScore}
-                    onChange={(e) => setQuizModalPassingScore(Number(e.target.value) || 70)}
-                    placeholder="70"
-                    min={0}
-                    max={100}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
-                  />
-                </div>
-                <div className="border border-gray-200 dark:border-gray-600 rounded-xl overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setQuizModalRecordScoresOpen((o) => !o)}
-                    className="w-full flex items-center justify-between px-4 py-3 text-left bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                  >
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">Record scores in Coursify (optional)</span>
-                    {quizModalRecordScoresOpen ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
-                  </button>
-                  {quizModalRecordScoresOpen && (
-                    <div className="p-4 pt-0 border-t border-gray-200 dark:border-gray-600 bg-purple-50/30 dark:bg-purple-900/10 space-y-3">
-                      <p className="text-xs text-gray-600 dark:text-gray-400">
-                        To save each learner’s score and pass/fail in Coursify: add a hidden field in your form, paste its entry ID below, then copy the script into your form’s <strong>Extensions → Apps Script</strong> and add an <strong>On form submit</strong> trigger.
-                      </p>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Hidden field entry ID</label>
-                        <input 
-                          type="text" 
-                          value={quizModalFormEntryIdWebhook}
-                          onChange={(e) => setQuizModalFormEntryIdWebhook(e.target.value)}
-                          placeholder="From form pre-filled link: entry.XXXXX"
-                          className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
-                        />
-                      </div>
+                {googleFormKind === 'quiz' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Passing Score (%)</label>
+                      <input
+                        type="number"
+                        value={quizModalPassingScore}
+                        onChange={(e) => setQuizModalPassingScore(Number(e.target.value) || 70)}
+                        placeholder="70"
+                        min={0}
+                        max={100}
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
+                      />
+                    </div>
+                    <div className="border border-gray-200 dark:border-gray-600 rounded-xl overflow-hidden">
                       <button
                         type="button"
-                        onClick={async () => {
-                          const script = getQuizWebhookScript(quizModalFormEntryIdWebhook.trim(), quizModalPassingScore);
-                          try {
-                            if (navigator.clipboard?.writeText) {
-                              await navigator.clipboard.writeText(script);
-                            } else {
-                              const ta = document.createElement('textarea');
-                              ta.value = script;
-                              ta.style.position = 'fixed';
-                              ta.style.opacity = '0';
-                              document.body.appendChild(ta);
-                              ta.select();
-                              document.execCommand('copy');
-                              document.body.removeChild(ta);
-                            }
-                            setQuizModalScriptCopied(true);
-                            setTimeout(() => setQuizModalScriptCopied(false), 2500);
-                          } catch {
-                            setQuizModalScriptCopied(false);
-                          }
-                        }}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 transition-colors"
+                        onClick={() => setQuizModalRecordScoresOpen((o) => !o)}
+                        className="w-full flex items-center justify-between px-4 py-3 text-left bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                       >
-                        <Copy className="w-4 h-4" />
-                        {quizModalScriptCopied ? 'Copied!' : 'Copy Apps Script'}
+                        <span className="text-sm font-medium text-gray-900 dark:text-white">Record scores in Coursify (optional)</span>
+                        {quizModalRecordScoresOpen ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
                       </button>
+                      {quizModalRecordScoresOpen && (
+                        <div className="p-4 pt-0 border-t border-gray-200 dark:border-gray-600 bg-purple-50/30 dark:bg-purple-900/10 space-y-3">
+                          <p className="text-xs text-gray-600 dark:text-gray-400">
+                            To save each learner&apos;s score and pass/fail in Coursify: add a hidden field in your form, paste its entry ID below, then copy the script into your form&apos;s <strong>Extensions → Apps Script</strong> and add an <strong>On form submit</strong> trigger.
+                          </p>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Hidden field entry ID</label>
+                            <input
+                              type="text"
+                              value={quizModalFormEntryIdWebhook}
+                              onChange={(e) => setQuizModalFormEntryIdWebhook(e.target.value)}
+                              placeholder="From form pre-filled link: entry.XXXXX"
+                              className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const script = getQuizWebhookScript(quizModalFormEntryIdWebhook.trim(), quizModalPassingScore);
+                              try {
+                                if (navigator.clipboard?.writeText) {
+                                  await navigator.clipboard.writeText(script);
+                                } else {
+                                  const ta = document.createElement('textarea');
+                                  ta.value = script;
+                                  ta.style.position = 'fixed';
+                                  ta.style.opacity = '0';
+                                  document.body.appendChild(ta);
+                                  ta.select();
+                                  document.execCommand('copy');
+                                  document.body.removeChild(ta);
+                                }
+                                setQuizModalScriptCopied(true);
+                                setTimeout(() => setQuizModalScriptCopied(false), 2500);
+                              } catch {
+                                setQuizModalScriptCopied(false);
+                              }
+                            }}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 transition-colors"
+                          >
+                            <Copy className="w-4 h-4" />
+                            {quizModalScriptCopied ? 'Copied!' : 'Copy Apps Script'}
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  </>
+                )}
               </div>
               <div className="flex space-x-3 mt-6">
-                <button 
-                  onClick={() => { setShowQuizModal(false); setQuizModalTitle(''); setQuizModalFormUrl(''); setQuizModalPassingScore(70); setQuizModalFormEntryIdWebhook(''); setQuizModalScriptCopied(false); setQuizModalRecordScoresOpen(false); }}
+                <button
+                  onClick={resetGoogleFormModal}
                   className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold transition-all text-gray-900 dark:text-white"
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   onClick={() => {
                     const url = quizModalFormUrl.trim();
                     if (!url) return;
                     const modules = [...courseData.modules];
                     const moduleItem = modules[currentModule];
                     const lesson = moduleItem.lessons[currentLesson];
-                    const newQuiz: ContentItem = {
-                      id: Date.now(),
-                      type: 'quiz',
-                      order: lesson.content.length,
-                      quiz: {
+                    if (googleFormKind === 'form') {
+                      lesson.content.push({
                         id: Date.now(),
-                        title: quizModalTitle.trim() || 'Quiz',
-                        passingScore: Math.min(100, Math.max(0, Number(quizModalPassingScore) || 70)),
-                        questions: [],
-                        formUrl: url,
-                        formEntryIdWebhook: quizModalFormEntryIdWebhook.trim() || undefined
-                      }
-                    };
-                    lesson.content.push(newQuiz);
+                        type: 'form',
+                        order: lesson.content.length,
+                        form: {
+                          id: Date.now(),
+                          title: quizModalTitle.trim() || 'Form',
+                          formUrl: url,
+                        },
+                      });
+                    } else {
+                      lesson.content.push({
+                        id: Date.now(),
+                        type: 'quiz',
+                        order: lesson.content.length,
+                        quiz: {
+                          id: Date.now(),
+                          title: quizModalTitle.trim() || 'Quiz',
+                          passingScore: Math.min(100, Math.max(0, Number(quizModalPassingScore) || 70)),
+                          questions: [],
+                          formUrl: url,
+                          formEntryIdWebhook: quizModalFormEntryIdWebhook.trim() || undefined,
+                        },
+                      });
+                    }
                     setCourseData({ ...courseData, modules });
                     setSelectedContent(lesson.content.length - 1);
-                    setShowQuizModal(false);
-                    setQuizModalTitle('');
-                    setQuizModalFormUrl('');
-                    setQuizModalPassingScore(70);
-                    setQuizModalFormEntryIdWebhook('');
-                    setQuizModalScriptCopied(false);
-                    setQuizModalRecordScoresOpen(false);
+                    resetGoogleFormModal();
                   }}
                   disabled={!quizModalFormUrl.trim()}
                   className="flex-1 px-6 py-3 bg-purple-600 dark:bg-purple-600 text-white rounded-xl hover:bg-purple-700 dark:hover:bg-purple-700 font-semibold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Add Quiz
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Form Modal — Google Form based */}
-      {showFormModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 border border-gray-200 dark:border-gray-700">
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Add Form (Google Form)</h3>
-              <button 
-                onClick={() => { setShowFormModal(false); setFormModalTitle(''); setFormModalFormUrl(''); }}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
-              >
-                <X className="w-6 h-6 dark:text-gray-200" />
-              </button>
-            </div>
-            <div className="p-6">
-              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4 mb-6">
-                <div className="flex items-start">
-                  <Info className="w-5 h-5 text-green-600 dark:text-green-400 mr-3 mt-0.5 flex-shrink-0" />
-                  <div className="text-sm text-green-900 dark:text-green-200">
-                    <p className="font-semibold mb-1">Google Form</p>
-                    <p>Paste the link to your Google Form. Learners will see it embedded in the lesson, just like documents.</p>
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Form Title</label>
-                  <input 
-                    type="text" 
-                    value={formModalTitle}
-                    onChange={(e) => setFormModalTitle(e.target.value)}
-                    placeholder="e.g., Feedback Form"
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold mb-2 text-gray-900 dark:text-white">Google Form URL</label>
-                  <input 
-                    type="url" 
-                    value={formModalFormUrl}
-                    onChange={(e) => setFormModalFormUrl(e.target.value)}
-                    placeholder="https://docs.google.com/forms/d/e/.../viewform"
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
-                  />
-                </div>
-              </div>
-              <div className="flex space-x-3 mt-6">
-                <button 
-                  onClick={() => { setShowFormModal(false); setFormModalTitle(''); setFormModalFormUrl(''); }}
-                  className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold transition-all text-gray-900 dark:text-white"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={() => {
-                    const url = formModalFormUrl.trim();
-                    if (!url) return;
-                    const modules = [...courseData.modules];
-                    const moduleItem = modules[currentModule];
-                    const lesson = moduleItem.lessons[currentLesson];
-                    const newForm: ContentItem = {
-                      id: Date.now(),
-                      type: 'form',
-                      order: lesson.content.length,
-                      form: {
-                        id: Date.now(),
-                        title: formModalTitle.trim() || 'Form',
-                        formUrl: url
-                      }
-                    };
-                    lesson.content.push(newForm);
-                    setCourseData({ ...courseData, modules });
-                    setSelectedContent(lesson.content.length - 1);
-                    setShowFormModal(false);
-                    setFormModalTitle('');
-                    setFormModalFormUrl('');
-                  }}
-                  disabled={!formModalFormUrl.trim()}
-                  className="flex-1 px-6 py-3 bg-green-600 dark:bg-green-600 text-white rounded-xl hover:bg-green-700 dark:hover:bg-green-700 font-semibold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Add Form
+                  Add to lesson
                 </button>
               </div>
             </div>
@@ -3900,6 +4338,29 @@ function onFormSubmit(e) {
           </div>
         );
       })()}
+
+      <YouTubeImportPanel
+        open={showYouTubeImport}
+        onClose={() => setShowYouTubeImport(false)}
+        onApply={handleYouTubeImportApply}
+      />
+
+      <SheetImportPanel
+        open={showSheetImport}
+        onClose={() => setShowSheetImport(false)}
+        onSuccess={(courseId) => {
+          if (onImportSuccess) onImportSuccess(courseId);
+          else showSaveMessage('Course created. Reload the page to edit it.');
+        }}
+      />
+
+      <CourseStructurePanel
+        open={showStructurePanel}
+        onClose={() => setShowStructurePanel(false)}
+        modules={courseData.modules}
+        onChange={handleStructureChange}
+        onNavigate={handleStructureNavigate}
+      />
       </div>
     </div>
   );

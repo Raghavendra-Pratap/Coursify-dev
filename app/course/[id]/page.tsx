@@ -2,20 +2,49 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { BookOpen, ArrowRight, Loader2 } from 'lucide-react'
+import { CourseInviteAuthGate } from '@/components/CourseInviteAuthGate'
+import { CourseInviteBoardingPass } from '@/components/CourseInviteBoardingPass'
+import { supabase } from '@/lib/supabase'
 
-type Course = { id: string; title: string; description: string | null; status: string }
+type Course = {
+  id: string
+  title: string
+  description: string | null
+  status: string
+  inviterName?: string
+  moduleCount?: number
+  lessonCount?: number
+  durationLabel?: string
+  durationSeconds?: number
+  avgRating?: number
+  ratingCount?: number
+}
+
+function displayNameFromUser(user: {
+  id: string
+  email?: string
+  user_metadata?: Record<string, unknown>
+}): string | undefined {
+  const meta = user.user_metadata
+  const fromMeta =
+    (typeof meta?.full_name === 'string' && meta.full_name.trim()) ||
+    (typeof meta?.name === 'string' && meta.name.trim())
+  return fromMeta || undefined
+}
 
 export default function CoursePage({ params }: { params: { id: string } }) {
   const [course, setCourse] = useState<Course | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [signedIn, setSignedIn] = useState(false)
+  const [userEmail, setUserEmail] = useState<string | undefined>()
+  const [userName, setUserName] = useState<string | undefined>()
   const [enrolling, setEnrolling] = useState(false)
   const [enrollError, setEnrollError] = useState<string | null>(null)
   const [autoEnrolled, setAutoEnrolled] = useState<boolean | null>(null)
 
   const id = typeof params.id === 'string' ? params.id : (params as unknown as { id: string }).id
+  const signInHref = `/course/${encodeURIComponent(id)}`
 
   useEffect(() => {
     if (!id) {
@@ -37,7 +66,26 @@ export default function CoursePage({ params }: { params: { id: string } }) {
           setCourse(data as Course)
         }
         const sessionData = await sessionRes.json().catch(() => ({}))
-        setSignedIn(!!sessionData?.session?.user)
+        const user = sessionData?.session?.user
+        if (user?.id) {
+          setSignedIn(true)
+          setUserEmail(user.email ?? undefined)
+          const metaName = displayNameFromUser(user)
+          setUserName(metaName)
+          if (!metaName) {
+            const { data: profile } = await supabase
+              .from('user_profiles')
+              .select('full_name')
+              .eq('id', user.id)
+              .maybeSingle()
+            const profileName = (profile as { full_name?: string | null } | null)?.full_name?.trim()
+            if (profileName) setUserName(profileName)
+          }
+        } else {
+          setSignedIn(false)
+          setUserEmail(undefined)
+          setUserName(undefined)
+        }
       } catch {
         setError('Something went wrong.')
       } finally {
@@ -47,7 +95,6 @@ export default function CoursePage({ params }: { params: { id: string } }) {
     load()
   }, [id])
 
-  // Auto-enroll when signed-in user visits course link directly (so they count as "enrolled via link")
   useEffect(() => {
     if (!id || !signedIn || !course || course.status !== 'published' || autoEnrolled !== null) return
     let cancelled = false
@@ -64,20 +111,44 @@ export default function CoursePage({ params }: { params: { id: string } }) {
     return () => { cancelled = true }
   }, [id, signedIn, course, autoEnrolled])
 
+  const handleEnroll = async () => {
+    setEnrollError(null)
+    setEnrolling(true)
+    try {
+      const res = await fetch(`/api/courses/${encodeURIComponent(id)}/enroll`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setEnrollError(data?.error || 'Enrollment failed')
+        return
+      }
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('coursify_session_mode', 'learner')
+      }
+      window.location.href = '/'
+    } catch {
+      setEnrollError('Something went wrong.')
+    } finally {
+      setEnrolling(false)
+    }
+  }
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-600">Loading course…</p>
+      <div className="min-h-screen bg-[#0B1018] flex items-center justify-center">
+        <p className="text-[#7A8FA3] tracking-wide">Loading your invitation…</p>
       </div>
     )
   }
 
   if (error && !course) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md text-center">
-          <p className="text-gray-700 font-medium mb-4">{error}</p>
-          <Link href="/" className="text-blue-600 hover:underline font-semibold">
+      <div className="min-h-screen bg-[#0B1018] flex items-center justify-center p-4">
+        <div className="bg-[#121A24] border border-[#243040] rounded-2xl p-8 max-w-md text-center">
+          <p className="text-[#F4F7FA] font-medium mb-4">{error}</p>
+          <Link href="/" className="text-[#E8A87C] hover:text-[#C67B4E] font-semibold transition-colors">
             ← Back to Coursify
           </Link>
         </div>
@@ -85,86 +156,37 @@ export default function CoursePage({ params }: { params: { id: string } }) {
     )
   }
 
+  if (!course) return null
+
+  if (!signedIn) {
+    return (
+      <CourseInviteAuthGate
+        courseId={course.id}
+        courseTitle={course.title}
+        inviterName={course.inviterName}
+      />
+    )
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full overflow-hidden">
-        <div className="p-8">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-              <BookOpen className="w-6 h-6 text-blue-600" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">{course?.title ?? 'Course'}</h1>
-              {course?.status === 'published' && (
-                <span className="text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded">Published</span>
-              )}
-            </div>
-          </div>
-          {course?.description && (
-            <p className="text-gray-600 mb-6">{course.description}</p>
-          )}
-          {error && course?.status !== 'published' && (
-            <p className="text-amber-700 bg-amber-50 rounded-lg p-3 text-sm mb-6">{error}</p>
-          )}
-          {signedIn ? (
-            <>
-              {autoEnrolled === true ? (
-                <div className="rounded-xl bg-green-50 border border-green-200 p-4 mb-4">
-                  <p className="font-semibold text-green-800 mb-2">You&apos;re enrolled</p>
-                  <p className="text-sm text-green-700 mb-3">You can start this course in Coursify.</p>
-                  <Link href="/" className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700">
-                    Open Coursify <ArrowRight className="w-4 h-4" />
-                  </Link>
-                </div>
-              ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={enrolling || (autoEnrolled === false && !enrollError)}
-                  onClick={async () => {
-                    setEnrollError(null)
-                    setEnrolling(true)
-                    try {
-                      const res = await fetch(`/api/courses/${encodeURIComponent(id)}/enroll`, {
-                        method: 'POST',
-                        credentials: 'include',
-                      })
-                      const data = await res.json().catch(() => ({}))
-                      if (!res.ok) {
-                        setEnrollError(data?.error || 'Enrollment failed')
-                        return
-                      }
-                      if (typeof window !== 'undefined') {
-                        window.localStorage.setItem('coursify_session_mode', 'learner')
-                      }
-                      window.location.href = '/'
-                    } catch {
-                      setEnrollError('Something went wrong.')
-                    } finally {
-                      setEnrolling(false)
-                    }
-                  }}
-                  className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-70"
-                >
-                  {enrolling ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  {enrolling ? 'Enrolling…' : 'Enroll in this course'}
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-                {enrollError && <p className="mt-2 text-sm text-red-600">{enrollError}</p>}
-              </>
-              )}
-            </>
-          ) : (
-            <Link
-              href={`/?enroll=${encodeURIComponent(id)}`}
-              className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors"
-            >
-              Go to Coursify to enroll
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-          )}
-        </div>
-      </div>
-    </div>
+    <CourseInviteBoardingPass
+      courseTitle={course.title}
+      courseId={course.id}
+      description={course.description}
+      inviterName={course.inviterName}
+      recipientEmail={userEmail}
+      recipientName={userName}
+      moduleCount={course.moduleCount}
+      lessonCount={course.lessonCount}
+      durationLabel={course.durationLabel}
+      avgRating={course.avgRating}
+      ratingCount={course.ratingCount}
+      signedIn={signedIn}
+      enrolling={enrolling}
+      enrollError={enrollError}
+      autoEnrolled={autoEnrolled}
+      onEnroll={handleEnroll}
+      signInHref={signInHref}
+    />
   )
 }

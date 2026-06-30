@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   FileText, Download, Filter, Calendar, Send, Eye, Edit, Trash2,
   TrendingUp, CheckCircle, AlertCircle, Target, BookOpen,
@@ -9,6 +9,12 @@ import {
   MoreVertical, X, Upload, PieChart, LineChart, Plus, Search
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { exportReportTable, type ReportExportFormat } from '@/lib/export-report';
+import {
+  type ReportTemplate,
+  loadReportTemplates,
+  saveReportTemplates,
+} from '@/lib/report-templates';
 
 const Reports: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -25,27 +31,23 @@ const Reports: React.FC = () => {
   const [scheduleDay, setScheduleDay] = useState('monday');
   const [recipientEmails, setRecipientEmails] = useState('');
   const [reportMessage, setReportMessage] = useState<string | null>(null);
+  const [reportExportFormat, setReportExportFormat] = useState<ReportExportFormat>('csv');
+  const [showAllGenerated, setShowAllGenerated] = useState(false);
 
-  // Report templates: empty until report_templates table or generated reports exist
-  type ReportItem = {
-    id: number;
-    name: string;
-    description: string;
-    category: string;
-    type: string;
-    frequency: string;
-    lastGenerated?: string;
-    nextScheduled?: string;
-    recipients: number;
-    format: string;
-    size: string;
-    icon: typeof FileText;
-    color: string;
-    metrics: string[];
-    isActive: boolean;
-  };
+  type ReportItem = ReportTemplate;
 
   const [reports, setReports] = useState<ReportItem[]>([]);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
+
+  useEffect(() => {
+    setReports(loadReportTemplates());
+    setTemplatesLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!templatesLoaded) return;
+    saveReportTemplates(reports);
+  }, [reports, templatesLoaded]);
 
   // Recent generated reports (empty until report generation is implemented)
   const recentReports: { name: string; date: string; size: string; status: string }[] = [];
@@ -78,39 +80,42 @@ const Reports: React.FC = () => {
 
   const filteredReports = getFilteredReports();
 
-  const downloadEnrollmentsCsv = async (filename: string) => {
+  const fetchEnrollmentReportRows = async () => {
+    const { data: enrollments } = await supabase
+      .from('enrollments')
+      .select('id, user_id, course_id, progress_percentage, completed_at, enrolled_at');
+    const { data: courses } = await supabase.from('courses').select('id, title');
+    const { data: profiles } = await supabase.from('user_profiles').select('id, full_name, organization');
+    const courseMap = new Map((courses ?? []).map((c) => [c.id, c.title]));
+    const profileMap = new Map((profiles ?? []).map((p) => [p.id, { name: p.full_name ?? '', org: p.organization ?? '' }]));
+    const rows = (enrollments ?? []).map((e) => {
+      const profile = profileMap.get(e.user_id);
+      return {
+        course: courseMap.get(e.course_id) ?? e.course_id,
+        learner: profile?.name || e.user_id,
+        department: profile?.org || '—',
+        progress: e.progress_percentage ?? 0,
+        completed: e.completed_at ? 'Yes' : 'No',
+        enrolled_at: e.enrolled_at ?? '',
+      };
+    });
+    return {
+      headers: ['Course', 'Learner', 'Department', 'Progress %', 'Completed', 'Enrolled At'],
+      rows: rows.map((r) => [r.course, r.learner, r.department, r.progress, r.completed, r.enrolled_at]),
+    };
+  };
+
+  const downloadEnrollmentsReport = async (filename: string, format: ReportExportFormat = 'csv') => {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
       setReportMessage('Configure Supabase to generate reports.');
       setTimeout(() => setReportMessage(null), 4000);
       return;
     }
     try {
-      const { data: enrollments } = await supabase
-        .from('enrollments')
-        .select('id, user_id, course_id, progress_percentage, completed_at, enrolled_at');
-      const { data: courses } = await supabase.from('courses').select('id, title');
-      const { data: profiles } = await supabase.from('user_profiles').select('id, full_name');
-      const courseMap = new Map((courses ?? []).map((c) => [c.id, c.title]));
-      const profileMap = new Map((profiles ?? []).map((p) => [p.id, p.full_name ?? '']));
-      const rows = (enrollments ?? []).map((e) => ({
-        course: courseMap.get(e.course_id) ?? e.course_id,
-        learner: profileMap.get(e.user_id) ?? e.user_id,
-        progress: e.progress_percentage ?? 0,
-        completed: e.completed_at ? 'Yes' : 'No',
-        enrolled_at: e.enrolled_at ?? '',
-      }));
-      const headers = ['Course', 'Learner', 'Progress %', 'Completed', 'Enrolled At'];
-      const csv = [headers.join(',')].concat(
-        rows.map((r) => [r.course, r.learner, r.progress, r.completed, r.enrolled_at].map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
-      ).join('\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setReportMessage(`Report "${filename}" downloaded.`);
+      const { headers, rows } = await fetchEnrollmentReportRows();
+      exportReportTable(format, filename, filename, headers, rows);
+      const label = format === 'pdf' ? 'PDF print dialog opened' : `${format.toUpperCase()} downloaded`;
+      setReportMessage(`Report "${filename}" — ${label}.`);
       setTimeout(() => setReportMessage(null), 4000);
     } catch {
       setReportMessage('Failed to generate report.');
@@ -120,7 +125,25 @@ const Reports: React.FC = () => {
 
   const handleCreateReport = async () => {
     const name = reportName || 'enrollment-report';
-    await downloadEnrollmentsCsv(name);
+    await downloadEnrollmentsReport(name, reportExportFormat);
+    const created: ReportItem = {
+      id: Date.now(),
+      name,
+      description: 'Custom enrollment export',
+      category: 'summary',
+      type: 'on-demand',
+      frequency: 'Manual',
+      recipients: 0,
+      format: reportExportFormat,
+      size: '—',
+      iconKey: 'FileText',
+      icon: FileText,
+      color: 'blue',
+      metrics: ['Enrollments', 'Progress %'],
+      isActive: false,
+      lastGenerated: new Date().toLocaleDateString(),
+    };
+    setReports((prev) => [created, ...prev]);
     setShowCreateModal(false);
     setReportName('');
   };
@@ -128,7 +151,12 @@ const Reports: React.FC = () => {
   const handleGenerateReport = async (reportId: number) => {
     const report = reports.find(r => r.id === reportId);
     setActiveDropdown(null);
-    await downloadEnrollmentsCsv(report?.name ?? 'enrollment-report');
+    await downloadEnrollmentsReport(report?.name ?? 'enrollment-report', report?.format ?? 'csv');
+    setReports((prev) =>
+      prev.map((r) =>
+        r.id === reportId ? { ...r, lastGenerated: new Date().toLocaleDateString() } : r,
+      ),
+    );
   };
 
   const handleScheduleReport = (report: any) => {
@@ -141,8 +169,37 @@ const Reports: React.FC = () => {
     setActiveDropdown(null);
   };
 
+  const handleDuplicateReport = (report: ReportItem) => {
+    const copy: ReportItem = {
+      ...report,
+      id: Date.now(),
+      name: `${report.name} (Copy)`,
+      isActive: false,
+      lastGenerated: undefined,
+      nextScheduled: undefined,
+    };
+    setReports((prev) => [...prev, copy]);
+    setActiveDropdown(null);
+    setReportMessage(`Duplicated "${report.name}".`);
+    setTimeout(() => setReportMessage(null), 4000);
+  };
+
+  const handleEditTemplate = (report: ReportItem) => {
+    setReportName(report.name);
+    setReportType(report.type);
+    setReportExportFormat(report.format);
+    setShowCreateModal(true);
+    setActiveDropdown(null);
+  };
+
+  const handlePreviewReport = async (reportId: number) => {
+    setActiveDropdown(null);
+    setReportMessage('Generating preview…');
+    await downloadEnrollmentsReport(reports.find((r) => r.id === reportId)?.name ?? 'enrollment-report', reports.find((r) => r.id === reportId)?.format ?? 'csv');
+  };
+
   const handleToggleActive = (reportId: number) => {
-    setReports(reports.map(r => 
+    setReports(reports.map(r =>
       r.id === reportId ? { ...r, isActive: !r.isActive } : r
     ));
   };
@@ -194,7 +251,7 @@ const Reports: React.FC = () => {
           <div className="flex space-x-3">
             <button
               type="button"
-              onClick={() => downloadEnrollmentsCsv('enrollment-report')}
+              onClick={() => downloadEnrollmentsReport('enrollment-report', 'csv')}
               className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 font-semibold flex items-center transition-all"
             >
               <Download className="w-5 h-5 mr-2" />
@@ -306,8 +363,15 @@ const Reports: React.FC = () => {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold">Recently Generated</h2>
-            <button className="text-blue-600 hover:text-blue-700 text-sm font-semibold">
-              View All →
+            <button
+              type="button"
+              onClick={() => {
+                if (recentReports.length === 0) setShowCreateModal(true);
+                else setShowAllGenerated((v) => !v);
+              }}
+              className="text-blue-600 hover:text-blue-700 text-sm font-semibold"
+            >
+              {showAllGenerated ? 'Show less' : 'View All →'}
             </button>
           </div>
           <div className="grid grid-cols-4 gap-4">
@@ -328,7 +392,11 @@ const Reports: React.FC = () => {
                   <span>{report.date}</span>
                   <span>{report.size}</span>
                 </div>
-                <button className="w-full mt-3 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => downloadEnrollmentsReport(report.name.replace(/\s+/g, '-').toLowerCase(), report.format)}
+                  className="w-full mt-3 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm flex items-center justify-center"
+                >
                   <Download className="w-4 h-4 mr-2" />
                   Download
                 </button>
@@ -396,11 +464,17 @@ const Reports: React.FC = () => {
                                 <Calendar className="w-4 h-4 mr-3" />
                                 Schedule
                               </button>
-                              <button className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm">
+                              <button 
+                                onClick={() => handleEditTemplate(report)}
+                                className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                              >
                                 <Edit className="w-4 h-4 mr-3" />
                                 Edit Template
                               </button>
-                              <button className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm">
+                              <button 
+                                onClick={() => handleDuplicateReport(report)}
+                                className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                              >
                                 <Copy className="w-4 h-4 mr-3" />
                                 Duplicate
                               </button>
@@ -488,10 +562,20 @@ const Reports: React.FC = () => {
                         <RefreshCw className="w-4 h-4 mr-2" />
                         Generate
                       </button>
-                      <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all">
+                      <button
+                        type="button"
+                        onClick={() => handlePreviewReport(report.id)}
+                        className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all"
+                        title="Preview download"
+                      >
                         <Eye className="w-5 h-5 text-gray-600" />
                       </button>
-                      <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all">
+                      <button
+                        type="button"
+                        onClick={() => handleGenerateReport(report.id)}
+                        className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all"
+                        title="Download report"
+                      >
                         <Download className="w-5 h-5 text-gray-600" />
                       </button>
                     </div>
@@ -620,13 +704,25 @@ const Reports: React.FC = () => {
               <div className="mb-6">
                 <label className="block text-sm font-semibold mb-2">Export Format</label>
                 <div className="grid grid-cols-3 gap-3">
-                  <button className="p-3 border-2 border-blue-500 bg-blue-50 rounded-lg font-semibold text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setReportExportFormat('pdf')}
+                    className={`p-3 border-2 rounded-lg font-semibold text-sm ${reportExportFormat === 'pdf' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}
+                  >
                     PDF
                   </button>
-                  <button className="p-3 border-2 border-gray-200 rounded-lg hover:border-blue-300 font-semibold text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setReportExportFormat('excel')}
+                    className={`p-3 border-2 rounded-lg font-semibold text-sm ${reportExportFormat === 'excel' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}
+                  >
                     Excel
                   </button>
-                  <button className="p-3 border-2 border-gray-200 rounded-lg hover:border-blue-300 font-semibold text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setReportExportFormat('csv')}
+                    className={`p-3 border-2 rounded-lg font-semibold text-sm ${reportExportFormat === 'csv' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}
+                  >
                     CSV
                   </button>
                 </div>

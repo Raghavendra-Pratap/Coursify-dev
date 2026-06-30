@@ -87,10 +87,13 @@ const DEFAULT_MAX_AGE_MS = SHELL_CACHE_MS;
 export async function fetchJsonCached<T>(
   key: string,
   url: string,
-  options?: { maxAgeMs?: number; credentials?: RequestCredentials }
+  options?: { maxAgeMs?: number; credentials?: RequestCredentials; forceRefresh?: boolean }
 ): Promise<{ data: T; fromCache: boolean }> {
   const maxAge = options?.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
-  const cached = readClientCache<T>(key, maxAge);
+  if (options?.forceRefresh) {
+    invalidateClientCache(key);
+  }
+  const cached = options?.forceRefresh ? null : readClientCache<T>(key, maxAge);
 
   const doFetch = async (): Promise<T> => {
     const res = await fetch(url, {

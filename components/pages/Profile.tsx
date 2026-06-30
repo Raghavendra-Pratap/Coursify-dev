@@ -54,6 +54,8 @@ export default function Profile({ setCurrentView }: ProfileProps) {
   const [editLocation, setEditLocation] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [uploadingCover, setUploadingCover] = useState(false);
   const [stats, setStats] = useState({
     completed: 0,
     certificates: 0,
@@ -99,6 +101,9 @@ export default function Profile({ setCurrentView }: ProfileProps) {
         setOrganization(profile?.organization ?? '');
         setLocation(profile?.location ?? '');
         setAvatarUrl(profile?.avatar_url ?? null);
+        if (typeof window !== 'undefined') {
+          setCoverUrl(localStorage.getItem(`coursify-cover-${uid}`));
+        }
 
         let enrollments: { id: string; course_id: string; progress_percentage: number; completed_at: string | null; enrolled_at: string }[] = [];
         let fromEnrolledApi = false;
@@ -292,7 +297,9 @@ export default function Profile({ setCurrentView }: ProfileProps) {
   };
 
   const avatarInputRef = React.useRef<HTMLInputElement>(null);
+  const coverInputRef = React.useRef<HTMLInputElement>(null);
   const handleAvatarClick = () => avatarInputRef.current?.click();
+  const handleCoverClick = () => coverInputRef.current?.click();
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !userId) return;
@@ -309,6 +316,25 @@ export default function Profile({ setCurrentView }: ProfileProps) {
       if (!updateError) setAvatarUrl(urlData.publicUrl);
     } finally {
       setUploadingAvatar(false);
+    }
+  };
+
+  const handleCoverChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userId) return;
+    if (!file.type.startsWith('image/')) return;
+    e.target.value = '';
+    setUploadingCover(true);
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const path = `${userId}/cover.${ext}`;
+      const { error: uploadError } = await supabase.storage.from('avatars').upload(path, file, { upsert: true });
+      if (uploadError) return;
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
+      setCoverUrl(urlData.publicUrl);
+      localStorage.setItem(`coursify-cover-${userId}`, urlData.publicUrl);
+    } finally {
+      setUploadingCover(false);
     }
   };
 
@@ -343,10 +369,25 @@ export default function Profile({ setCurrentView }: ProfileProps) {
   return (
     <div className="min-h-screen bg-gray-50/50 dark:bg-gray-900">
       {/* Cover */}
-      <div className="relative h-48 bg-gradient-to-r from-purple-500 via-purple-600 to-blue-600">
-        <button className="absolute top-4 right-4 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium text-white flex items-center gap-2">
+      <div
+        className="relative h-48 bg-gradient-to-r from-purple-500 via-purple-600 to-blue-600"
+        style={coverUrl ? { backgroundImage: `url(${coverUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+      >
+        <input
+          ref={coverInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleCoverChange}
+        />
+        <button
+          type="button"
+          onClick={handleCoverClick}
+          disabled={uploadingCover}
+          className="absolute top-4 right-4 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium text-white flex items-center gap-2 disabled:opacity-60"
+        >
           <Camera className="w-4 h-4" />
-          Change Cover
+          {uploadingCover ? 'Uploading…' : 'Change Cover'}
         </button>
       </div>
 

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import { Play, Upload, Edit, Users, BarChart3, Settings, Plus, Check, X, Clock, FileText, Video, Folder, ChevronRight, Menu, Search, Bell, Award, TrendingUp, Home, BookOpen, Zap, Eye, Share2, Download, Target, Mail, User, LogOut, StickyNote, HelpCircle } from 'lucide-react';
+import { Play, Upload, Edit, Users, BarChart3, Settings, Plus, Check, X, Clock, FileText, Video, Folder, ChevronRight, ChevronDown, Menu, Search, Bell, Award, TrendingUp, Home, BookOpen, Zap, Eye, Share2, Download, Target, Mail, User, LogOut, StickyNote, HelpCircle, LayoutList, FileSpreadsheet, Youtube } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import Dashboard from './pages/Dashboard';
@@ -17,6 +17,14 @@ import MyNotes from './pages/MyNotes';
 import QAndA from './pages/QAndA';
 import NotificationsDropdown from './NotificationsDropdown';
 import { prefetchShellData, prefetchShellView } from '@/lib/prefetch-shell-data';
+import {
+  buildAppNavState,
+  readAppNavFromStorage,
+  readAppNavFromUrl,
+  syncAppNavToUrl,
+  writeAppNavToStorage,
+  type AppNavState,
+} from '@/lib/app-nav-url';
 
 function KeepAliveView({ active, children }: { active: boolean; children: React.ReactNode }) {
   return (
@@ -29,38 +37,33 @@ function KeepAliveView({ active, children }: { active: boolean; children: React.
 const SESSION_MODE_KEY = 'coursify_session_mode';
 type SessionMode = 'instructor' | 'learner' | null;
 
-type TakeNavFromUrl = { view: string; courseId: string; lessonId: string | null };
-
-function readTakeNavFromUrl(): TakeNavFromUrl | null {
-  if (typeof window === 'undefined') return null;
-  const params = new URLSearchParams(window.location.search);
-  const view = params.get('view');
-  const courseId = params.get('course');
-  if (view === 'take' && courseId) {
-    return { view: 'take', courseId, lessonId: params.get('lesson') };
-  }
-  return null;
-}
-
-function syncTakeNavToUrl(view: string, courseId: string | null, lessonId: string | null) {
-  if (typeof window === 'undefined') return;
-  const params = new URLSearchParams(window.location.search);
-  const hadTake = params.get('view') === 'take';
-  if (view === 'take' && courseId) {
-    params.set('view', 'take');
-    params.set('course', courseId);
-    if (lessonId) params.set('lesson', lessonId);
-    else params.delete('lesson');
-  } else if (hadTake) {
-    params.delete('view');
-    params.delete('course');
-    params.delete('lesson');
-  } else {
+function applyPersistedNav(
+  nav: AppNavState,
+  setters: {
+    setCurrentView: (view: string) => void;
+    setEditingCourseId: (id: string | null) => void;
+    setLearningCourseId: (id: string | null) => void;
+    setLearningLessonId: (id: string | null) => void;
+  },
+) {
+  setters.setCurrentView(nav.view);
+  if (nav.view === 'create') {
+    setters.setEditingCourseId(nav.courseId);
+    setters.setLearningCourseId(null);
+    setters.setLearningLessonId(null);
     return;
   }
-  const search = params.toString();
-  const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
-  window.history.replaceState({}, '', url);
+  if (nav.view === 'take' && nav.courseId) {
+    setters.setLearningCourseId(nav.courseId);
+    setters.setLearningLessonId(nav.lessonId);
+    setters.setEditingCourseId(null);
+    return;
+  }
+  setters.setEditingCourseId(null);
+  if (nav.view !== 'take') {
+    setters.setLearningCourseId(null);
+    setters.setLearningLessonId(null);
+  }
 }
 
 const pageLoading = () => (
@@ -114,6 +117,108 @@ function TopNavItem({
   );
 }
 
+type CreateEditorNavActions = {
+  openImportYouTube: () => void;
+  openImportSheet: () => void;
+  openOrganize: () => void;
+};
+
+const courseEditorPillBtn =
+  'flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-sm font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-50';
+const courseEditorPillBtnRed =
+  'flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 text-sm font-semibold text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors disabled:opacity-50';
+
+function CreateCourseNav({
+  onBackToCourses,
+  editorActions,
+  onAfterNavigate,
+  stacked = false,
+}: {
+  onBackToCourses: () => void;
+  editorActions: CreateEditorNavActions | null;
+  onAfterNavigate?: () => void;
+  stacked?: boolean;
+}) {
+  const backBtn = (
+    <button
+      type="button"
+      onClick={() => {
+        onBackToCourses();
+        onAfterNavigate?.();
+      }}
+      className={courseEditorPillBtn}
+    >
+      <ChevronRight className="w-4 h-4 rotate-180 flex-shrink-0" />
+      <span>Back to Courses</span>
+    </button>
+  );
+
+  const organizeBtn = (
+    <button
+      type="button"
+      disabled={!editorActions}
+      onClick={() => {
+        editorActions?.openOrganize();
+        onAfterNavigate?.();
+      }}
+      className={courseEditorPillBtn}
+    >
+      <LayoutList className="w-4 h-4 flex-shrink-0" />
+      <span>Organize structure</span>
+    </button>
+  );
+
+  const importBtns = (
+    <div className="flex items-center gap-2">
+      <span className="text-sm font-semibold text-gray-600 dark:text-gray-400 whitespace-nowrap">Import :</span>
+      <button
+        type="button"
+        disabled={!editorActions}
+        onClick={() => {
+          editorActions?.openImportYouTube();
+          onAfterNavigate?.();
+        }}
+        className={courseEditorPillBtnRed}
+        title="Import from YouTube"
+      >
+        <Youtube className="w-4 h-4 flex-shrink-0" />
+        <span>YouTube</span>
+      </button>
+      <button
+        type="button"
+        disabled={!editorActions}
+        onClick={() => {
+          editorActions?.openImportSheet();
+          onAfterNavigate?.();
+        }}
+        className={courseEditorPillBtn}
+        title="Import from sheet"
+      >
+        <FileSpreadsheet className="w-4 h-4 flex-shrink-0" />
+        <span>Sheet</span>
+      </button>
+    </div>
+  );
+
+  if (stacked) {
+    return (
+      <div className="flex flex-col gap-2 w-full">
+        {backBtn}
+        {organizeBtn}
+        <div className="flex flex-col sm:flex-row gap-2">{importBtns}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full flex items-center gap-3 min-h-[40px]">
+      <div className="flex-shrink-0">{backBtn}</div>
+      <div className="flex-1 flex justify-center min-w-0">{organizeBtn}</div>
+      <div className="flex-shrink-0 ml-auto">{importBtns}</div>
+    </div>
+  );
+}
+
 function CoursifyAppLayout({
   currentView,
   sessionMode,
@@ -124,6 +229,8 @@ function CoursifyAppLayout({
   onOpenCourse,
   onOpenSettings,
   onPrefetchView,
+  onBackToCourses,
+  createEditorActions,
   children,
 }: {
   currentView: string;
@@ -135,6 +242,8 @@ function CoursifyAppLayout({
   onOpenCourse?: (courseId: string) => void;
   onOpenSettings: () => void;
   onPrefetchView?: (view: string) => void;
+  onBackToCourses?: () => void;
+  createEditorActions?: CreateEditorNavActions | null;
   children: React.ReactNode;
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -160,6 +269,9 @@ function CoursifyAppLayout({
   );
 
   const navItems = sessionMode === 'learner' ? learnerNav : instructorNav;
+  const isCreateView = currentView === 'create';
+  const showStandardNav = !isTakeView && !isCreateView;
+  const showCreateNav = isCreateView && !isTakeView;
 
   const headerUserActions = (
     <div className="flex items-center gap-2 ml-auto flex-shrink-0">
@@ -218,14 +330,34 @@ function CoursifyAppLayout({
         </div>
 
         {!isTakeView && (
-          <nav className="hidden lg:flex items-center gap-1 px-4 sm:px-6 py-2 border-t border-gray-200 dark:border-gray-800 overflow-x-auto">
-            {navItems}
+          <nav
+            className={`hidden lg:flex px-4 sm:px-6 py-2 border-t border-gray-200 dark:border-gray-800 ${
+              showCreateNav ? 'overflow-visible w-full items-center' : 'overflow-x-auto items-center gap-1'
+            }`}
+          >
+            {showCreateNav && onBackToCourses ? (
+              <CreateCourseNav
+                onBackToCourses={onBackToCourses}
+                editorActions={createEditorActions ?? null}
+              />
+            ) : showStandardNav ? (
+              navItems
+            ) : null}
           </nav>
         )}
 
         {mobileNavOpen && (
-          <nav className="lg:hidden border-t border-gray-200 dark:border-gray-800 px-3 py-3 flex flex-col gap-1 bg-white dark:bg-gray-900">
-            {navItems}
+          <nav className="lg:hidden border-t border-gray-200 dark:border-gray-800 px-3 py-3 bg-white dark:bg-gray-900">
+            {showCreateNav && onBackToCourses ? (
+              <CreateCourseNav
+                onBackToCourses={onBackToCourses}
+                editorActions={createEditorActions ?? null}
+                onAfterNavigate={() => setMobileNavOpen(false)}
+                stacked
+              />
+            ) : showStandardNav ? (
+              <div className="flex flex-col gap-1">{navItems}</div>
+            ) : null}
           </nav>
         )}
       </header>
@@ -240,8 +372,7 @@ function CoursifyAppLayout({
 const CoursifyLMS = () => {
   const { user, isLoading: authLoading, isAuthenticated, signOut: authSignOut } = useAuth();
   const [sessionMode, setSessionMode] = useState<SessionMode>(null);
-  const takeNavFromUrl = useRef(readTakeNavFromUrl());
-  const [currentView, setCurrentView] = useState(() => takeNavFromUrl.current?.view ?? 'dashboard');
+  const [currentView, setCurrentView] = useState('dashboard');
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showSignInModal, setShowSignInModal] = useState(false);
   const [signInEmail, setSignInEmail] = useState('');
@@ -251,19 +382,57 @@ const CoursifyLMS = () => {
   const [profileStats, setProfileStats] = useState({ courses: 0, certificates: 0, badges: 0 });
   const [isRedirectingToGoogle, setIsRedirectingToGoogle] = useState(false);
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
-  const [learningCourseId, setLearningCourseId] = useState<string | null>(() => takeNavFromUrl.current?.courseId ?? null);
-  const [learningLessonId, setLearningLessonId] = useState<string | null>(() => takeNavFromUrl.current?.lessonId ?? null);
+  const [createEditorKey, setCreateEditorKey] = useState(0);
+
+  const openNewCourseEditor = useCallback(() => {
+    try {
+      localStorage.removeItem('create_course_draft_new');
+    } catch {
+      // ignore storage errors
+    }
+    setEditingCourseId(null);
+    setCreateEditorKey((k) => k + 1);
+    setCurrentView('create');
+  }, []);
+  const [learningCourseId, setLearningCourseId] = useState<string | null>(null);
+  const [learningLessonId, setLearningLessonId] = useState<string | null>(null);
+  const [createEditorActions, setCreateEditorActions] = useState<CreateEditorNavActions | null>(null);
   const authChecked = !authLoading;
-  /** Only restore dashboard/courses view on initial load or login; don't overwrite when user ref changes (e.g. tab focus token refresh) */
-  const sessionViewRestoredRef = useRef(!!takeNavFromUrl.current);
+  /** Skip default dashboard/courses restore when URL or storage already set the view */
+  const sessionViewRestoredRef = useRef(false);
+  const navRestoredRef = useRef(false);
   /** Ref to current view so the auth effect can avoid overwriting Take Course / Create Course when it re-runs (learner + instructor) */
   const currentViewRef = useRef(currentView);
   currentViewRef.current = currentView;
 
-  // Keep ?view=take&course=… in the URL so refresh returns to the same course
+  // Restore view + course from URL or last session (runs once on mount — fixes refresh → dashboard).
   useEffect(() => {
-    syncTakeNavToUrl(currentView, learningCourseId, learningLessonId);
-  }, [currentView, learningCourseId, learningLessonId]);
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const enrollCourseId = params.get('enroll');
+    if (enrollCourseId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(enrollCourseId)) {
+      window.location.replace(`/course/${enrollCourseId}`);
+      return;
+    }
+    if (navRestoredRef.current) return;
+    navRestoredRef.current = true;
+    const nav = readAppNavFromUrl() ?? readAppNavFromStorage();
+    if (!nav) return;
+    applyPersistedNav(nav, {
+      setCurrentView,
+      setEditingCourseId,
+      setLearningCourseId,
+      setLearningLessonId,
+    });
+    sessionViewRestoredRef.current = true;
+  }, []);
+
+  // Keep ?view=… in the URL and localStorage so refresh returns to the same page.
+  useEffect(() => {
+    const nav = buildAppNavState(currentView, editingCourseId, learningCourseId, learningLessonId);
+    syncAppNavToUrl(nav);
+    writeAppNavToStorage(nav);
+  }, [currentView, editingCourseId, learningCourseId, learningLessonId]);
 
   // Notifications are shown in the header dropdown; redirect legacy notifications view.
   useEffect(() => {
@@ -430,7 +599,16 @@ const CoursifyLMS = () => {
         const saved = typeof window !== 'undefined' ? localStorage.getItem(SESSION_MODE_KEY) : null;
         const mode: SessionMode = saved === 'learner' || saved === 'instructor' ? saved : null;
         setSessionMode(mode);
-        if (mode === 'learner') setCurrentView('courses');
+        const persistedNav = readAppNavFromUrl() ?? readAppNavFromStorage();
+        if (persistedNav) {
+          applyPersistedNav(persistedNav, {
+            setCurrentView,
+            setEditingCourseId,
+            setLearningCourseId,
+            setLearningLessonId,
+          });
+          sessionViewRestoredRef.current = true;
+        } else if (mode === 'learner') setCurrentView('courses');
         else if (mode === 'instructor') setCurrentView('dashboard');
         supabase.from('user_profiles').select('full_name, role').eq('id', user.id).maybeSingle().then(({ data: profile }) => {
           if (profile) {
@@ -467,6 +645,15 @@ const CoursifyLMS = () => {
       setSignInError(err instanceof Error ? err.message : 'Google sign-in failed');
     }
   };
+
+  useEffect(() => {
+    if (currentView !== 'create') setCreateEditorActions(null);
+  }, [currentView]);
+
+  const handleBackToCourses = useCallback(() => {
+    setEditingCourseId(null);
+    setCurrentView('courses');
+  }, []);
 
   // Stat Card Component
   const StatCard = ({ icon: Icon, title, value, change, color }: { icon: React.ElementType; title: string; value: string; change: string; color: 'blue' | 'purple' | 'green' | 'orange' }) => {
@@ -598,14 +785,34 @@ const CoursifyLMS = () => {
       }}
       onOpenSettings={() => setCurrentView('settings')}
       onPrefetchView={handlePrefetchView}
+      onBackToCourses={handleBackToCourses}
+      createEditorActions={currentView === 'create' ? createEditorActions : null}
     >
       <KeepAliveView active={currentView === 'dashboard'}>
         <Dashboard setCurrentView={setCurrentView} />
       </KeepAliveView>
       <KeepAliveView active={currentView === 'courses'}>
-        <MyCourses setCurrentView={setCurrentView} onEditCourse={(id) => { setEditingCourseId(id); setCurrentView('create'); }} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} sessionMode={sessionMode} learningCourseId={learningCourseId} />
+        <MyCourses
+          setCurrentView={setCurrentView}
+          listActive={currentView === 'courses'}
+          onCreateCourse={openNewCourseEditor}
+          onEditCourse={(id) => { setEditingCourseId(id); setCreateEditorKey((k) => k + 1); setCurrentView('create'); }}
+          onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }}
+          sessionMode={sessionMode}
+          learningCourseId={learningCourseId}
+        />
       </KeepAliveView>
-      {currentView === 'create' && (CreateCourse != null ? <CreateCourse setCurrentView={setCurrentView} initialCourseId={editingCourseId} onBackToCourses={() => { setEditingCourseId(null); setCurrentView('courses'); }} onImportSuccess={(id) => { setEditingCourseId(id); setCurrentView('create'); }} /> : fallback)}
+      {currentView === 'create' && (CreateCourse != null ? (
+        <CreateCourse
+          key={`create-${createEditorKey}-${editingCourseId ?? 'new'}`}
+          setCurrentView={setCurrentView}
+          initialCourseId={editingCourseId}
+          onBackToCourses={handleBackToCourses}
+          onImportSuccess={(id) => { setEditingCourseId(id); setCreateEditorKey((k) => k + 1); setCurrentView('create'); }}
+          onCourseSaved={(id) => setEditingCourseId(id)}
+          onRegisterEditorActions={setCreateEditorActions}
+        />
+      ) : fallback)}
       {currentView === 'take' && learningCourseId && (TakeCourse != null ? <TakeCourse courseId={learningCourseId} onBack={() => { setLearningCourseId(null); setLearningLessonId(null); setCurrentView('courses'); }} initialLessonId={learningLessonId} /> : fallback)}
       <KeepAliveView active={currentView === 'notes'}>
         <MyNotes setCurrentView={setCurrentView} onStartCourse={(id) => { setLearningLessonId(null); setLearningCourseId(id); setCurrentView('take'); }} onOpenLesson={(courseId, lessonId) => { setLearningCourseId(courseId); setLearningLessonId(lessonId); setCurrentView('take'); }} />
@@ -617,7 +824,7 @@ const CoursifyLMS = () => {
         <Learners setCurrentView={setCurrentView} />
       </KeepAliveView>
       <KeepAliveView active={currentView === 'analytics'}>
-        <Analytics />
+        <Analytics setCurrentView={setCurrentView} />
       </KeepAliveView>
       <KeepAliveView active={currentView === 'reports'}>
         <Reports />

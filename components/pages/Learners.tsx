@@ -7,6 +7,7 @@ import {
   Activity, Trophy, FileDown, ArrowUpRight, ArrowDownRight, Zap, X, Play, FileText, Bell, Award, Eye, Loader2
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { downloadCsv, openMailTo } from '@/lib/download-csv';
 import { fetchJsonCached, readClientCache, SHELL_CACHE_MS } from '@/lib/client-fetch-cache';
 import type { Database } from '@/lib/database.types';
 
@@ -92,6 +93,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   const [showLearnerDetail, setShowLearnerDetail] = useState<any>(null);
   const [activeDropdown, setActiveDropdown] = useState<LearnerId | null>(null);
   const [inviteEmails, setInviteEmails] = useState('');
+  const [inviteCustomMessage, setInviteCustomMessage] = useState('');
   const [bulkUploadFile, setBulkUploadFile] = useState<File | null>(null);
   const [inviteCourseId, setInviteCourseId] = useState<string>('');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -107,6 +109,14 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   const [loading, setLoading] = useState(
     () => readClientCache<Record<string, unknown>>('instructor:learners', SHELL_CACHE_MS) == null
   );
+
+  useEffect(() => {
+    const tab = sessionStorage.getItem('learners-tab');
+    if (tab === 'at-risk' || tab === 'active' || tab === 'inactive' || tab === 'all') {
+      setSelectedTab(tab);
+      sessionStorage.removeItem('learners-tab');
+    }
+  }, []);
 
   const stats = {
     total: learners.length,
@@ -389,7 +399,12 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: allEmails, courseId: courseId || undefined, courseTitle }),
+        body: JSON.stringify({
+          emails: allEmails,
+          courseId: courseId || undefined,
+          courseTitle,
+          customMessage: inviteCustomMessage.trim() || undefined,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data?.ok) {
@@ -407,6 +422,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
     }
     setShowInviteModal(false);
     setInviteEmails('');
+    setInviteCustomMessage('');
     setBulkUploadFile(null);
     setInviteCourseId('');
   };
@@ -461,6 +477,61 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
     }
   };
 
+  const exportLearnersCsv = (rows: typeof learners) => {
+    downloadCsv(
+      `learners-${new Date().toISOString().slice(0, 10)}`,
+      ['Name', 'Email', 'Status', 'Enrolled courses', 'Completed', 'Progress %', 'Avg score', 'Last active', 'Joined'],
+      rows.map((l) => [
+        l.name,
+        l.email,
+        l.status,
+        l.enrolledCourses,
+        l.completedCourses,
+        l.totalProgress,
+        l.averageScore,
+        l.lastActive,
+        l.joinedDate,
+      ]),
+    );
+  };
+
+  const exportLearnerProgressCsv = (learner: (typeof learners)[0]) => {
+    downloadCsv(
+      `learner-${learner.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-progress`,
+      ['Metric', 'Value'],
+      [
+        ['Name', learner.name],
+        ['Email', learner.email],
+        ['Status', learner.status],
+        ['Enrolled courses', learner.enrolledCourses],
+        ['Completed courses', learner.completedCourses],
+        ['Overall progress %', learner.totalProgress],
+        ['Average score %', learner.averageScore],
+        ['Time spent', learner.totalTimeSpent],
+        ['Last active', learner.lastActive],
+        ['Joined', learner.joinedDate],
+      ],
+    );
+  };
+
+  const handleSendMessage = (learner: (typeof learners)[0]) => {
+    const ok = openMailTo(
+      learner.email,
+      'Message from your Coursify instructor',
+      `Hi ${learner.name},\n\n`,
+    );
+    if (!ok) showActionMessage('No email on file for this learner. Use Send Reminder instead.');
+    setActiveDropdown(null);
+  };
+
+  const handleEnrollLearner = (learner: (typeof learners)[0]) => {
+    const email = learner.email !== '(signed up)' ? learner.email : '';
+    setInviteEmails(email);
+    setShowInviteModal(true);
+    setActiveDropdown(null);
+    if (showLearnerDetail?.id === learner.id) setShowLearnerDetail(null);
+  };
+
   const getStatusColor = (status: string) => {
     switch(status) {
       case 'active': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
@@ -510,7 +581,11 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
             )}
           </div>
           <div className="flex space-x-3">
-            <button className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 font-semibold flex items-center transition-all">
+            <button
+              type="button"
+              onClick={() => exportLearnersCsv(getFilteredLearners())}
+              className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 font-semibold flex items-center transition-all"
+            >
               <Download className="w-5 h-5 mr-2" />
               Export Data
             </button>
@@ -752,7 +827,11 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
 
                     {activeDropdown === learner.id && (
                       <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-2 z-30">
-                        <button className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200">
+                        <button
+                          type="button"
+                          onClick={() => handleSendMessage(learner)}
+                          className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                        >
                           <Mail className="w-4 h-4 mr-3" />
                           Send Message
                         </button>
@@ -766,11 +845,22 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                           <Bell className="w-4 h-4 mr-3" />
                           Send Reminder
                         </button>
-                        <button className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200">
+                        <button
+                          type="button"
+                          onClick={() => handleEnrollLearner(learner)}
+                          className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                        >
                           <BookOpen className="w-4 h-4 mr-3" />
                           Enroll in Course
                         </button>
-                        <button className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            exportLearnerProgressCsv(learner);
+                            setActiveDropdown(null);
+                          }}
+                          className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                        >
                           <FileDown className="w-4 h-4 mr-3" />
                           Export Progress
                         </button>
@@ -849,6 +939,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                 onClick={() => {
                   setShowInviteModal(false);
                   setInviteEmails('');
+                  setInviteCustomMessage('');
                   setBulkUploadFile(null);
                 }}
                 className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-all"
@@ -860,6 +951,14 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
 
             <div className="p-6">
               <div className="mb-6">
+                <label htmlFor="invite-message" className="block text-sm font-semibold mb-2 dark:text-gray-200">Personal message (optional)</label>
+                <textarea
+                  id="invite-message"
+                  value={inviteCustomMessage}
+                  onChange={(e) => setInviteCustomMessage(e.target.value)}
+                  placeholder="Add a note for your learners — shown above the invitation card in the email."
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent h-24 resize-none placeholder:text-gray-400 mb-6"
+                />
                 <label htmlFor="invite-emails" className="block text-sm font-semibold mb-2 dark:text-gray-200">Email addresses</label>
                 <textarea 
                   id="invite-emails"
@@ -1111,15 +1210,27 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
 
               {/* Actions */}
               <div className="flex space-x-3">
-                <button className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center justify-center transition-all">
+                <button
+                  type="button"
+                  onClick={() => handleSendMessage(showLearnerDetail)}
+                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center justify-center transition-all"
+                >
                   <Mail className="w-5 h-5 mr-2" />
                   Send Message
                 </button>
-                <button className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold flex items-center justify-center transition-all">
+                <button
+                  type="button"
+                  onClick={() => handleEnrollLearner(showLearnerDetail)}
+                  className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold flex items-center justify-center transition-all"
+                >
                   <BookOpen className="w-5 h-5 mr-2" />
                   Enroll in Course
                 </button>
-                <button className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold flex items-center justify-center transition-all">
+                <button
+                  type="button"
+                  onClick={() => exportLearnerProgressCsv(showLearnerDetail)}
+                  className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold flex items-center justify-center transition-all"
+                >
                   <Download className="w-5 h-5 mr-2" />
                   Export Data
                 </button>

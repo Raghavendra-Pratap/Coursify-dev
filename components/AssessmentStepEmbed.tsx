@@ -2,12 +2,14 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { Award, ExternalLink, Loader2, CheckCircle, Clock } from 'lucide-react';
+import { isAssessmentEmbedUrl } from '@/lib/assessment-url';
 
 type LaunchResponse = {
   embedUrl?: string;
   takeUrl?: string;
   openInNewTab?: boolean;
   embedBlocked?: boolean;
+  sheetFallback?: boolean;
   sessionId?: string;
   status?: string;
   alreadySubmitted?: boolean;
@@ -133,20 +135,26 @@ export function AssessmentStepEmbed({
     );
   }
 
-  if (accessMode === 'proctored_portal' && launch?.takeUrl) {
+  if ((accessMode === 'proctored_portal' || launch?.openInNewTab) && launch?.takeUrl) {
+    const isSheetFallback = Boolean(launch.sheetFallback);
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
         <Award className="w-10 h-10 text-indigo-600 mb-3" />
         <p className="font-medium text-gray-900 dark:text-white mb-2">{launch.title ?? title}</p>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-md">
-          This exam opens in Assessment Pro in a new tab. You may need Google sign-in and proctoring setup.
+          {isSheetFallback
+            ? 'This module quiz includes Google Sheet questions. They open in a new tab so you can keep working in the lesson — no proctoring or exam setup.'
+            : accessMode === 'proctored_portal'
+              ? 'This exam opens in Assessment Pro in a new tab. You may need Google sign-in and proctoring setup.'
+              : 'Open this assessment in Assessment Pro to continue.'}
         </p>
         <button
           type="button"
           onClick={() => window.open(launch.takeUrl, '_blank', 'noopener,noreferrer')}
           className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700"
         >
-          <ExternalLink className="w-4 h-4" /> Start final exam
+          <ExternalLink className="w-4 h-4" />{' '}
+          {isSheetFallback ? 'Open sheet question' : accessMode === 'proctored_portal' ? 'Start final exam' : 'Start assessment'}
         </button>
       </div>
     );
@@ -177,7 +185,7 @@ export function AssessmentStepEmbed({
     );
   }
 
-  if (launch?.embedUrl) {
+  if (launch?.embedUrl && isAssessmentEmbedUrl(launch.embedUrl)) {
     return (
       <iframe
         src={launch.embedUrl}

@@ -18,10 +18,13 @@ function parseTimeToSeconds(time: string): number {
   return 0
 }
 
+export const maxDuration = 60;
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ courseId: string }> }
 ) {
+  try {
   const { courseId } = await params
   if (!courseId) return NextResponse.json({ error: 'Course ID required' }, { status: 400 })
 
@@ -39,7 +42,17 @@ export async function POST(
   const { data: { user } } = await supabaseAuth.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const db = createServiceClient()
+  let db;
+  try {
+    db = createServiceClient();
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Admin database client unavailable';
+    return NextResponse.json(
+      { error: 'Server misconfiguration', details: `${message}. Set SUPABASE_SERVICE_ROLE_KEY in .env.local and restart the dev server.` },
+      { status: 500 }
+    );
+  }
+
   const { data: course } = await db.from('courses').select('id, created_by').eq('id', courseId).single()
   if (!course || (course as { created_by: string }).created_by !== user.id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -61,6 +74,17 @@ export async function POST(
 
   if (body.title != null) {
     await db.from('courses').update({ title: body.title, description: body.description ?? null, updated_at: new Date().toISOString() }).eq('id', courseId)
+  }
+  const { data: courseMeta } = await db.from('courses').select('status').eq('id', courseId).maybeSingle()
+  if ((courseMeta as { status?: string } | null)?.status === 'published') {
+    const { error: flagErr } = await db
+      .from('courses')
+      .update({ has_unpublished_changes: true, updated_at: new Date().toISOString() })
+      .eq('id', courseId)
+    // Column may be missing if DRAFT_PUBLISHED_SNAPSHOT.sql was not run — save must still succeed.
+    if (flagErr && !/has_unpublished_changes/i.test(flagErr.message ?? '')) {
+      return NextResponse.json({ error: 'Failed to update course flags', details: flagErr.message }, { status: 500 })
+    }
   }
 
   const { error: delErr } = await db.from('modules').delete().eq('course_id', courseId)
@@ -132,25 +156,27 @@ export async function POST(
         if (item.type === 'video' && item.videoSegment) {
           const vs = item.videoSegment
           const startSec = vs.startTimestamp ?? (vs.startTime ? parseTimeToSeconds(vs.startTime) : 0)
-          const endSec = vs.endTimestamp ?? (vs.endTime ? parseTimeToSeconds(vs.endTime) : (vs.duration ? parseTimeToSeconds(vs.duration) : 0))
-          const videoUrl = vs.sourceUrl ?? ''
-          const storageType = vs.source === 'google_drive' ? 'google_drive' : (vs.source === 'youtube' || vs.source === 'external_url' ? 'external_url' : 'supabase')
-          await db.from('video_segments').insert({
-            lesson_id: lessonId,
-            segment_index: item.order ?? ci,
-            video_url: videoUrl,
-            start_time: startSec,
-            end_time: endSec,
-            storage_type: storageType,
-            storage_path: videoUrl || null,
+          const endSec =
+            vs.endTimestamp ??
+            (vs.endTime ? parseTimeToSeconds(vs.endTime) : startSec + (vs.duration ? parseTimeToSeconds(vs.duration) : 0))
+          const sourceUrl = vs.sourceUrl ?? null
+          const { error: segErr } = await db.from('video_segments').insert({
             content_item_id: contentItemId,
             name: vs.name ?? 'Video',
-            duration_seconds: Math.max(0, endSec - startSec),
+            duration_seconds: Math.max(1, endSec - startSec),
             start_time_seconds: startSec,
             end_time_seconds: endSec,
             source: vs.source ?? 'upload',
-            source_url: vs.sourceUrl ?? null,
+            source_url: sourceUrl,
+            storage_path: sourceUrl,
           })
+          if (segErr) {
+            return NextResponse.json({
+              error: 'Failed to insert video segment',
+              details: segErr.message,
+              context: `module ${mi + 1}, lesson ${li + 1}, content ${ci + 1}`,
+            }, { status: 500 })
+          }
         }
         if (item.type === 'quiz' && item.quiz) {
           await db.from('quizzes').insert({
@@ -162,17 +188,35 @@ export async function POST(
           })
         }
         if (item.type === 'assessment' && item.assessment) {
+          const assessmentProId = item.assessment.assessmentProId?.trim() ?? ''
+          if (!/^[0-9a-f-]{36}$/i.test(assessmentProId)) {
+            return NextResponse.json({
+              error: 'Invalid Assessment Pro ID on assessment content',
+              details: 'assessmentProId must be a UUID. Save the assessment from the designer or pick an existing one.',
+              context: `module ${mi + 1}, lesson ${li + 1}, content ${ci + 1}`,
+            }, { status: 400 })
+          }
           const accessMode = item.assessment.accessMode === 'proctored_portal' ? 'proctored_portal' : 'lms_embed'
           const presentation = accessMode === 'proctored_portal' ? 'new_tab' : 'embed'
-          await db.from('external_assessments').insert({
+          const { error: extErr } = await db.from('external_assessments').insert({
             content_item_id: contentItemId,
-            assessment_pro_assessment_id: item.assessment.assessmentProId,
+            assessment_pro_assessment_id: assessmentProId,
             access_mode: accessMode,
             presentation,
             passing_score: item.assessment.passingScore ?? 70,
             title: item.assessment.title ?? 'Assessment',
             description: item.assessment.description ?? null,
           })
+          if (extErr) {
+            const hint = /content_type|external_assessments|does not exist/i.test(extErr.message ?? '')
+              ? ' Run database/ADD_EXTERNAL_ASSESSMENTS.sql in Supabase SQL Editor.'
+              : ''
+            return NextResponse.json({
+              error: 'Failed to save assessment content',
+              details: (extErr.message ?? 'insert failed') + hint,
+              context: `module ${mi + 1}, lesson ${li + 1}, content ${ci + 1}`,
+            }, { status: 500 })
+          }
         }
 
         if (item.type === 'form' && item.form) {
@@ -187,4 +231,9 @@ export async function POST(
   }
 
   return NextResponse.json({ ok: true })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Structure save failed';
+    console.error('[structure]', message);
+    return NextResponse.json({ error: 'Failed to save course structure', details: message }, { status: 500 });
+  }
 }

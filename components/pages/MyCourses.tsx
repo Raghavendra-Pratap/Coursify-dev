@@ -1,12 +1,13 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, Users, Plus, Clock, Video, Edit, X, Eye, Filter, Grid, List, Star, TrendingUp, TrendingDown,
   Download, Share2, Copy, Trash2, Archive, MoreVertical, BookOpen, CheckCircle, Award, Mail, Link2, Globe,
   Search, BarChart3, Folder, AlertCircle, UserPlus, Loader2
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { downloadCsv } from '@/lib/download-csv';
 import { getPreferences, getCourseRecommendationScore } from '@/lib/preference-loop';
 import type { LearnerPreferences } from '@/lib/preference-loop';
 import { fetchJsonCached, readClientCache, SHELL_CACHE_MS } from '@/lib/client-fetch-cache';
@@ -15,6 +16,7 @@ type SessionMode = 'instructor' | 'learner' | null;
 
 interface MyCoursesProps {
   setCurrentView: (view: string) => void;
+  onCreateCourse?: () => void;
   onEditCourse?: (courseId: string) => void;
   /** When in learner mode, opening a course goes to take-course view. */
   onStartCourse?: (courseId: string) => void;
@@ -22,6 +24,8 @@ interface MyCoursesProps {
   sessionMode?: SessionMode;
   /** When set, user is in TakeCourse; when null, show course list. Used to refetch enrolled when returning. */
   learningCourseId?: string | null;
+  /** True when the My Courses tab is visible (KeepAlive); refetch list when returning from editor. */
+  listActive?: boolean;
 }
 
 type CourseId = string | number;
@@ -137,7 +141,11 @@ function readMyCoursesCache(): MyCoursesPayload | null {
   return readClientCache<MyCoursesPayload>('instructor:my-courses', SHELL_CACHE_MS);
 }
 
-const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onStartCourse, sessionMode = 'instructor', learningCourseId = null }) => {
+const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, onEditCourse, onStartCourse, sessionMode = 'instructor', learningCourseId = null, listActive = true }) => {
+  const openCreateCourse = () => {
+    if (onCreateCourse) onCreateCourse();
+    else setCurrentView('create');
+  };
   const isLearnerView = sessionMode === 'learner';
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedFilter, setSelectedFilter] = useState('all');
@@ -153,6 +161,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
   const [shareMagicLinkLoading, setShareMagicLinkLoading] = useState(false);
   const [shareMagicLinkError, setShareMagicLinkError] = useState<string | null>(null);
   const [shareInviteEmails, setShareInviteEmails] = useState('');
+  const [shareInviteMessage, setShareInviteMessage] = useState('');
   const [shareInviteLoading, setShareInviteLoading] = useState(false);
   const [shareInviteError, setShareInviteError] = useState<string | null>(null);
   const [shareInviteSuccess, setShareInviteSuccess] = useState<string | null>(null);
@@ -289,6 +298,41 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
     return () => { cancelled = true; };
   }, [isLearnerView]);
 
+  const prevListActiveRef = useRef(listActive);
+  useEffect(() => {
+    const becameActive = listActive && !prevListActiveRef.current;
+    prevListActiveRef.current = listActive;
+    if (!becameActive || isLearnerView || !process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await fetchJsonCached<MyCoursesPayload>(
+          'instructor:my-courses',
+          '/api/instructor/my-courses',
+          { maxAgeMs: SHELL_CACHE_MS, forceRefresh: true }
+        );
+        if (cancelled) return;
+        const rows = (data.courses ?? []).map((c) => ({
+          ...c,
+          category: c.category ?? 'General',
+          status: c.status as CourseRow['status'],
+          lastUpdated: formatCourseDate(c.lastUpdated),
+          createdDate: formatCourseDate(c.createdDate),
+        }));
+        setCourses(rows);
+        if (typeof data.totalUniqueLearners === 'number') setTotalUniqueLearners(data.totalUniqueLearners);
+        if (data.contentMix) setContentMixByCourse(data.contentMix);
+      } catch {
+        // keep existing list on refresh failure
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [listActive, isLearnerView]);
+
   const thumbnailColors: Record<string, string> = {
     blue: 'from-blue-400 to-blue-500',
     purple: 'from-purple-400 to-purple-500',
@@ -380,6 +424,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
     setShareMagicLink(null);
     setShareMagicLinkError(null);
     setShareInviteEmails('');
+    setShareInviteMessage('');
     setShareInviteError(null);
     setShareInviteSuccess(null);
     setShowShareModal(true);
@@ -582,6 +627,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
           emails,
           courseId,
           courseTitle: courseToShare.title,
+          customMessage: shareInviteMessage.trim() || undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -589,16 +635,20 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
         const failedNote = data.failed?.length ? ` (${data.failed.length} failed)` : '';
         setShareInviteSuccess(`Invites sent to ${data.sent ?? emails.length} recipient(s)${failedNote}.`);
         setShareInviteEmails('');
+        setShareInviteMessage('');
       } else if (res.status === 503) {
         setShareInviteSuccess(`Saved ${emails.length} invite(s). Add RESEND_API_KEY to send emails.`);
         setShareInviteEmails('');
+        setShareInviteMessage('');
       } else {
         setShareInviteSuccess(`Saved ${emails.length} invite(s). ${data?.error || 'Email could not be sent.'}`);
         setShareInviteEmails('');
+        setShareInviteMessage('');
       }
     } catch {
       setShareInviteSuccess(`Saved ${emails.length} invitation(s). Email delivery failed — try again later.`);
       setShareInviteEmails('');
+      setShareInviteMessage('');
     } finally {
       setShareInviteLoading(false);
     }
@@ -637,6 +687,71 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
     setCourses(courses.map(c => 
       c.id === courseId ? { ...c, status: 'archived' } : c
     ));
+  };
+
+  const handlePreviewCourse = (course: CourseRow) => {
+    if (typeof course.id === 'string' && onStartCourse) {
+      onStartCourse(course.id);
+      return;
+    }
+    if (typeof course.id === 'string') {
+      window.open(`${window.location.origin}/course/${course.id}`, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const handleOpenAnalytics = () => setCurrentView('analytics');
+
+  const exportCourseCsv = (course: CourseRow) => {
+    downloadCsv(
+      `course-${course.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`,
+      ['Field', 'Value'],
+      [
+        ['Title', course.title],
+        ['Status', course.status],
+        ['Modules', course.modules],
+        ['Lessons', course.lessons ?? ''],
+        ['Learners', course.learners],
+        ['Completion %', course.completion],
+        ['Duration', course.duration],
+        ['Last updated', course.lastUpdated],
+      ],
+    );
+  };
+
+  const exportAllCoursesCsv = () => {
+    downloadCsv(
+      `my-courses-${new Date().toISOString().slice(0, 10)}`,
+      ['Title', 'Status', 'Modules', 'Learners', 'Completion %', 'Duration', 'Last updated'],
+      courses.map((c) => [c.title, c.status, c.modules, c.learners, c.completion, c.duration, c.lastUpdated]),
+    );
+  };
+
+  const handleBulkShare = () => {
+    const first = courses.find((c) => selectedCourses.includes(c.id));
+    if (first) handleShareCourse(first);
+  };
+
+  const handleBulkArchive = async () => {
+    for (const id of selectedCourses) {
+      await handleArchiveCourse(id);
+    }
+    setSelectedCourses([]);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedCourses.length === 0) return;
+    if (!window.confirm(`Delete ${selectedCourses.length} course(s)? This cannot be undone.`)) return;
+    for (const id of selectedCourses) {
+      if (typeof id === 'string') {
+        try {
+          await supabase.from('courses').delete().eq('id', id);
+        } catch {
+          // continue with remaining
+        }
+      }
+    }
+    setCourses((prev) => prev.filter((c) => !selectedCourses.includes(c.id)));
+    setSelectedCourses([]);
   };
 
   const totalEnrollments = courses.reduce((acc, c) => acc + c.learners, 0);
@@ -1022,7 +1137,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
             <p className="text-gray-600 dark:text-gray-400 mt-1">Manage and organize your learning content</p>
           </div>
           <button 
-            onClick={() => setCurrentView('create')}
+            onClick={openCreateCourse}
             className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center shadow-lg transition-all"
           >
             <Plus className="w-5 h-5 mr-2" />
@@ -1138,7 +1253,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
       {/* Courses Grid/List */}
       <div className="p-8">
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {[1, 2, 3].map((i) => (
               <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden animate-pulse">
                 <div className="h-48 bg-gray-200 dark:bg-gray-700" />
@@ -1160,14 +1275,14 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
               }
             </p>
             <button 
-              onClick={() => setCurrentView('create')}
+              onClick={openCreateCourse}
               className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold"
             >
               Create Your First Course
             </button>
           </div>
         ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {filteredCourses.map((course) => (
               <div 
                 key={course.id}
@@ -1236,7 +1351,13 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                             <UserPlus className="w-4 h-4 mr-2" />
                             Collaborators
                           </button>
-                          <button className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200">
+                          <button 
+                            onClick={() => {
+                              exportCourseCsv(course);
+                              setActiveDropdown(null);
+                            }}
+                            className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                          >
                             <Download className="w-4 h-4 mr-2" />
                             Export
                           </button>
@@ -1327,16 +1448,26 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
 
                   <div className="flex space-x-2">
                     <button 
-                      onClick={() => { if (typeof course.id === 'string' && onEditCourse) onEditCourse(course.id); else setCurrentView('create'); }}
+                      onClick={() => { if (typeof course.id === 'string' && onEditCourse) onEditCourse(course.id); else openCreateCourse(); }}
                       className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center justify-center transition-all"
                     >
                       <Edit className="w-4 h-4 mr-2" />
                       Edit
                     </button>
-                    <button className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all">
+                    <button
+                      type="button"
+                      onClick={() => handlePreviewCourse(course)}
+                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                      title="Preview course"
+                    >
                       <Eye className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                     </button>
-                    <button className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all">
+                    <button
+                      type="button"
+                      onClick={handleOpenAnalytics}
+                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                      title="View analytics"
+                    >
                       <BarChart3 className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                     </button>
                   </div>
@@ -1462,16 +1593,26 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-2">
                           <button 
-                            onClick={() => { if (typeof course.id === 'string' && onEditCourse) onEditCourse(course.id); else setCurrentView('create'); }}
+                            onClick={() => { if (typeof course.id === 'string' && onEditCourse) onEditCourse(course.id); else openCreateCourse(); }}
                             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all" 
                             title="Edit"
                           >
                             <Edit className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                           </button>
-                          <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all" title="View">
+                          <button
+                            type="button"
+                            onClick={() => handlePreviewCourse(course)}
+                            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
+                            title="Preview course"
+                          >
                             <Eye className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                           </button>
-                          <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all" title="Analytics">
+                          <button
+                            type="button"
+                            onClick={handleOpenAnalytics}
+                            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
+                            title="View analytics"
+                          >
                             <BarChart3 className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                           </button>
                           <div className="relative">
@@ -1510,7 +1651,13 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                                   <UserPlus className="w-4 h-4 mr-2" />
                                   Collaborators
                                 </button>
-                                <button className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200">
+                                <button 
+                                  onClick={() => {
+                                    exportCourseCsv(course);
+                                    setActiveDropdown(null);
+                                  }}
+                                  className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                                >
                                   <Download className="w-4 h-4 mr-2" />
                                   Export
                                 </button>
@@ -1543,15 +1690,27 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
           <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center space-x-4 z-50">
             <span className="font-semibold">{selectedCourses.length} selected</span>
             <div className="w-px h-6 bg-gray-600"></div>
-            <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold flex items-center transition-all">
+            <button
+              type="button"
+              onClick={handleBulkShare}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold flex items-center transition-all"
+            >
               <Share2 className="w-4 h-4 mr-2" />
               Share
             </button>
-            <button className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold flex items-center transition-all">
+            <button
+              type="button"
+              onClick={handleBulkArchive}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold flex items-center transition-all"
+            >
               <Archive className="w-4 h-4 mr-2" />
               Archive
             </button>
-            <button className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-semibold flex items-center transition-all">
+            <button
+              type="button"
+              onClick={handleBulkDelete}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-semibold flex items-center transition-all"
+            >
               <Trash2 className="w-4 h-4 mr-2" />
               Delete
             </button>
@@ -1772,6 +1931,15 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onEditCourse, onS
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
                     Sends an invitation to enroll in <strong className="font-medium text-gray-700 dark:text-gray-300">{courseTitle}</strong>. Learners sign in with the same email.
                   </p>
+                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Personal message (optional)</label>
+                  <textarea
+                    value={shareInviteMessage}
+                    onChange={(e) => { setShareInviteMessage(e.target.value); setShareInviteError(null); setShareInviteSuccess(null); }}
+                    placeholder="Add a note for your learners — shown above the invitation card in the email."
+                    rows={3}
+                    className="w-full px-4 py-2 mb-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white placeholder-gray-500 text-sm"
+                  />
+                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Email addresses</label>
                   <textarea
                     value={shareInviteEmails}
                     onChange={(e) => { setShareInviteEmails(e.target.value); setShareInviteError(null); setShareInviteSuccess(null); }}

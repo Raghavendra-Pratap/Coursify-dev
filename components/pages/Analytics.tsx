@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Users, BarChart3, Clock, Calendar, Download, Filter, Target, Activity, Percent, Trophy, BookOpen,
   ArrowUp, ArrowDown, RefreshCw, CheckCircle, Star, Zap, TrendingUp, TrendingDown, AlertCircle,
@@ -8,6 +8,11 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
+import {
+  type AnalyticsLearner,
+  collectDepartmentOptions,
+  filterLearnersByDepartment,
+} from '@/lib/analytics-filters';
 
 const StatCard = ({ title, current, previous, change, trend, icon: Icon, color, suffix = '', comparisonMode = false }: {
   title: string;
@@ -51,7 +56,7 @@ const StatCard = ({ title, current, previous, change, trend, icon: Icon, color, 
   );
 };
 
-const Analytics: React.FC = () => {
+const Analytics: React.FC<{ setCurrentView?: (view: string) => void }> = ({ setCurrentView }) => {
   const [dateRange, setDateRange] = useState('30days');
   const [selectedMetric, setSelectedMetric] = useState('overview');
   const [comparisonMode, setComparisonMode] = useState(false);
@@ -108,6 +113,9 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
   const [peakHours, setPeakHours] = useState<Array<{ hour: string; users: number }>>([]);
   const [completionByCourse, setCompletionByCourse] = useState<Array<{ category: string; rate: number; courses: number; color: string }>>([]);
   const [courseOptions, setCourseOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [allLearners, setAllLearners] = useState<AnalyticsLearner[]>([]);
+  const [enrollments, setEnrollments] = useState<Array<{ course_id: string; user_id: string; progress_percentage?: number; completed_at: string | null }>>([]);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const analyticsRange = dateRange === 'year' ? '90days' : dateRange === 'custom' ? '30days' : dateRange;
   const analyticsUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -146,9 +154,123 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
     if (Array.isArray(analyticsData.courseOptions)) setCourseOptions(analyticsData.courseOptions as Array<{ id: string; name: string }>);
   }, [analyticsData]);
 
-  const filteredCoursePerformance = selectedCourse === 'all'
-    ? coursePerformance
-    : coursePerformance.filter((c) => String(c.id) === selectedCourse);
+  useEffect(() => {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+    Promise.all([
+      fetch('/api/instructor/learners', { credentials: 'include' }).then((res) => res.json()),
+      supabase
+        .from('enrollments')
+        .select('course_id, user_id, progress_percentage, completed_at'),
+    ])
+      .then(([data, enrollRes]) => {
+        const rows = Array.isArray(data?.learners) ? data.learners : [];
+        const mapped: AnalyticsLearner[] = rows.map(
+          (p: {
+            id: string;
+            full_name?: string | null;
+            email?: string | null;
+            organization?: string | null;
+            enrolledCourses?: number;
+            totalProgress?: number;
+            averageScore?: number;
+            totalTimeSpent?: string;
+            lastActive?: string;
+          }) => ({
+            id: p.id,
+            name: p.full_name || 'Learner',
+            email: p.email ?? undefined,
+            organization: p.organization ?? null,
+            courses: p.enrolledCourses ?? 0,
+            completion: p.totalProgress ?? 0,
+            averageScore: p.averageScore ?? 0,
+            totalTimeSpent: p.totalTimeSpent ?? '0h',
+            lastActive: p.lastActive ?? '—',
+            status: (p.totalProgress ?? 0) < 25 ? 'critical' : 'at-risk',
+          }),
+        );
+        setAllLearners(mapped);
+        setEnrollments((enrollRes.data ?? []) as typeof enrollments);
+      })
+      .catch(() => {
+        setAllLearners([]);
+        setEnrollments([]);
+      });
+  }, [analyticsData]);
+
+  const departmentOptions = useMemo(() => collectDepartmentOptions(allLearners), [allLearners]);
+
+  const filteredLearners = useMemo(
+    () => filterLearnersByDepartment(allLearners, selectedDepartment),
+    [allLearners, selectedDepartment],
+  );
+
+  const filteredAtRiskLearners = useMemo(
+    () => filteredLearners.filter((l) => l.completion < 50).slice(0, 20),
+    [filteredLearners],
+  );
+
+  const topPerformers = useMemo(
+    () =>
+      [...filteredLearners]
+        .sort((a, b) => b.completion - a.completion || b.averageScore - a.averageScore)
+        .slice(0, 5)
+        .map((l, i) => ({
+          name: l.name,
+          courses: l.courses,
+          score: l.averageScore || l.completion,
+          time: l.totalTimeSpent,
+          rank: i + 1,
+        })),
+    [filteredLearners],
+  );
+
+  const departmentBreakdown = useMemo(() => {
+    const palette = ['blue', 'green', 'purple', 'orange', 'pink', 'teal'];
+    const groups: Record<string, { learners: number; progressSum: number; scoreSum: number; scoreCount: number }> = {};
+    filteredLearners.forEach((l) => {
+      const key = (l.organization ?? '').trim() || 'Unassigned';
+      if (!groups[key]) groups[key] = { learners: 0, progressSum: 0, scoreSum: 0, scoreCount: 0 };
+      groups[key].learners++;
+      groups[key].progressSum += l.completion;
+      if (l.averageScore > 0) {
+        groups[key].scoreSum += l.averageScore;
+        groups[key].scoreCount++;
+      }
+    });
+    return Object.entries(groups)
+      .map(([name, g], i) => ({
+        name,
+        learners: g.learners,
+        completion: g.learners ? Math.round(g.progressSum / g.learners) : 0,
+        avgScore: g.scoreCount ? Math.round(g.scoreSum / g.scoreCount) : 0,
+        color: palette[i % palette.length],
+      }))
+      .sort((a, b) => b.learners - a.learners)
+      .slice(0, 6);
+  }, [filteredLearners]);
+
+  const filteredCoursePerformance = useMemo(() => {
+    const base =
+      selectedCourse === 'all'
+        ? coursePerformance
+        : coursePerformance.filter((c) => String(c.id) === selectedCourse);
+
+    if (selectedDepartment === 'all') return base;
+
+    const deptUserIds = new Set(filteredLearners.map((l) => l.id));
+    return base
+      .map((course) => {
+        const courseEnrollments = enrollments.filter(
+          (e) => String(e.course_id) === String(course.id) && deptUserIds.has(e.user_id),
+        );
+        const enrolled = courseEnrollments.length;
+        const completed = courseEnrollments.filter((e) => e.completed_at).length;
+        const inProgress = Math.max(0, enrolled - completed);
+        const completionRate = enrolled ? Math.round((completed / enrolled) * 100) : 0;
+        return { ...course, enrolled, completed, inProgress, completionRate };
+      })
+      .filter((c) => c.enrolled > 0 || selectedCourse !== 'all');
+  }, [coursePerformance, selectedCourse, selectedDepartment, filteredLearners, enrollments]);
 
   const exportAnalyticsCsv = () => {
     const headers = ['Course', 'Enrolled', 'Completed', 'In Progress', 'Completion %', 'Avg Time', 'Drop-off Rate %'];
@@ -165,17 +287,58 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
 
   const engagementData = { daily: [] as Array<{ date: string; active: number; newEnrollments: number; completions: number }>, peakHours };
 
-  const departmentBreakdown: Array<{ name: string; learners: number; completion: number; avgScore: number; color: string }> = [];
   const completionFunnel: Array<{ stage: string; count: number; percentage: number; color: string }> = [];
   const deviceBreakdown: Array<{ device: string; users: number; percentage: number; icon: typeof Monitor }> = [];
-  const topPerformers: Array<{ name: string; courses: number; score: number; time: string; rank: number }> = [];
-  const atRiskLearners: Array<{ name: string; courses: number; completion: number; lastActive: string; status: string }> = [];
+
+  const handleSendRemindersToAtRisk = async () => {
+    const targets = filteredAtRiskLearners.slice(0, 10);
+    if (targets.length === 0) {
+      setActionMessage('No at-risk learners to remind.');
+      setTimeout(() => setActionMessage(null), 4000);
+      return;
+    }
+    let sent = 0;
+    for (const learner of targets) {
+      try {
+        const res = await fetch('/api/email/reminder', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: learner.id,
+            toEmail: learner.email,
+            learnerName: learner.name,
+            note: 'We noticed you have not been active recently. Continue your learning on Coursify when you can.',
+          }),
+        });
+        if (res.ok) sent++;
+      } catch {
+        // continue
+      }
+    }
+    setActionMessage(sent > 0 ? `Reminders sent to ${sent} learner(s).` : 'Could not send reminders. Check RESEND_API_KEY.');
+    setTimeout(() => setActionMessage(null), 5000);
+  };
+
+  const handleContactAtRiskLearner = (learner: AnalyticsLearner) => {
+    if (learner.email) {
+      window.location.href = `mailto:${encodeURIComponent(learner.email)}?subject=${encodeURIComponent('Checking in on your Coursify progress')}`;
+      return;
+    }
+    setCurrentView?.('learners');
+    sessionStorage.setItem('learners-tab', 'at-risk');
+  };
 
   const content = (
     <div className="min-h-full dark:bg-gray-900">
       {configMissing ? (
         <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-8 py-2 text-sm text-amber-800 dark:text-amber-200">
           Configure Supabase to see analytics.
+        </div>
+      ) : null}
+      {actionMessage ? (
+        <div className="bg-green-50 dark:bg-green-900/30 border-b border-green-200 dark:border-green-800 px-8 py-2 text-sm text-green-800 dark:text-green-200">
+          {actionMessage}
         </div>
       ) : null}
       <div className="bg-white dark:bg-gray-900 dark:border-gray-800 border-b border-gray-200 dark:border-gray-800 px-8 py-6 sticky top-0 z-20">
@@ -255,10 +418,18 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                   <option value="sales">Sales</option>
                   <option value="engineering">Engineering</option>
                   <option value="marketing">Marketing</option>
+                  <option value="unassigned">Unassigned</option>
+                  {departmentOptions.map((org) => (
+                    <option key={org} value={org}>{org}</option>
+                  ))}
                 </select>
               </div>
               <div className="flex items-end">
-                <button className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setShowFilters(false)}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
+                >
                   Apply Filters
                 </button>
               </div>
@@ -361,7 +532,12 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                     <h3 className="text-xl font-bold">Engagement Trend</h3>
                     <p className="text-sm text-gray-600 mt-1">Daily active learners and completions</p>
                   </div>
-                  <button className="p-2 hover:bg-gray-100 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={exportAnalyticsCsv}
+                    className="p-2 hover:bg-gray-100 rounded-lg"
+                    title="Download CSV"
+                  >
                     <Download className="w-5 h-5 text-gray-600" />
                   </button>
                 </div>
@@ -408,7 +584,8 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                       purple: 'bg-purple-500',
                       green: 'bg-green-500',
                       orange: 'bg-orange-500',
-                      pink: 'bg-pink-500'
+                      pink: 'bg-pink-500',
+                      teal: 'bg-teal-500',
                     };
                     return (
                       <div key={i} className="group">
@@ -707,17 +884,21 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                   <h3 className="text-xl font-bold">At-Risk Learners</h3>
                   <p className="text-sm text-gray-600 mt-1">Learners who need attention</p>
                 </div>
-                <button className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-semibold flex items-center">
+                <button
+                  type="button"
+                  onClick={handleSendRemindersToAtRisk}
+                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-semibold flex items-center"
+                >
                   <AlertCircle className="w-4 h-4 mr-2" />
                   Send Reminders
                 </button>
               </div>
               
               <div className="space-y-3">
-                {atRiskLearners.length === 0 ? (
+                {filteredAtRiskLearners.length === 0 ? (
                   <div className="py-6 text-center text-gray-500 text-sm">No at-risk learners.</div>
-                ) : atRiskLearners.map((learner, i) => (
-                  <div key={i} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-all">
+                ) : filteredAtRiskLearners.map((learner) => (
+                  <div key={learner.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-all">
                     <div className="flex items-center flex-1">
                       <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-white ${
                         learner.status === 'critical' ? 'bg-red-500' : 'bg-orange-500'
@@ -734,7 +915,11 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                         <p className="text-2xl font-bold text-red-600">{learner.completion}%</p>
                         <p className="text-xs text-gray-600">Completion</p>
                       </div>
-                      <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => handleContactAtRiskLearner(learner)}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
+                      >
                         Contact
                       </button>
                     </div>

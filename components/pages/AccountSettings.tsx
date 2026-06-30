@@ -20,6 +20,9 @@ import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
 import { supabase } from '@/lib/supabase';
 import { LearningPreferences } from '../LearningPreferences';
 
+const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'invite@bsoc.space';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
+
 const STORAGE_KEY = 'coursify_account_settings';
 
 type SettingsState = {
@@ -98,11 +101,42 @@ export default function AccountSettings() {
   const [notifPrefLoading, setNotifPrefLoading] = useState(true);
   const [notifPrefSaving, setNotifPrefSaving] = useState<string | null>(null);
   const [notifPrefError, setNotifPrefError] = useState<string | null>(null);
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+  const [lastSignIn, setLastSignIn] = useState<string | null>(null);
+  const [mfaEnabled, setMfaEnabled] = useState(false);
+  const [showMfaModal, setShowMfaModal] = useState(false);
+  const [mfaMessage, setMfaMessage] = useState<string | null>(null);
+  const [downloadingData, setDownloadingData] = useState(false);
+  const [downloadDataMessage, setDownloadDataMessage] = useState<string | null>(null);
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [showDeactivateModal, setShowDeactivateModal] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', settings.theme === 'dark');
   }, [settings.theme]);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadSession = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!mounted || !user) return;
+      setSessionEmail(user.email ?? null);
+      setLastSignIn(user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString() : null);
+      try {
+        const { data: factors } = await supabase.auth.mfa.listFactors();
+        const totp = factors?.totp ?? [];
+        setMfaEnabled(totp.some((f) => f.status === 'verified'));
+      } catch {
+        setMfaEnabled(false);
+      }
+    };
+    loadSession();
+    return () => { mounted = false; };
+  }, []);
 
 
   useEffect(() => {
@@ -188,6 +222,83 @@ export default function AccountSettings() {
     }
     saveStored({});
     setSettings({ ...defaultSettings, ...loadStored() });
+  };
+
+  const handleDownloadMyData = async () => {
+    setDownloadingData(true);
+    setDownloadDataMessage(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setDownloadDataMessage('Sign in to export your data.');
+        return;
+      }
+      const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).maybeSingle();
+      const { data: enrollments } = await supabase.from('enrollments').select('*').eq('user_id', user.id);
+      const enrollmentIds = (enrollments ?? []).map((e) => e.id);
+      const { data: progress } = enrollmentIds.length
+        ? await supabase.from('progress').select('*').in('enrollment_id', enrollmentIds)
+        : { data: [] as Record<string, unknown>[] };
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        user: { id: user.id, email: user.email, created_at: user.created_at },
+        profile: profile ?? null,
+        enrollments: enrollments ?? [],
+        progress: progress ?? [],
+        localSettings: loadStored(),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `coursify-my-data-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setDownloadDataMessage('Your data export has started.');
+    } catch {
+      setDownloadDataMessage('Could not export data. Try again later.');
+    } finally {
+      setDownloadingData(false);
+      setTimeout(() => setDownloadDataMessage(null), 5000);
+    }
+  };
+
+  const handleContactSupport = () => {
+    window.location.href = `mailto:${encodeURIComponent(SUPPORT_EMAIL)}?subject=${encodeURIComponent('Coursify support request')}&body=${encodeURIComponent(`Describe your issue:\n\nApp: ${APP_URL}\nEmail: ${sessionEmail ?? ''}\n`)}`;
+  };
+
+  const handleDeactivateAccount = async () => {
+    setDeactivating(true);
+    try {
+      await supabase.auth.signOut();
+      saveStored({});
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+      setShowDeactivateModal(false);
+      router.push('/');
+      window.location.href = '/';
+    } finally {
+      setDeactivating(false);
+    }
+  };
+
+  const handleManageMfa = async () => {
+    setMfaMessage(null);
+    setShowMfaModal(true);
+    try {
+      const { data: factors, error } = await supabase.auth.mfa.listFactors();
+      if (error) throw error;
+      const totp = factors?.totp ?? [];
+      setMfaEnabled(totp.some((f) => f.status === 'verified'));
+      if (totp.length === 0) {
+        setMfaMessage('Two-factor authentication is not enabled. Enroll via Supabase Auth MFA in your project dashboard, or ask your admin to enable TOTP for your organization.');
+      } else {
+        setMfaMessage(`You have ${totp.length} authenticator factor(s) configured.`);
+      }
+    } catch {
+      setMfaMessage('Could not load MFA status. Ensure MFA is enabled in your Supabase project.');
+    }
   };
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -282,16 +393,24 @@ export default function AccountSettings() {
         />
         <Row
           label="Two-Factor Authentication"
-          description="Coming soon"
+          description={mfaEnabled ? 'Authenticator app is enabled' : 'Add an extra layer of security'}
           action={
-            <span className="text-xs text-gray-500 dark:text-gray-400 px-2">Coming soon</span>
+            <button
+              type="button"
+              onClick={handleManageMfa}
+              className="px-4 py-2 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
+            >
+              {mfaEnabled ? 'Manage' : 'Set up'}
+            </button>
           }
         />
         <Row
           label="Active Sessions"
-          description="Coming soon"
+          description={lastSignIn ? `Last sign-in: ${lastSignIn}` : 'Current browser session'}
           action={
-            <span className="text-xs text-gray-500 dark:text-gray-400 px-2">Coming soon</span>
+            <span className="text-xs text-gray-600 dark:text-gray-400 px-2 max-w-[12rem] truncate" title={sessionEmail ?? undefined}>
+              {sessionEmail ?? 'Signed in'}
+            </span>
           }
         />
       </Section>
@@ -526,9 +645,21 @@ export default function AccountSettings() {
       <Section icon={Cloud} title="Data & Storage">
         <Row
           label="Download My Data"
-          description="Coming soon"
-          action={<span className="text-xs text-gray-500 dark:text-gray-400">Coming soon</span>}
+          description="Export profile, enrollments, and progress as JSON"
+          action={
+            <button
+              type="button"
+              onClick={handleDownloadMyData}
+              disabled={downloadingData}
+              className="px-4 py-2 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg disabled:opacity-60"
+            >
+              {downloadingData ? 'Exporting…' : 'Download'}
+            </button>
+          }
         />
+        {downloadDataMessage && (
+          <p className="text-xs text-green-600 dark:text-green-400 pb-2">{downloadDataMessage}</p>
+        )}
         <Row
           label="Clear Cache"
           description="Clear locally stored preferences (works now)"
@@ -541,10 +672,42 @@ export default function AccountSettings() {
       </Section>
 
       <Section icon={HelpCircle} title="Support">
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Links coming soon.</p>
-        <Row label="Help Center" action={<span className="text-xs text-gray-500 dark:text-gray-400">Coming soon</span>} />
-        <Row label="Contact Support" action={<span className="text-xs text-gray-500 dark:text-gray-400">Coming soon</span>} />
-        <Row label="Terms & Privacy" action={<span className="text-xs text-gray-500 dark:text-gray-400">Coming soon</span>} />
+        <Row
+          label="Help Center"
+          description="Getting started with Coursify"
+          action={
+            <button
+              type="button"
+              onClick={() => setShowHelpModal(true)}
+              className="px-4 py-2 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
+            >
+              Open
+            </button>
+          }
+        />
+        <Row
+          label="Contact Support"
+          description={SUPPORT_EMAIL}
+          action={
+            <button
+              type="button"
+              onClick={handleContactSupport}
+              className="px-4 py-2 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
+            >
+              Email
+            </button>
+          }
+        />
+        <Row
+          label="Terms & Privacy"
+          description="Usage terms and privacy summary"
+          action={
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setShowTermsModal(true)} className="px-3 py-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Terms</button>
+              <button type="button" onClick={() => setShowPrivacyModal(true)} className="px-3 py-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Privacy</button>
+            </div>
+          }
+        />
       </Section>
 
       <div className="bg-red-50/80 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 p-6 mb-6">
@@ -556,8 +719,15 @@ export default function AccountSettings() {
           <div className="flex items-center justify-between py-2">
             <div>
               <p className="font-semibold text-gray-900 dark:text-white">Deactivate Account</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Coming soon</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Sign out and clear local preferences on this device</p>
             </div>
+            <button
+              type="button"
+              onClick={() => setShowDeactivateModal(true)}
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-200 font-semibold rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              Deactivate
+            </button>
           </div>
           <div className="flex items-center justify-between py-2">
             <div>
@@ -679,6 +849,78 @@ export default function AccountSettings() {
               >
                 {deleting ? 'Deleting…' : 'Delete'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMfaModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowMfaModal(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Two-factor authentication</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              {mfaMessage ?? (mfaEnabled ? 'Your account has MFA enabled.' : 'MFA is not enabled on this account.')}
+            </p>
+            <button type="button" onClick={() => setShowMfaModal(false)} className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700">Close</button>
+          </div>
+        </div>
+      )}
+
+      {showHelpModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowHelpModal(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-3">Help Center</h3>
+            <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2 list-disc pl-5">
+              <li>Create courses from <strong>My Courses → Create</strong>.</li>
+              <li>Invite learners from <strong>Learners</strong> or the course share modal.</li>
+              <li>Track progress on the <strong>Dashboard</strong> and <strong>Analytics</strong> pages.</li>
+              <li>Videos can be YouTube, Google Drive, or any public URL with HH:MM:SS segments.</li>
+              <li>Set <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">NEXT_PUBLIC_APP_URL</code> for correct invite links in email.</li>
+            </ul>
+            <button type="button" onClick={() => setShowHelpModal(false)} className="mt-6 w-full py-2.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700">Close</button>
+          </div>
+        </div>
+      )}
+
+      {showTermsModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowTermsModal(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-3">Terms of Use</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+              Coursify is provided for learning and course management. You are responsible for content you publish and learners you invite.
+              Do not upload unlawful material or share access credentials. We may suspend accounts that abuse the service.
+              The service is provided as-is without warranty; availability may change during beta.
+            </p>
+            <button type="button" onClick={() => setShowTermsModal(false)} className="mt-6 w-full py-2.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700">Close</button>
+          </div>
+        </div>
+      )}
+
+      {showPrivacyModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowPrivacyModal(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-3">Privacy Policy</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+              We store account data (email, profile) and learning activity (enrollments, progress) in Supabase to operate the LMS.
+              Video content stays on YouTube, Google Drive, or URLs you provide — we do not host video files.
+              Email invites are sent via Resend when configured. Use <strong>Download My Data</strong> to export your records.
+              Contact {SUPPORT_EMAIL} to request account deletion.
+            </p>
+            <button type="button" onClick={() => setShowPrivacyModal(false)} className="mt-6 w-full py-2.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700">Close</button>
+          </div>
+        </div>
+      )}
+
+      {showDeactivateModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowDeactivateModal(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Deactivate on this device?</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+              This signs you out and clears local Coursify preferences. Your account and course data remain until you delete the account permanently.
+            </p>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setShowDeactivateModal(false)} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl font-semibold text-gray-700 dark:text-gray-200">Cancel</button>
+              <button type="button" onClick={handleDeactivateAccount} disabled={deactivating} className="flex-1 py-2.5 bg-gray-800 dark:bg-gray-600 text-white rounded-xl font-semibold disabled:opacity-50">{deactivating ? 'Signing out…' : 'Deactivate'}</button>
             </div>
           </div>
         </div>

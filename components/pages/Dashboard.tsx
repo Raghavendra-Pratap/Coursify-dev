@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Play, Users, BarChart3, Settings, Plus, Clock, Video, 
-  ChevronRight, Menu, Search, Bell, Award, TrendingUp, 
+  ChevronRight, Menu, Search, Bell, Award, TrendingUp, Trophy,
   Home, FileText, X, Calendar, Filter, Download, 
   ArrowUp, ArrowDown, Minus, CheckCircle, AlertCircle, XCircle
 } from 'lucide-react';
@@ -22,6 +22,7 @@ type DashboardPayload = {
     avgTime: { current: number; previous: number; change: number };
   };
   topCourses?: { id: number | string; name: string; completion: number; learners: number; trend: string; trendValue: number; avgTime: string; lastUpdated: string; status: string; dropOffPoint: string }[];
+  topLearners?: { id: string; name: string; avatar: string; progress: number; enrolledCourses: number; completedCourses: number; averageScore: number; totalTimeSpent: string; trend: string; trendValue: number; rank: number }[];
   weeklyData?: { week: string; completions: number; enrollments: number; avgTime: number }[];
   recentActivity?: { id: number; user: string; action: string; course: string; time: string; avatar: string; score?: number; type: string }[];
 };
@@ -37,15 +38,25 @@ function readDashboardCache(period: string): DashboardPayload | null {
   return readClientCache<DashboardPayload>(`instructor:dashboard:${period}`, SHELL_CACHE_MS);
 }
 
+const ACTIVITY_PREVIEW_COUNT = 5;
+
 const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
   const [selectedPeriod, setSelectedPeriod] = useState('7days');
+
+  useEffect(() => {
+    if (selectedPeriod === '90days') setSelectedPeriod('30days');
+  }, [selectedPeriod]);
   const [selectedCourse, setSelectedCourse] = useState<number | string | null>(null);
+  const [selectedLearner, setSelectedLearner] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showAllActivity, setShowAllActivity] = useState(false);
+  const [activityLoading, setActivityLoading] = useState(false);
 
   const initialCache = readDashboardCache('7days');
   const [stats, setStats] = useState(() => initialCache?.stats ?? EMPTY_STATS);
   const [configMissing, setConfigMissing] = useState(false);
   const [topCourses, setTopCourses] = useState(() => initialCache?.topCourses ?? []);
+  const [topLearners, setTopLearners] = useState(() => initialCache?.topLearners ?? []);
   const [weeklyData, setWeeklyData] = useState(() => initialCache?.weeklyData ?? []);
   const [recentActivity, setRecentActivity] = useState(() => initialCache?.recentActivity ?? []);
   const [loading, setLoading] = useState(() => initialCache?.stats == null);
@@ -63,6 +74,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
       if (cached?.stats) {
         setStats(cached.stats);
         if (cached.topCourses) setTopCourses(cached.topCourses);
+        if (cached.topLearners) setTopLearners(cached.topLearners);
         if (cached.weeklyData) setWeeklyData(cached.weeklyData);
         if (cached.recentActivity) setRecentActivity(cached.recentActivity);
         setLoading(false);
@@ -75,6 +87,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
         );
         if (data.stats) setStats(data.stats);
         if (Array.isArray(data.topCourses)) setTopCourses(data.topCourses);
+        if (Array.isArray(data.topLearners)) setTopLearners(data.topLearners);
         if (Array.isArray(data.weeklyData)) setWeeklyData(data.weeklyData);
         if (Array.isArray(data.recentActivity)) setRecentActivity(data.recentActivity);
       } catch {
@@ -86,9 +99,39 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
     load();
   }, [selectedPeriod]);
 
+  useEffect(() => {
+    setShowAllActivity(false);
+  }, [selectedPeriod, searchQuery]);
+
+  const handleToggleAllActivity = async () => {
+    if (showAllActivity) {
+      setShowAllActivity(false);
+      return;
+    }
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+    setActivityLoading(true);
+    try {
+      const res = await fetch(
+        `/api/instructor/dashboard?period=${encodeURIComponent(selectedPeriod)}&activityLimit=100`,
+        { credentials: 'include' },
+      );
+      const data = (await res.json()) as DashboardPayload;
+      if (Array.isArray(data.recentActivity)) setRecentActivity(data.recentActivity);
+      setShowAllActivity(true);
+    } catch {
+      // keep preview list
+    } finally {
+      setActivityLoading(false);
+    }
+  };
+
   const filteredTopCourses = searchQuery.trim()
     ? topCourses.filter((c) => c.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
     : topCourses;
+
+  const filteredTopLearners = searchQuery.trim()
+    ? topLearners.filter((l) => l.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    : topLearners;
 
   const filteredRecentActivity = searchQuery.trim()
     ? recentActivity.filter(
@@ -97,6 +140,10 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
           a.course.toLowerCase().includes(searchQuery.trim().toLowerCase())
       )
     : recentActivity;
+
+  const visibleRecentActivity = showAllActivity
+    ? filteredRecentActivity
+    : filteredRecentActivity.slice(0, ACTIVITY_PREVIEW_COUNT);
 
   const exportDashboardCsv = () => {
     const headers = ['Course', 'Learners', 'Completion %', 'Avg Time', 'Drop-off Point']
@@ -246,10 +293,10 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
           />
         </div>
 
-        {/* Charts Section */}
-        <div className="grid lg:grid-cols-2 gap-6 mb-6">
-          {/* Weekly Progress Chart */}
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+        {/* Dashboard grid: Learning Progress, Top Courses, Top Learners, Recent Activity */}
+        <div className="grid lg:grid-cols-2 gap-6">
+          {/* Learning Progress */}
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-[28rem]">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-gray-900 dark:text-white">Learning Progress</h3>
               <select 
@@ -259,7 +306,6 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
               >
                 <option value="7days">Last 7 days</option>
                 <option value="30days">Last 30 days</option>
-                <option value="90days">Last 90 days</option>
               </select>
             </div>
 
@@ -301,7 +347,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
           </div>
 
           {/* Top Performing Courses */}
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-[28rem]">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-gray-900 dark:text-white">Top Performing Courses</h3>
               <button 
@@ -311,7 +357,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                 View All →
               </button>
             </div>
-            <div className="space-y-4">
+            <div className="space-y-4 flex-1 overflow-y-auto pr-1">
               {filteredTopCourses.length === 0 ? (
                 <div className="py-6 text-center text-gray-500 dark:text-gray-400 text-sm">No courses yet.</div>
               ) : filteredTopCourses.map((course) => (
@@ -320,20 +366,35 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                   onClick={() => setSelectedCourse(course.id === selectedCourse ? null : course.id)}
                   className={`p-4 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all cursor-pointer ${selectedCourse === course.id ? 'bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-500 dark:border-blue-400' : 'bg-gray-50 dark:bg-gray-700/50 border-2 border-transparent'}`}
                 >
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex-1">
-                      <p className="font-semibold text-sm mb-1 text-gray-900 dark:text-white">{course.name}</p>
-                      <div className="flex items-center space-x-2 text-xs text-gray-600 dark:text-gray-400">
-                        <span className="flex items-center">
-                          <Users className="w-3 h-3 mr-1" />
-                          {course.learners} learners
-                        </span>
-                        <span>•</span>
-                        <span className="flex items-center">
-                          <Clock className="w-3 h-3 mr-1" />
-                          {course.avgTime}
-                        </span>
-                      </div>
+                  <div className="flex items-center gap-2 mb-2 min-w-0">
+                    <p
+                      className="font-semibold text-sm text-gray-900 dark:text-white shrink-0 max-w-[38%] truncate"
+                      title={course.name}
+                    >
+                      {course.name}
+                    </p>
+                    <div className="flex-1 min-w-0 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                      <div
+                        className="bg-blue-500 dark:bg-blue-400 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${course.completion}%` }}
+                      />
+                    </div>
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 shrink-0 tabular-nums">
+                      {course.completion}%
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center space-x-2 text-xs text-gray-600 dark:text-gray-400">
+                      <span className="flex items-center">
+                        <Users className="w-3 h-3 mr-1" />
+                        {course.learners} learners
+                      </span>
+                      <span>•</span>
+                      <span className="flex items-center">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {course.avgTime}
+                      </span>
                     </div>
                     <div className={`flex items-center space-x-1 text-xs font-semibold px-2 py-1 rounded-full ${
                       course.trend === 'up' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
@@ -341,16 +402,6 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                       {course.trend === 'up' ? <TrendingUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
                       <span>{course.trendValue}%</span>
                     </div>
-                  </div>
-                  
-                  <div className="flex items-center mb-2">
-                    <div className="flex-1 bg-gray-200 dark:bg-gray-600 rounded-full h-2 mr-3">
-                      <div 
-                        className="bg-blue-500 dark:bg-blue-400 h-2 rounded-full transition-all duration-500" 
-                        style={{width: `${course.completion}%`}}
-                      ></div>
-                    </div>
-                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{course.completion}%</span>
                   </div>
 
                   {/* Expanded Details */}
@@ -380,57 +431,168 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
               ))}
             </div>
           </div>
-        </div>
 
-        {/* Recent Activity */}
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Recent Activity</h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Real-time updates from your platform</p>
+          {/* Top Performers */}
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-[28rem]">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Top Performers</h3>
+              <div className="flex items-center gap-3">
+                <Trophy className="w-5 h-5 text-yellow-500" />
+                <button
+                  onClick={() => setCurrentView('learners')}
+                  className="text-blue-600 dark:text-blue-400 text-sm hover:text-blue-700 dark:hover:text-blue-300 font-semibold transition-all"
+                >
+                  View All →
+                </button>
+              </div>
             </div>
-            <button className="text-blue-600 dark:text-blue-400 text-sm hover:text-blue-700 dark:hover:text-blue-300 font-semibold transition-all">
-              View All Activity →
-            </button>
-          </div>
-          <div className="space-y-1">
-            {filteredRecentActivity.length === 0 ? (
-              <div className="py-8 text-center text-gray-500 dark:text-gray-400 text-sm">No recent activity yet.</div>
-            ) : filteredRecentActivity.map((activity) => (
-              <div 
-                key={activity.id}
-                className="flex items-center justify-between py-4 px-4 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-all cursor-pointer group"
-              >
-                <div className="flex items-center flex-1">
-                  <div className="w-12 h-12 bg-gradient-to-br from-blue-400 to-blue-500 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-md">
-                    {activity.avatar}
-                  </div>
-                  <div className="ml-4 flex-1">
-                    <p className="text-sm text-gray-900 dark:text-gray-100">
-                      <span className="font-semibold">{activity.user}</span>
-                      <span className="text-gray-600 dark:text-gray-400"> {activity.action} </span>
-                      <span className="font-semibold">{activity.course}</span>
+            <div className="space-y-4 flex-1 overflow-y-auto pr-1">
+              {filteredTopLearners.length === 0 ? (
+                <div className="py-6 text-center text-gray-500 dark:text-gray-400 text-sm">No learners yet.</div>
+              ) : filteredTopLearners.map((learner) => (
+                <div
+                  key={learner.id}
+                  onClick={() => setSelectedLearner(learner.id === selectedLearner ? null : learner.id)}
+                  className={`p-4 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all cursor-pointer ${selectedLearner === learner.id ? 'bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-500 dark:border-blue-400' : 'bg-gray-50 dark:bg-gray-700/50 border-2 border-transparent'}`}
+                >
+                  <div className="flex items-center gap-2 mb-2 min-w-0">
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+                      learner.rank === 1 ? 'bg-yellow-400 text-white' :
+                      learner.rank === 2 ? 'bg-gray-300 text-gray-700 dark:bg-gray-500 dark:text-white' :
+                      learner.rank === 3 ? 'bg-orange-400 text-white' :
+                      'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                    }`}>
+                      {learner.rank}
+                    </div>
+                    <div className="w-7 h-7 bg-gradient-to-br from-indigo-400 to-indigo-500 rounded-full flex items-center justify-center text-white font-bold text-[10px] shrink-0">
+                      {learner.avatar}
+                    </div>
+                    <p
+                      className="font-semibold text-sm text-gray-900 dark:text-white shrink-0 max-w-[28%] truncate"
+                      title={learner.name}
+                    >
+                      {learner.name}
                     </p>
-                    <div className="flex items-center space-x-3 mt-1">
-                      <p className="text-xs text-gray-500 dark:text-gray-500">{activity.time}</p>
-                      {activity.score && (
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                          activity.score >= 80 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
-                          activity.score >= 50 ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400' :
-                          'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-                        }`}>
-                          Score: {activity.score}%
-                        </span>
+                    <div className="flex-1 min-w-0 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                      <div
+                        className="bg-emerald-500 dark:bg-emerald-400 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${learner.progress}%` }}
+                      />
+                    </div>
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 shrink-0 tabular-nums">
+                      {learner.progress}%
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center pl-[4.25rem]">
+                    <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
+                      <span>{learner.enrolledCourses} enrolled</span>
+                      <span>•</span>
+                      <span>{learner.completedCourses} completed</span>
+                      {learner.averageScore > 0 && (
+                        <>
+                          <span>•</span>
+                          <span>{learner.averageScore}% avg score</span>
+                        </>
                       )}
+                      <span>•</span>
+                      <span className="flex items-center">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {learner.totalTimeSpent}
+                      </span>
+                    </div>
+                    <div className={`flex items-center space-x-1 text-xs font-semibold px-2 py-1 rounded-full ${
+                      learner.trend === 'up' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                    }`}>
+                      {learner.trend === 'up' ? <TrendingUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
+                      <span>{learner.trendValue}%</span>
                     </div>
                   </div>
+
+                  {selectedLearner === learner.id && (
+                    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 space-y-2 pl-[4.25rem]">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-600 dark:text-gray-400">Courses completed:</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">{learner.completedCourses} / {learner.enrolledCourses}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-600 dark:text-gray-400">Average score:</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">{learner.averageScore > 0 ? `${learner.averageScore}%` : '—'}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-600 dark:text-gray-400">Time spent:</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">{learner.totalTimeSpent}</span>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setCurrentView('learners'); }}
+                        className="w-full mt-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-semibold transition-all"
+                      >
+                        View Learner
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center space-x-3">
-                  {getActivityIcon(activity.type)}
-                  <ChevronRight className="w-5 h-5 text-gray-400 dark:text-gray-500 group-hover:translate-x-1 transition-transform" />
-                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Recent Activity */}
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-[28rem]">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">Recent Activity</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Latest learner updates</p>
               </div>
-            ))}
+              {(filteredRecentActivity.length > ACTIVITY_PREVIEW_COUNT || showAllActivity) && (
+                <button
+                  type="button"
+                  onClick={handleToggleAllActivity}
+                  disabled={activityLoading}
+                  className="text-blue-600 dark:text-blue-400 text-sm hover:text-blue-700 dark:hover:text-blue-300 font-semibold transition-all disabled:opacity-60 shrink-0"
+                >
+                  {activityLoading ? 'Loading…' : showAllActivity ? 'Show less' : 'View All →'}
+                </button>
+              )}
+            </div>
+            <div className={`space-y-1 flex-1 overflow-y-auto pr-1 ${showAllActivity ? '' : ''}`}>
+              {filteredRecentActivity.length === 0 ? (
+                <div className="py-8 text-center text-gray-500 dark:text-gray-400 text-sm">No recent activity yet.</div>
+              ) : visibleRecentActivity.map((activity) => (
+                <div
+                  key={activity.id}
+                  className="flex items-center justify-between py-3 px-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center flex-1 min-w-0">
+                    <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-blue-500 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-md shrink-0">
+                      {activity.avatar}
+                    </div>
+                    <div className="ml-3 flex-1 min-w-0">
+                      <p className="text-sm text-gray-900 dark:text-gray-100 truncate">
+                        <span className="font-semibold">{activity.user}</span>
+                        <span className="text-gray-600 dark:text-gray-400"> {activity.action} </span>
+                        <span className="font-semibold">{activity.course}</span>
+                      </p>
+                      <div className="flex items-center space-x-3 mt-0.5">
+                        <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{activity.time}</p>
+                        {activity.score && (
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                            activity.score >= 80 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
+                            activity.score >= 50 ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400' :
+                            'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                          }`}>
+                            Score: {activity.score}%
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2 shrink-0 ml-2">
+                    {getActivityIcon(activity.type)}
+                    <ChevronRight className="w-4 h-4 text-gray-400 dark:text-gray-500 group-hover:translate-x-1 transition-transform" />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
