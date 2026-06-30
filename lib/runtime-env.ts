@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'fs';
 
-/** Mounted in Docker (coursify service only). See docker-compose.yml volumes. */
+/** Entrypoint copies mount here with mode 644 (readable by nextjs). */
+const RUNTIME_ENV_FILE = '/app/config/runtime.env';
+/** Bind-mount from host (may be root-only; do not rely on app reading this directly). */
 const DOCKER_ENV_FILE = '/app/config/production.env';
 
 const SERVER_SECRET_KEYS = new Set([
@@ -40,9 +42,11 @@ function parseDotenv(content: string): Record<string, string> {
 function readFileEnviron(): Record<string, string> {
   if (fileEnviron) return fileEnviron;
   fileEnviron = {};
-  const paths = [process.env.COURSIFY_RUNTIME_ENV_FILE, DOCKER_ENV_FILE].filter(
-    (p): p is string => typeof p === 'string' && p.length > 0,
-  );
+  const paths = [
+    process.env.COURSIFY_RUNTIME_ENV_FILE,
+    RUNTIME_ENV_FILE,
+    DOCKER_ENV_FILE,
+  ].filter((p): p is string => typeof p === 'string' && p.length > 0);
   for (const path of paths) {
     try {
       if (!existsSync(path)) continue;
@@ -110,9 +114,11 @@ export function runtimeEnvDiagnostics(key: string): {
 } {
   const file = readFileEnviron();
   const value = runtimeEnv(key);
-  const filePath = [process.env.COURSIFY_RUNTIME_ENV_FILE, DOCKER_ENV_FILE].find(
-    (p) => typeof p === 'string' && p.length > 0 && existsSync(p),
-  );
+  const filePath = [
+    process.env.COURSIFY_RUNTIME_ENV_FILE,
+    RUNTIME_ENV_FILE,
+    DOCKER_ENV_FILE,
+  ].find((p) => typeof p === 'string' && p.length > 0 && existsSync(p));
   return {
     keyPresent: value !== undefined,
     keyLength: value?.length ?? 0,
