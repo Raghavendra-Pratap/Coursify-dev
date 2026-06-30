@@ -30,5 +30,12 @@ echo "                  NEXT_PUBLIC_APP_URL=${APP:-"(not set)"}"
 
 "$(dirname "$0")/validate-env.sh" "$ENV_FILE"
 
+RESEND_LEN=$(read_supabase_env RESEND_API_KEY "$ENV_FILE" | wc -c | tr -d ' ')
+if [ "${RESEND_LEN:-0}" -le 1 ]; then
+  echo "WARN: RESEND_API_KEY is empty in .env.production — invite emails will not send."
+else
+  echo "OK: RESEND_API_KEY is set in .env.production (${RESEND_LEN} chars)"
+fi
+
 cd "$ROOT"
-exec docker compose --env-file "$ENV_FILE" up -d --build "$@"
+exec docker compose --env-file "$ENV_FILE" up -d --build --force-recreate "$@"

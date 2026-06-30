@@ -637,7 +637,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
         setShareInviteEmails('');
         setShareInviteMessage('');
       } else if (res.status === 503) {
-        setShareInviteSuccess(`Saved ${emails.length} invite(s). Add RESEND_API_KEY to send emails.`);
+        setShareInviteSuccess(`Saved ${emails.length} invite(s). Add RESEND_API_KEY in .env.production to send emails.`);
         setShareInviteEmails('');
         setShareInviteMessage('');
       } else {
