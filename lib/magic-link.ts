@@ -4,6 +4,7 @@
  */
 
 import { createHmac } from 'crypto'
+import { runtimeEnv } from '@/lib/runtime-env'
 
 const ALG = 'sha256'
 const DEFAULT_EXPIRY_MS = 365 * 24 * 60 * 60 * 1000
@@ -18,7 +19,7 @@ function base64UrlDecode(str: string): Buffer {
 }
 
 function getSecret(): string {
-  const secret = process.env.MAGIC_LINK_SECRET
+  const secret = runtimeEnv('MAGIC_LINK_SECRET')
   if (!secret || secret.length < 16) {
     throw new Error('MAGIC_LINK_SECRET must be set (min 16 chars) for course magic links')
   }

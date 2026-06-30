@@ -1,5 +1,6 @@
 import 'server-only';
 import { createServerClient } from '@/lib/supabase-admin';
+import { runtimeEnv } from '@/lib/runtime-env';
 
 function nameFromUserMetadata(meta: Record<string, unknown> | undefined): string | undefined {
   if (!meta) return undefined;
@@ -30,7 +31,7 @@ async function findAuthUserByEmail(email: string) {
 /** Display name for an invitee, when they already have a Coursify account (Google OAuth / profile). */
 export async function lookupRecipientDisplayName(email: string): Promise<string | undefined> {
   const normalized = email.trim().toLowerCase();
-  if (!normalized || !process.env.SUPABASE_SERVICE_ROLE_KEY) return undefined;
+  if (!normalized || !runtimeEnv('SUPABASE_SERVICE_ROLE_KEY')) return undefined;
 
   try {
     const db = createServerClient();
@@ -55,7 +56,7 @@ export async function lookupRecipientDisplayName(email: string): Promise<string 
 export async function lookupRecipientDisplayNames(emails: string[]): Promise<Map<string, string>> {
   const map = new Map<string, string>();
   const unique = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
-  if (unique.length === 0 || !process.env.SUPABASE_SERVICE_ROLE_KEY) return map;
+  if (unique.length === 0 || !runtimeEnv('SUPABASE_SERVICE_ROLE_KEY')) return map;
 
   try {
     const db = createServerClient();

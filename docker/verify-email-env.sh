@@ -32,7 +32,15 @@ console.log('  RESEND_FROM_EMAIL:', process.env.RESEND_FROM_EMAIL ? '(set)' : '(
 "
 
 echo ""
-echo "=== HTTP /api/email/status ==="
-APP_URL=$(grep '^NEXT_PUBLIC_APP_URL=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- || echo 'http://127.0.0.1:3000')
-curl -fsS "${APP_URL%/}/api/email/status" 2>/dev/null || curl -fsS "http://127.0.0.1:3000/api/email/status" 2>/dev/null || echo "  (could not reach status endpoint)"
+echo "=== HTTP /api/email/status (localhost container port) ==="
+curl -fsS "http://127.0.0.1:3000/api/email/status" 2>/dev/null || echo "  (could not reach http://127.0.0.1:3000/api/email/status)"
+echo ""
+
+echo "=== HTTP /api/email/status (public APP URL) ==="
+APP_URL=$(grep '^NEXT_PUBLIC_APP_URL=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- || echo '')
+if [ -n "$APP_URL" ]; then
+  curl -fsS "${APP_URL%/}/api/email/status" 2>/dev/null || echo "  (could not reach ${APP_URL%/}/api/email/status)"
+else
+  echo "  NEXT_PUBLIC_APP_URL not set in .env.production"
+fi
 echo ""
