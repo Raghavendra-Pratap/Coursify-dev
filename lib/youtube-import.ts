@@ -3,7 +3,6 @@
  */
 
 import { parseYouTubeInputUrl, youTubeWatchUrl, type ParsedYouTubeUrl } from '@/lib/youtube-url';
-import { runtimeEnv } from '@/lib/runtime-env';
 
 export type YouTubeChapter = {
   title: string;
@@ -33,7 +32,10 @@ const MAX_PLAYLIST_VIDEOS = 50;
 const YT_API = 'https://www.googleapis.com/youtube/v3';
 
 function youtubeApiKey(): string | undefined {
-  return runtimeEnv('YOUTUBE_API_KEY');
+  const value = process.env['YOUTUBE_API_KEY'];
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
 }
 
 export function parseIso8601Duration(iso: string): number {
