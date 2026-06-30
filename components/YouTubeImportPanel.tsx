@@ -37,7 +37,7 @@ function selectionToPayload(map: SelectionMap): { videoId: string; chapterIndexe
   return Object.entries(map)
     .map(([videoId, indexes]) => ({
       videoId,
-      chapterIndexes: [...indexes].sort((a, b) => a - b),
+      chapterIndexes: Array.from(indexes).sort((a, b) => a - b),
     }))
     .filter((p) => p.chapterIndexes.length > 0);
 }

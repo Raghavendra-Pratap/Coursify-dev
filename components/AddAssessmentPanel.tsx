@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Award, ChevronDown, ExternalLink, Loader2, X } from 'lucide-react';
+import { inputValueFromEvent } from '@/lib/dom-event';
 
 export interface AssessmentContentPayload {
   title: string;
@@ -9,6 +10,10 @@ export interface AssessmentContentPayload {
   assessmentProId: string;
   accessMode: 'lms_embed' | 'proctored_portal';
   passingScore: number;
+}
+
+function fieldValue(e: { target: EventTarget }): string {
+  return inputValueFromEvent(e);
 }
 
 type TabId = 'builder' | 'pick' | 'paste';
@@ -170,8 +175,8 @@ export function AddAssessmentPanel({
       setError(null);
     }
 
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
+    window.addEventListener('message', onMessage as EventListener);
+    return () => window.removeEventListener('message', onMessage as EventListener);
   }, [active]);
 
   const startBuilderSession = useCallback(async (): Promise<{ embedBuilderUrl: string; assessmentId?: string } | null> => {
@@ -355,7 +360,7 @@ export function AddAssessmentPanel({
 
         <select
           value={accessMode}
-          onChange={(e) => handleAccessModeChange(e.target.value as 'lms_embed' | 'proctored_portal')}
+          onChange={(e) => handleAccessModeChange(fieldValue(e) as 'lms_embed' | 'proctored_portal')}
           className="text-sm px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white max-w-[11rem] sm:max-w-none"
           title="Assessment type"
         >
@@ -374,7 +379,7 @@ export function AddAssessmentPanel({
           <input
             type="text"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => setTitle(fieldValue(e))}
             placeholder="Lesson title (optional)"
             className="hidden sm:block text-sm px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white w-44 lg:w-56"
           />
@@ -505,7 +510,7 @@ export function AddAssessmentPanel({
                   <select
                     value={selectedCatalogId}
                     onChange={(e) => {
-                      const id = e.target.value;
+                      const id = fieldValue(e);
                       setSelectedCatalogId(id);
                       const item = catalog.find((c) => c.id === id);
                       if (item) {
@@ -528,7 +533,7 @@ export function AddAssessmentPanel({
                   <input
                     type="text"
                     value={title}
-                    onChange={(e) => setTitle(e.target.value)}
+                    onChange={(e) => setTitle(fieldValue(e))}
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
                   />
                 </div>
@@ -551,7 +556,7 @@ export function AddAssessmentPanel({
               <input
                 type="text"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={(e) => setTitle(fieldValue(e))}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
               />
             </div>
@@ -560,7 +565,7 @@ export function AddAssessmentPanel({
               <input
                 type="text"
                 value={proId}
-                onChange={(e) => setProId(e.target.value)}
+                onChange={(e) => setProId(fieldValue(e))}
                 placeholder="Paste assessment UUID"
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg font-mono text-sm bg-white dark:bg-gray-700 dark:text-white"
               />
@@ -572,7 +577,7 @@ export function AddAssessmentPanel({
                 min={0}
                 max={100}
                 value={passingScore}
-                onChange={(e) => setPassingScore(Number(e.target.value) || 70)}
+                onChange={(e) => setPassingScore(Number(fieldValue(e)) || 70)}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white"
               />
             </div>

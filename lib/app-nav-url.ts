@@ -1,5 +1,7 @@
 /** Instructor + learner shell views persisted in the URL (?view=…) and localStorage. */
 
+import { replaceBrowserUrl } from '@/lib/browser-url';
+
 export const APP_NAV_STORAGE_KEY = 'coursify_app_nav';
 
 const PERSISTED_VIEWS = new Set([
@@ -83,7 +85,7 @@ export function syncAppNavToUrl(state: AppNavState): void {
 
   const search = params.toString();
   const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
-  window.history.replaceState({}, '', url);
+  replaceBrowserUrl(url);
 }
 
 export function buildAppNavState(
