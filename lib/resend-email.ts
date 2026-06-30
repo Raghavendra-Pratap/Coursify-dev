@@ -8,13 +8,13 @@ import {
 } from '@/lib/email/boarding-pass-invite';
 import type { CourseInviteDetails } from '@/lib/email/fetch-course-invite-details';
 import { lookupRecipientDisplayNames } from '@/lib/email/lookup-recipient-name';
+import { runtimeEnv } from '@/lib/runtime-env';
 
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 /** Read Resend API key at runtime (Docker injects .env.production when the container is created). */
 export function getResendApiKey(): string | undefined {
-  const key = process.env.RESEND_API_KEY?.trim();
-  return key || undefined;
+  return runtimeEnv('RESEND_API_KEY');
 }
 
 export function isResendConfigured(): boolean {
@@ -27,7 +27,7 @@ export function getResendClient(): Resend | null {
 }
 
 export function getFromEmail(): string {
-  return process.env.RESEND_FROM_EMAIL || 'Coursify <onboarding@resend.dev>';
+  return runtimeEnv('RESEND_FROM_EMAIL') || 'Coursify <onboarding@resend.dev>';
 }
 
 export function buildLearnerInviteEmail(options: {
@@ -127,9 +127,9 @@ export function buildCollaboratorInviteEmail(options: {
 }
 
 function getReplyToEmail(): string | undefined {
-  const explicit = process.env.RESEND_REPLY_TO?.trim();
+  const explicit = runtimeEnv('RESEND_REPLY_TO');
   if (explicit) return explicit;
-  const from = process.env.RESEND_FROM_EMAIL?.trim();
+  const from = runtimeEnv('RESEND_FROM_EMAIL');
   const match = from?.match(/<([^>]+)>/);
   return match?.[1];
 }
