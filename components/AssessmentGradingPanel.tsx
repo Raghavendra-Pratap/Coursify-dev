@@ -167,7 +167,7 @@ export function AssessmentGradingPanel({ courseId }: AssessmentGradingPanelProps
                             ...prev,
                             [item.sessionId]: {
                               ...(prev[item.sessionId] ?? {}),
-                              [r.question_id]: e.target.value,
+                              [r.question_id]: (e.target as unknown as { value: string }).value,
                             },
                           }))
                         }

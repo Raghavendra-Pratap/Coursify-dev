@@ -2,6 +2,15 @@
 
 import { useEffect } from 'react'
 
+type BrowserDocument = {
+  addEventListener: (type: string, listener: EventListener, options?: boolean) => void
+  removeEventListener: (type: string, listener: EventListener, options?: boolean) => void
+}
+
+function browserDocument(): BrowserDocument | undefined {
+  return (globalThis as unknown as { document?: BrowserDocument }).document
+}
+
 /**
  * Reduces exposure of video/content sources by:
  * - Disabling the context menu (right-click / Inspect).
@@ -11,33 +20,45 @@ import { useEffect } from 'react'
  */
 export function DisableContextMenu() {
   useEffect(() => {
+    const doc = browserDocument()
+    if (!doc) return
+
     const prevent = (e: Event) => e.preventDefault()
-    document.addEventListener('contextmenu', prevent, true)
+    doc.addEventListener('contextmenu', prevent, true)
 
-    const blockDevToolsShortcuts = (e: KeyboardEvent) => {
-      const isMac = typeof navigator !== 'undefined' && navigator.platform?.toLowerCase().includes('mac')
-      const mod = isMac ? (e.metaKey && e.altKey) : (e.ctrlKey && e.shiftKey)
-      const key = e.key?.toLowerCase()
+    const blockDevToolsShortcuts = (e: Event) => {
+      const ev = e as unknown as {
+        key?: string
+        metaKey?: boolean
+        altKey?: boolean
+        ctrlKey?: boolean
+        shiftKey?: boolean
+        preventDefault: () => void
+      }
+      const nav = (globalThis as unknown as { navigator?: { platform?: string } }).navigator
+      const isMac = typeof nav?.platform === 'string' && nav.platform.toLowerCase().includes('mac')
+      const mod = isMac ? (ev.metaKey && ev.altKey) : (ev.ctrlKey && ev.shiftKey)
+      const key = ev.key?.toLowerCase()
 
-      if (e.key === 'F12') {
-        e.preventDefault()
+      if (ev.key === 'F12') {
+        ev.preventDefault()
         return
       }
       if (mod && (key === 'i' || key === 'j' || key === 'c')) {
-        e.preventDefault()
+        ev.preventDefault()
         return
       }
-      if ((isMac ? e.metaKey && e.altKey : e.ctrlKey) && key === 'u') {
-        e.preventDefault()
+      if ((isMac ? ev.metaKey && ev.altKey : ev.ctrlKey) && key === 'u') {
+        ev.preventDefault()
         return
       }
     }
 
-    document.addEventListener('keydown', blockDevToolsShortcuts, true)
+    doc.addEventListener('keydown', blockDevToolsShortcuts, true)
 
     return () => {
-      document.removeEventListener('contextmenu', prevent, true)
-      document.removeEventListener('keydown', blockDevToolsShortcuts, true)
+      doc.removeEventListener('contextmenu', prevent, true)
+      doc.removeEventListener('keydown', blockDevToolsShortcuts, true)
     }
   }, [])
   return null

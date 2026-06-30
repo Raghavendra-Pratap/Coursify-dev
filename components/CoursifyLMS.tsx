@@ -25,6 +25,8 @@ import {
   writeAppNavToStorage,
   type AppNavState,
 } from '@/lib/app-nav-url';
+import { replaceBrowserUrl } from '@/lib/browser-url';
+import { inputValueFromEvent } from '@/lib/dom-event';
 
 function KeepAliveView({ active, children }: { active: boolean; children: React.ReactNode }) {
   return (
@@ -443,13 +445,15 @@ const CoursifyLMS = () => {
 
   // Apply saved theme (dark/light) on load. Default is dark; users can switch to light in Settings.
   useEffect(() => {
+    const doc = (globalThis as unknown as { document?: { documentElement: { classList: { toggle: (c: string, on: boolean) => void; add: (c: string) => void } } } }).document;
+    if (!doc) return;
     try {
-      const raw = typeof window !== 'undefined' && window.localStorage.getItem('coursify_account_settings');
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem('coursify_account_settings') : null;
       const parsed = raw ? JSON.parse(raw) : null;
       const theme = parsed?.theme === 'light' ? 'light' : 'dark';
-      document.documentElement.classList.toggle('dark', theme === 'dark');
+      doc.documentElement.classList.toggle('dark', theme === 'dark');
     } catch {
-      document.documentElement.classList.add('dark');
+      doc.documentElement.classList.add('dark');
     }
   }, []);
 
@@ -463,9 +467,9 @@ const CoursifyLMS = () => {
       params.delete('code');
       const search = params.toString();
       const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
-      window.history.replaceState({}, '', url);
+      replaceBrowserUrl(url);
     }).catch(() => {
-      window.history.replaceState({}, '', window.location.pathname);
+      replaceBrowserUrl(window.location.pathname);
     });
   }, []);
 
@@ -561,7 +565,7 @@ const CoursifyLMS = () => {
         params.delete('enroll');
         const search = params.toString();
         const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
-        window.history.replaceState({}, '', url);
+        replaceBrowserUrl(url);
       }
     })();
   }, [user]);
@@ -753,11 +757,11 @@ const CoursifyLMS = () => {
             )}
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Email</label>
-              <input type="email" value={signInEmail} onChange={(e) => setSignInEmail(e.target.value)} placeholder="you@example.com" className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white" required />
+              <input type="email" value={signInEmail} onChange={(e) => setSignInEmail(inputValueFromEvent(e))} placeholder="you@example.com" className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white" required />
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Password</label>
-              <input type="password" value={signInPassword} onChange={(e) => setSignInPassword(e.target.value)} placeholder="••••••••" className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white" required />
+              <input type="password" value={signInPassword} onChange={(e) => setSignInPassword(inputValueFromEvent(e))} placeholder="••••••••" className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white" required />
             </div>
             <button type="submit" className="w-full py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold">Sign In</button>
             <button type="button" onClick={handleSignInWithGoogle} disabled={isRedirectingToGoogle} className="w-full py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold flex items-center justify-center gap-2 dark:text-gray-200 disabled:opacity-60 disabled:pointer-events-none">
@@ -861,7 +865,7 @@ const CoursifyLMS = () => {
                   <input
                     type="email"
                     value={signInEmail}
-                    onChange={(e) => setSignInEmail(e.target.value)}
+                    onChange={(e) => setSignInEmail(inputValueFromEvent(e))}
                     placeholder="you@example.com"
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
                     required
@@ -872,7 +876,7 @@ const CoursifyLMS = () => {
                   <input
                     type="password"
                     value={signInPassword}
-                    onChange={(e) => setSignInPassword(e.target.value)}
+                    onChange={(e) => setSignInPassword(inputValueFromEvent(e))}
                     placeholder="••••••••"
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
                     required

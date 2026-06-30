@@ -30,6 +30,18 @@ type DragPayload =
   | { kind: 'content'; moduleIndex: number; lessonIndex: number; contentIndex: number }
   | { kind: 'lesson'; moduleIndex: number; lessonIndex: number };
 
+function dragTransfer(e: React.DragEvent): { dropEffect: string; effectAllowed: string } {
+  return e.dataTransfer as unknown as { dropEffect: string; effectAllowed: string };
+}
+
+function selectValue(e: React.ChangeEvent<HTMLSelectElement>): string {
+  return (e.target as unknown as { value: string }).value;
+}
+
+function clearSelect(e: React.ChangeEvent<HTMLSelectElement>): void {
+  (e.target as unknown as { value: string }).value = '';
+}
+
 interface CourseStructurePanelProps {
   open: boolean;
   onClose: () => void;
@@ -168,7 +180,7 @@ export function CourseStructurePanel({ open, onClose, modules, onChange, onNavig
                   className="rounded-xl border border-gray-200 dark:border-gray-600 overflow-hidden"
                   onDragOver={(e) => {
                     e.preventDefault();
-                    e.dataTransfer.dropEffect = 'move';
+                    dragTransfer(e).dropEffect = 'move';
                   }}
                   onDrop={(e) => {
                     e.preventDefault();
@@ -218,7 +230,7 @@ export function CourseStructurePanel({ open, onClose, modules, onChange, onNavig
                               );
                             }}
                             onMoveLesson={(targetModuleIndex) => {
-                              onChange(moveLesson(modules, { kind: 'lesson', moduleIndex, lessonIndex }, targetModuleIndex));
+                              onChange(moveLesson(modules, { moduleIndex, lessonIndex }, targetModuleIndex));
                             }}
                             onPromoteLesson={() => {
                               onChange(promoteLessonToNewModule(modules, { moduleIndex, lessonIndex }));
@@ -296,7 +308,7 @@ function LessonRow({
       onDragOver={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        e.dataTransfer.dropEffect = 'move';
+        dragTransfer(e).dropEffect = 'move';
       }}
       onDrop={(e) => {
         e.stopPropagation();
@@ -307,7 +319,7 @@ function LessonRow({
         draggable
         onDragStart={(e) => {
           setDragging({ kind: 'lesson', moduleIndex, lessonIndex });
-          e.dataTransfer.effectAllowed = 'move';
+          dragTransfer(e).effectAllowed = 'move';
         }}
         onDragEnd={() => setDragging(null)}
         className="flex flex-wrap items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-900/40"
@@ -323,10 +335,10 @@ function LessonRow({
         <select
           value=""
           onChange={(e) => {
-            const val = e.target.value;
+            const val = selectValue(e);
             if (!val) return;
             if (val.startsWith('mod:')) onMoveLesson(parseInt(val.slice(4), 10));
-            e.target.value = '';
+            clearSelect(e);
           }}
           className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1 bg-white dark:bg-gray-700 dark:text-white max-w-[140px]"
           title="Move lesson to module"
@@ -381,7 +393,6 @@ function ContentRow({
   lessonIndex,
   contentIndex,
   lessonTargets,
-  currentKey,
   setDragging,
   onMove,
   onPromote,
@@ -408,7 +419,7 @@ function ContentRow({
       draggable
       onDragStart={(e) => {
         setDragging({ kind: 'content', moduleIndex, lessonIndex, contentIndex });
-        e.dataTransfer.effectAllowed = 'move';
+        dragTransfer(e).effectAllowed = 'move';
       }}
       onDragEnd={() => setDragging(null)}
       className="flex flex-wrap items-center gap-2 px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 group"
@@ -432,8 +443,9 @@ function ContentRow({
       <select
         value=""
         onChange={(e) => {
-          if (e.target.value) onMove(e.target.value);
-          e.target.value = '';
+          const val = selectValue(e);
+          if (val) onMove(val);
+          clearSelect(e);
         }}
         className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1 bg-white dark:bg-gray-700 dark:text-white max-w-[160px]"
       >

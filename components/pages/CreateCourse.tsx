@@ -16,7 +16,7 @@ import { YouTubeImportPanel } from '@/components/YouTubeImportPanel';
 import { SheetImportPanel } from '@/components/SheetImportPanel';
 import { CourseStructurePanel } from '@/components/CourseStructurePanel';
 import type { YouTubeImportModule } from '@/lib/youtube-import';
-import { moveContentItem, moveLesson } from '@/lib/course-structure';
+import { moveContentItem, moveLesson, type StructureModule } from '@/lib/course-structure';
 
 interface CreateCourseProps {
   setCurrentView: (view: string) => void;
@@ -757,8 +757,8 @@ function onFormSubmit(e) {
     showSaveMessage('YouTube content added to your course. Click Save Changes to persist.');
   };
 
-  const handleStructureChange = (modules: Module[]) => {
-    setCourseData((prev) => ({ ...prev, modules, lastEdited: 'Just now' }));
+  const handleStructureChange = (modules: StructureModule[]) => {
+    setCourseData((prev) => ({ ...prev, modules: modules as Module[], lastEdited: 'Just now' }));
     setCurrentModule((idx) => Math.min(idx, Math.max(0, modules.length - 1)));
     setCurrentLesson((idx) => {
       const modIdx = Math.min(currentModule, Math.max(0, modules.length - 1));
@@ -1367,7 +1367,7 @@ function onFormSubmit(e) {
       } else if (fromModuleIdx !== toModuleIdx) {
         setCourseData((prev) => ({
           ...prev,
-          modules: moveLesson(prev.modules, { moduleIndex: fromModuleIdx, lessonIndex: fromLessonIdx }, toModuleIdx, toLessonIdx),
+          modules: moveLesson(prev.modules, { moduleIndex: fromModuleIdx, lessonIndex: fromLessonIdx }, toModuleIdx, toLessonIdx) as Module[],
           lastEdited: 'Just now',
         }));
       }
@@ -1392,7 +1392,7 @@ function onFormSubmit(e) {
             prev.modules,
             { moduleIndex: fromModuleIdx, lessonIndex: fromLessonIdx, contentIndex: fromContentIdx },
             { moduleIndex: toModuleIdx, lessonIndex: toLessonIdx }
-          ),
+          ) as Module[],
           lastEdited: 'Just now',
         }));
       }
@@ -2354,7 +2354,7 @@ function onFormSubmit(e) {
                 Preview
               </button>
               <button 
-                onClick={handleSave}
+                onClick={() => void handleSave()}
                 className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center transition-all shadow-lg"
               >
                 <Save className="w-5 h-5 mr-2" />
@@ -4357,7 +4357,7 @@ function onFormSubmit(e) {
       <CourseStructurePanel
         open={showStructurePanel}
         onClose={() => setShowStructurePanel(false)}
-        modules={courseData.modules}
+        modules={courseData.modules as StructureModule[]}
         onChange={handleStructureChange}
         onNavigate={handleStructureNavigate}
       />

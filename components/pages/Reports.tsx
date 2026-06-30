@@ -394,7 +394,7 @@ const Reports: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => downloadEnrollmentsReport(report.name.replace(/\s+/g, '-').toLowerCase(), report.format)}
+                  onClick={() => downloadEnrollmentsReport(report.name.replace(/\s+/g, '-').toLowerCase(), 'csv')}
                   className="w-full mt-3 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm flex items-center justify-center"
                 >
                   <Download className="w-4 h-4 mr-2" />

@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Award, ExternalLink, Loader2, CheckCircle, Clock } from 'lucide-react';
 import { isAssessmentEmbedUrl } from '@/lib/assessment-url';
+import { openExternalUrl } from '@/lib/open-external-url';
 
 type LaunchResponse = {
   embedUrl?: string;
@@ -76,8 +77,8 @@ export function AssessmentStepEmbed({
         onSubmitted?.();
       }
     }
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
+    window.addEventListener('message', onMessage as EventListener);
+    return () => window.removeEventListener('message', onMessage as EventListener);
   }, [fetchLaunch, onSubmitted]);
 
   if (loading) {
@@ -150,7 +151,7 @@ export function AssessmentStepEmbed({
         </p>
         <button
           type="button"
-          onClick={() => window.open(launch.takeUrl, '_blank', 'noopener,noreferrer')}
+          onClick={() => { if (launch.takeUrl) openExternalUrl(launch.takeUrl); }}
           className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700"
         >
           <ExternalLink className="w-4 h-4" />{' '}
