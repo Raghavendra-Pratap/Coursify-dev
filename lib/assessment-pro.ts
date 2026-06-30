@@ -60,12 +60,40 @@ export interface ApAssessmentSummary {
   id: string;
   title: string;
   description?: string;
-  accessMode: 'lms_embed' | 'proctored_portal';
+  accessMode: 'lms_embed' | 'proctored_portal' | 'portal';
   passingScore: number;
   durationMinutes?: number;
   questionCount?: number;
   isDraft?: boolean;
   isPublished?: boolean;
+}
+
+/** True when URL is AP easy-mode embed (not portal /assessment/{token} setup). */
+export { isAssessmentEmbedUrl } from './assessment-url';
+
+/** AP default mode is portal — treat like proctored for Coursify launch routing. */
+export function resolveAssessmentAccessMode(
+  dbMode: 'lms_embed' | 'proctored_portal',
+  apMode?: string | null
+): 'lms_embed' | 'proctored_portal' {
+  if (apMode === 'lms_embed') return 'lms_embed';
+  if (apMode === 'proctored_portal' || apMode === 'portal') return 'proctored_portal';
+  return dbMode;
+}
+
+export async function getAssessmentById(assessmentId: string): Promise<ApAssessmentSummary | null> {
+  try {
+    const data = await apGet<{ assessments?: ApAssessmentSummary[]; assessment?: ApAssessmentSummary }>(
+      `/api/v1/integrations/lms/assessments?id=${encodeURIComponent(assessmentId)}`
+    );
+    if (data.assessment?.id) return data.assessment;
+    const fromList = data.assessments?.find((a) => a.id === assessmentId);
+    if (fromList) return fromList;
+  } catch {
+    // AP may not support ?id= — fall back to full catalog
+  }
+  const all = await listAssessments();
+  return all.find((a) => a.id === assessmentId) ?? null;
 }
 
 export async function listAssessments(accessMode?: string): Promise<ApAssessmentSummary[]> {

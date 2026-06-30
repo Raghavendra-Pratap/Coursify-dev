@@ -1,10 +1,13 @@
 import { Resend } from 'resend';
 import {
-  buildBoardingPassInviteHtml,
   buildBoardingPassInviteSubject,
   buildBoardingPassInviteText,
+  buildInviteEmailHtml,
+  courseInviteUrl,
+  normalizeInviteCustomMessage,
 } from '@/lib/email/boarding-pass-invite';
 import type { CourseInviteDetails } from '@/lib/email/fetch-course-invite-details';
+import { lookupRecipientDisplayNames } from '@/lib/email/lookup-recipient-name';
 
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 
@@ -26,36 +29,58 @@ export function buildLearnerInviteEmail(options: {
   courseId?: string;
   inviterName?: string;
   recipientEmail: string;
-}): { subject: string; html: string; text: string } {
-  const { courseTitle, courseId, inviterName, recipientEmail } = options;
-  const ctaHref = courseId ? `${appUrl}?enroll=${encodeURIComponent(courseId)}` : appUrl;
-  const inviteOptions = {
-    recipientEmail,
+  recipientName?: string;
+  customMessage?: string;
+  moduleCount?: number;
+  lessonCount?: number;
+  durationLabel?: string;
+  avgRating?: number;
+  ratingCount?: number;
+  description?: string | null;
+}): { subject: string; text: string; html: string } {
+  const {
     courseTitle,
     courseId,
     inviterName,
+    recipientEmail,
+    recipientName,
+    customMessage,
+    moduleCount,
+    lessonCount,
+    durationLabel,
+    avgRating,
+    ratingCount,
+    description,
+  } = options;
+  const ctaHref = courseId ? courseInviteUrl(courseId, appUrl) : appUrl;
+  const inviteOptions = {
+    recipientEmail,
+    recipientName,
+    courseTitle,
+    courseId,
+    description,
+    inviterName,
     enrollUrl: ctaHref,
+    customMessage: normalizeInviteCustomMessage(customMessage),
+    moduleCount,
+    lessonCount,
+    durationLabel,
+    avgRating,
+    ratingCount,
   };
 
   return {
     subject: buildBoardingPassInviteSubject(courseTitle, inviterName),
-    html: buildBoardingPassInviteHtml(inviteOptions),
     text: buildBoardingPassInviteText(inviteOptions),
+    html: buildInviteEmailHtml(inviteOptions),
   };
 }
-function buttonHtml(href: string, label: string): string {
-  return `<a href="${href}" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;">${label}</a>`;
-}
-
 export function buildReminderEmail(options: {
   learnerName?: string;
   note?: string;
-}): { subject: string; html: string; text: string } {
+}): { subject: string; text: string } {
   const name = options.learnerName?.trim() || 'there';
   const note = options.note?.trim();
-  const noteBlock = note
-    ? `<p style="margin:16px 0;padding:12px;background:#f3f4f6;border-radius:8px;">${note}</p>`
-    : '';
   const textLines = [
     `Hi ${name},`,
     '',
@@ -69,15 +94,6 @@ export function buildReminderEmail(options: {
 
   return {
     subject: 'Reminder to continue your course on Coursify',
-    html: `
-      <div style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#111827;max-width:520px;">
-        <p>Hi ${name},</p>
-        <p>This is a friendly reminder to continue your learning on Coursify.</p>
-        ${noteBlock}
-        <p style="margin:24px 0;">${buttonHtml(appUrl, 'Continue learning')}</p>
-        <p style="margin-top:24px;font-size:13px;color:#6b7280;">— Coursify LMS</p>
-      </div>
-    `,
     text: textLines.join('\n'),
   };
 }
@@ -86,23 +102,13 @@ export function buildCollaboratorInviteEmail(options: {
   courseTitle: string;
   inviterName?: string;
   courseId: string;
-}): { subject: string; html: string; text: string } {
+}): { subject: string; text: string } {
   const inviter = options.inviterName?.trim() || 'A course owner';
   const editHref = `${appUrl}?view=create&course=${encodeURIComponent(options.courseId)}`;
   const courseTitle = options.courseTitle;
 
   return {
     subject: `${inviter} added you as co-instructor on ${courseTitle}`,
-    html: `
-      <div style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#111827;max-width:520px;">
-        <h2 style="margin:0 0 16px;font-size:20px;">Co-instructor access</h2>
-        <p>${inviter} added you as a co-instructor on <strong>${courseTitle}</strong>.</p>
-        <p>Sign in to Coursify to edit and publish the course with them.</p>
-        <p style="margin:24px 0;">${buttonHtml(editHref, 'Open course editor')}</p>
-        <p style="margin-top:32px;font-size:13px;color:#6b7280;">If the button doesn't work, copy this link:<br/><a href="${editHref}">${editHref}</a></p>
-        <p style="margin-top:24px;font-size:13px;color:#6b7280;">— Coursify LMS</p>
-      </div>
-    `,
     text: [
       `${inviter} added you as a co-instructor on "${courseTitle}".`,
       '',
@@ -125,8 +131,8 @@ function getReplyToEmail(): string | undefined {
 export async function sendEmail(options: {
   to: string;
   subject: string;
-  html: string;
   text: string;
+  html?: string;
 }): Promise<{ id?: string }> {
   const resend = getResendClient();
   if (!resend) {
@@ -137,8 +143,8 @@ export async function sendEmail(options: {
     from: getFromEmail(),
     to: options.to,
     subject: options.subject,
-    html: options.html,
     text: options.text,
+    ...(options.html ? { html: options.html } : {}),
     ...(replyTo ? { reply_to: replyTo } : {}),
   });
   if (error) throw new Error(error.message);
@@ -151,24 +157,33 @@ export async function sendInviteEmails(options: {
   courseId?: string;
   inviterName?: string;
   courseDetails?: CourseInviteDetails | null;
+  customMessage?: string;
 }): Promise<{ sent: number; failed: string[] }> {
   const valid = options.emails.filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
   if (valid.length === 0) throw new Error('No valid email addresses');
 
   const courseTitle = options.courseDetails?.courseTitle ?? options.courseTitle;
   const inviterName = options.courseDetails?.inviterName ?? options.inviterName;
+  const recipientNames = await lookupRecipientDisplayNames(valid);
 
   let sent = 0;
   const failed: string[] = [];
   for (const to of valid) {
     try {
-      const { subject, html, text } = buildLearnerInviteEmail({
+      const { subject, text, html } = buildLearnerInviteEmail({
         courseTitle,
         courseId: options.courseId,
         inviterName,
         recipientEmail: to,
+        recipientName: recipientNames.get(to.trim().toLowerCase()),
+        customMessage: options.customMessage,
+        moduleCount: options.courseDetails?.moduleCount,
+        lessonCount: options.courseDetails?.lessonCount,
+        durationLabel: options.courseDetails?.durationLabel,
+        avgRating: options.courseDetails?.avgRating,
+        ratingCount: options.courseDetails?.ratingCount,
       });
-      await sendEmail({ to, subject, html, text });
+      await sendEmail({ to, subject, text, html });
       sent++;
     } catch {
       failed.push(to);

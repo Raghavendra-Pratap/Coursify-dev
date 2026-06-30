@@ -27,6 +27,13 @@ interface AddAssessmentPanelProps {
   active: boolean;
   onClose: () => void;
   onAdd: (assessment: AssessmentContentPayload) => void;
+  onUpdate?: (assessment: AssessmentContentPayload) => void;
+  mode?: 'add' | 'edit';
+  initialAssessment?: AssessmentContentPayload;
+  /** Bust iframe cache when reopening the add flow. */
+  sessionKey?: string | number;
+  /** Render inside the lesson preview embed (full height, no outer margin). */
+  embedded?: boolean;
 }
 
 const AP_ORIGIN =
@@ -34,7 +41,17 @@ const AP_ORIGIN =
     ? process.env.NEXT_PUBLIC_ASSESSMENT_PRO_ORIGIN.replace(/\/+$/, '')
     : 'https://assessments.bsoc.space';
 
-export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPanelProps) {
+export function AddAssessmentPanel({
+  active,
+  onClose,
+  onAdd,
+  onUpdate,
+  mode = 'add',
+  initialAssessment,
+  sessionKey,
+  embedded = false,
+}: AddAssessmentPanelProps) {
+  const isEdit = mode === 'edit';
   const [tab, setTab] = useState<TabId>('builder');
   const [accessMode, setAccessMode] = useState<'lms_embed' | 'proctored_portal'>('lms_embed');
   const [title, setTitle] = useState('');
@@ -80,11 +97,27 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
 
   const finishAdd = useCallback(
     (payload: AssessmentContentPayload) => {
-      onAdd(payload);
+      if (isEdit && onUpdate) {
+        onUpdate(payload);
+      } else {
+        onAdd(payload);
+      }
       handleClose();
     },
-    [onAdd, handleClose]
+    [isEdit, onAdd, onUpdate, handleClose]
   );
+
+  useEffect(() => {
+    if (!active || !isEdit || !initialAssessment) return;
+    setTab('builder');
+    setAccessMode(initialAssessment.accessMode);
+    setTitle(initialAssessment.title);
+    setDescription(initialAssessment.description ?? '');
+    setProId(initialAssessment.assessmentProId);
+    setPassingScore(initialAssessment.passingScore);
+    resetBuilderSession();
+    setError(null);
+  }, [active, isEdit, initialAssessment, resetBuilderSession]);
 
   const loadCatalog = useCallback(async (mode: string) => {
     setCatalogLoading(true);
@@ -128,35 +161,66 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
       if (event.origin !== AP_ORIGIN) return;
       const data = event.data as { type?: string; assessmentId?: string; title?: string; passingScore?: number };
       if (data?.type !== 'assessment-pro:builder-saved' || !data.assessmentId) return;
-      finishAdd({
-        title: data.title?.trim() || title.trim() || 'Assessment',
-        description: description.trim() || undefined,
-        assessmentProId: data.assessmentId,
-        accessMode,
-        passingScore:
-          typeof data.passingScore === 'number'
-            ? Math.min(100, Math.max(0, Math.round(data.passingScore)))
-            : passingScore,
-      });
+      // AP saved/published — keep the builder open; user confirms with "Add to lesson" / "Save changes".
+      setBuilderAssessmentId(data.assessmentId);
+      if (data.title?.trim()) setTitle(data.title.trim());
+      if (typeof data.passingScore === 'number') {
+        setPassingScore(Math.min(100, Math.max(0, Math.round(data.passingScore))));
+      }
+      setError(null);
     }
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [active, accessMode, title, description, passingScore, finishAdd]);
+  }, [active]);
 
   const startBuilderSession = useCallback(async (): Promise<{ embedBuilderUrl: string; assessmentId?: string } | null> => {
     setLoading(true);
     setError(null);
     try {
       const parentOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
+      let assessmentIdForBuilder = isEdit ? initialAssessment?.assessmentProId?.trim() : undefined;
+
+      // AP resumes the last in-progress draft when no assessmentId is sent — create a new one first.
+      if (!isEdit) {
+        const createTitle = title.trim() || 'Untitled Assessment';
+        const createRes = await fetch('/api/instructor/assessments/create', {
+          method: 'POST',
+          credentials: 'include',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: createTitle,
+            description: description.trim() || undefined,
+            accessMode,
+            passingScore,
+          }),
+        });
+        const createData = await createRes.json().catch(() => ({}));
+        if (!createRes.ok) {
+          setError((createData as { error?: string }).error ?? 'Failed to create a new assessment');
+          return null;
+        }
+        const newId = (createData as { assessment?: { id?: string; title?: string } }).assessment?.id;
+        if (!newId) {
+          setError('Assessment Pro did not return a new assessment id');
+          return null;
+        }
+        assessmentIdForBuilder = newId;
+        const createdTitle = (createData as { assessment?: { title?: string } }).assessment?.title;
+        if (createdTitle?.trim() && !title.trim()) setTitle(createdTitle.trim());
+      }
+
       const res = await fetch('/api/instructor/assessments/builder-session', {
         method: 'POST',
         credentials: 'include',
+        cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           accessMode,
           title: title.trim() || undefined,
           parentOrigin,
+          assessmentId: assessmentIdForBuilder || undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -170,7 +234,7 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
         return null;
       }
       setBuilderUrl(session.embedBuilderUrl);
-      setBuilderAssessmentId(session.assessmentId ?? null);
+      setBuilderAssessmentId(session.assessmentId ?? assessmentIdForBuilder ?? null);
       setBuilderEmbedBlocked(Boolean(session.embedBlocked));
       return { embedBuilderUrl: session.embedBuilderUrl, assessmentId: session.assessmentId };
     } catch {
@@ -179,12 +243,21 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
     } finally {
       setLoading(false);
     }
-  }, [accessMode, title]);
+  }, [accessMode, title, description, passingScore, isEdit, initialAssessment?.assessmentProId]);
 
   useEffect(() => {
-    if (!active || tab !== 'builder' || builderUrl || loading) return;
+    if (!active) {
+      resetBuilderSession();
+      return;
+    }
+    if (tab !== 'builder' || builderUrl || loading) return;
     void startBuilderSession();
-  }, [active, tab, builderUrl, loading, startBuilderSession]);
+  }, [active, tab, builderUrl, loading, startBuilderSession, resetBuilderSession]);
+
+  useEffect(() => {
+    if (active || isEdit) return;
+    reset();
+  }, [active, isEdit, reset]);
 
   const switchTab = (next: TabId) => {
     setTab(next);
@@ -230,7 +303,7 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
   };
 
   const handleBuilderDone = () => {
-    const id = builderAssessmentId;
+    const id = builderAssessmentId ?? (isEdit ? initialAssessment?.assessmentProId : null);
     if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
       setError('Publish in Assessment Pro first, or pick an existing assessment.');
       return;
@@ -246,15 +319,38 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
 
   if (!active) return null;
 
-  const builderHeightClass = 'h-[72vh] min-h-[480px] max-h-[900px]';
+  const builderHeightClass = 'h-[75vh] min-h-[560px] max-h-[920px]';
+  const embeddedBuilderHeightClass = 'h-[75vh] min-h-[560px]';
+
+  const saveLabel = isEdit ? 'Save changes' : 'Add to lesson';
 
   return (
-    <div className={`mb-6 w-full rounded-2xl border-2 border-indigo-300 dark:border-indigo-800 bg-white dark:bg-gray-800 shadow-lg overflow-hidden flex flex-col ${tab === 'builder' ? builderHeightClass : ''}`}>
+    <div
+      className={`w-full overflow-hidden flex flex-col ${
+        embedded
+          ? `bg-gray-900 dark:bg-gray-950 ${tab === 'builder' ? embeddedBuilderHeightClass : 'min-h-[24rem]'}`
+          : `mb-6 rounded-2xl border-2 border-indigo-300 dark:border-indigo-800 bg-white dark:bg-gray-800 shadow-lg ${tab === 'builder' ? builderHeightClass : ''}`
+      }`}
+    >
       {/* Compact header */}
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3 bg-indigo-50 dark:bg-indigo-950/40 flex-shrink-0">
-        <Award className="w-5 h-5 text-indigo-600 flex-shrink-0" />
-        <h3 className="text-lg font-bold text-gray-900 dark:text-white flex-1 min-w-0 truncate">
-          {tab === 'builder' ? 'Design assessment' : tab === 'pick' ? 'Pick existing' : 'Paste UUID'}
+      <div className={`px-4 py-3 border-b flex items-center gap-3 flex-shrink-0 ${
+        embedded
+          ? 'border-gray-700 bg-gray-800/90'
+          : 'border-gray-200 dark:border-gray-700 bg-indigo-50 dark:bg-indigo-950/40'
+      }`}>
+        <Award className="w-5 h-5 text-indigo-400 flex-shrink-0" />
+        <h3 className={`text-lg font-bold flex-1 min-w-0 truncate ${embedded ? 'text-white' : 'text-gray-900 dark:text-white'}`}>
+          {isEdit
+            ? tab === 'builder'
+              ? 'Edit assessment'
+              : tab === 'pick'
+                ? 'Replace assessment'
+                : 'Update assessment link'
+            : tab === 'builder'
+              ? 'Design assessment'
+              : tab === 'pick'
+                ? 'Pick existing'
+                : 'Paste UUID'}
         </h3>
 
         <select
@@ -266,6 +362,13 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
           <option value="lms_embed">Module quiz</option>
           <option value="proctored_portal">Final exam</option>
         </select>
+        {!embedded && (
+          <p className="hidden lg:block text-xs text-gray-500 dark:text-gray-400 max-w-xs">
+            {accessMode === 'lms_embed'
+              ? 'In-lesson: code & quiz questions in the lesson. Google Sheets open in a new tab if needed. No proctoring.'
+              : 'Opens in a new tab with proctoring and full exam setup.'}
+          </p>
+        )}
 
         {tab === 'builder' && (
           <input
@@ -341,9 +444,9 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
               </div>
             )}
 
-            <div className="flex-1 min-h-0 w-full p-3">
+            <div className={`flex-1 min-h-0 w-full p-3 ${embedded ? 'min-h-[calc(75vh-8rem)]' : 'min-h-[calc(75vh-10rem)]'}`}>
               {loading && !builderUrl && (
-                <div className="w-full h-full flex items-center justify-center bg-gray-50 dark:bg-gray-900/50 rounded-xl">
+                <div className="w-full h-full min-h-[480px] flex items-center justify-center bg-gray-50 dark:bg-gray-900/50 rounded-xl">
                   <p className="text-sm text-gray-500 flex items-center gap-2">
                     <Loader2 className="w-5 h-5 animate-spin" /> Loading Assessment Pro designer…
                   </p>
@@ -352,9 +455,10 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
 
               {!builderEmbedBlocked && builderUrl && (
                 <iframe
+                  key={`${sessionKey ?? 'session'}-${builderUrl}`}
                   src={builderUrl}
                   title="Assessment Pro builder"
-                  className="block w-full h-full rounded-xl border border-gray-200 dark:border-gray-600 bg-white"
+                  className="block w-full h-full min-h-[480px] rounded-xl border border-gray-200 dark:border-gray-600 bg-white"
                   allow="clipboard-read; clipboard-write"
                 />
               )}
@@ -488,10 +592,10 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
           <button
             type="button"
             onClick={handleBuilderDone}
-            disabled={!builderAssessmentId}
+            disabled={!builderAssessmentId && !(isEdit && initialAssessment?.assessmentProId)}
             className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700 disabled:opacity-50"
           >
-            Add to lesson
+            {saveLabel}
           </button>
         )}
         {tab === 'pick' && (
@@ -501,7 +605,7 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
             disabled={!selectedCatalogId || catalogLoading}
             className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700 disabled:opacity-50"
           >
-            Add to lesson
+            {saveLabel}
           </button>
         )}
         {tab === 'paste' && (
@@ -511,7 +615,7 @@ export function AddAssessmentPanel({ active, onClose, onAdd }: AddAssessmentPane
             disabled={!/^[0-9a-f-]{36}$/i.test(proId.trim())}
             className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700 disabled:opacity-50"
           >
-            Add to lesson
+            {saveLabel}
           </button>
         )}
       </div>

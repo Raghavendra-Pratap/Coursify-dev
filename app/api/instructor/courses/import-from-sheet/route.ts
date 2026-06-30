@@ -134,26 +134,15 @@ export async function POST(request: NextRequest) {
             const segments = item.videoSegments?.length ? item.videoSegments : (item.video ? [item.video] : []);
             for (let idx = 0; idx < segments.length; idx++) {
               const vs = segments[idx]!;
-              const segmentIndex = typeof (vs as { segmentIndex?: number }).segmentIndex === 'number' ? (vs as { segmentIndex: number }).segmentIndex : idx;
-              const storageType = vs.source === 'google_drive'
-                ? 'google_drive'
-                : (vs.source === 'youtube' || vs.source === 'external_url' ? 'external_url' : 'supabase');
-              const videoUrl = vs.sourceUrl || '';
               const { error: segErr } = await db.from('video_segments').insert({
-                lesson_id: lessonId,
                 content_item_id: contentItemId,
-                segment_index: segmentIndex,
-                video_url: videoUrl,
-                storage_type: storageType,
-                storage_path: videoUrl || null,
                 name: vs.name || 'Video',
                 duration_seconds: vs.durationSeconds || 60,
                 start_time_seconds: vs.startSeconds ?? 0,
                 end_time_seconds: vs.endSeconds ?? (vs.startSeconds ?? 0) + (vs.durationSeconds || 60),
-                start_time: vs.startSeconds ?? 0,
-                end_time: vs.endSeconds ?? (vs.startSeconds ?? 0) + (vs.durationSeconds || 60),
                 source: vs.source,
                 source_url: vs.sourceUrl || null,
+                storage_path: vs.sourceUrl || null,
               });
               if (segErr) {
                 console.error('[import-from-sheet] video_segment insert', segErr);

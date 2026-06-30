@@ -25,6 +25,7 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(request.url)
   const period = url.searchParams.get('period') ?? '7days'
+  const activityLimit = Math.min(100, Math.max(5, Number.parseInt(url.searchParams.get('activityLimit') ?? '10', 10) || 10))
   const periodDaysCount = periodDays(period)
   const now = new Date()
   const periodStart = new Date(now)
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
 
   const { courseIds } = await getInstructorCourseIds(db, user.id)
 
-  const empty = { stats: { learners: { current: 0, previous: 0, change: 0 }, courses: { current: 0, previous: 0, change: 0 }, completion: { current: 0, previous: 0, change: 0 }, avgTime: { current: 0, previous: 0, change: 0 } }, topCourses: [], weeklyData: [], recentActivity: [] }
+  const empty = { stats: { learners: { current: 0, previous: 0, change: 0 }, courses: { current: 0, previous: 0, change: 0 }, completion: { current: 0, previous: 0, change: 0 }, avgTime: { current: 0, previous: 0, change: 0 } }, topCourses: [], topLearners: [], weeklyData: [], recentActivity: [] }
   if (courseIds.length === 0) return NextResponse.json(empty)
 
   const [enrollmentsRes, coursesListRes, modulesRes] = await Promise.all([
@@ -156,17 +157,65 @@ export async function GET(request: Request) {
     avgTime: byDay[day].timeN ? Math.round((byDay[day].timeSec / byDay[day].timeN / 3600) * 10) / 10 : 0,
   }))
 
+  const enrollmentToUser = new Map(allEnrollments.map((e: { id: string; user_id: string }) => [e.id, e.user_id]))
+  type LearnerAgg = { enrolled: number; completed: number; progressSum: number; timeSec: number; scores: number[] }
+  const learnerAgg: Record<string, LearnerAgg> = {}
+  allEnrollments.forEach((e: { user_id: string; completed_at: string | null; progress_percentage?: number }) => {
+    if (!learnerAgg[e.user_id]) learnerAgg[e.user_id] = { enrolled: 0, completed: 0, progressSum: 0, timeSec: 0, scores: [] }
+    const agg = learnerAgg[e.user_id]
+    agg.enrolled++
+    agg.progressSum += e.progress_percentage ?? 0
+    if (e.completed_at) agg.completed++
+  })
+  progressRows.forEach((p: { enrollment_id: string; time_spent_seconds?: number; quiz_score?: number | null }) => {
+    const uid = enrollmentToUser.get(p.enrollment_id)
+    if (!uid || !learnerAgg[uid]) return
+    if (typeof p.time_spent_seconds === 'number') learnerAgg[uid].timeSec += p.time_spent_seconds
+    if (typeof p.quiz_score === 'number') learnerAgg[uid].scores.push(p.quiz_score)
+  })
+  function formatLearnerTime(totalSeconds: number): string {
+    if (totalSeconds <= 0) return '0h'
+    const h = Math.floor(totalSeconds / 3600)
+    const m = Math.floor((totalSeconds % 3600) / 60)
+    if (h > 0 && m > 0) return `${h}h ${m}m`
+    if (h > 0) return `${h}h`
+    return `${m}m`
+  }
+
   const activityEnrollmentIds = Array.from(new Set(progressRows.map((p: { enrollment_id: string }) => p.enrollment_id)))
   const enrollmentsForActivity = allEnrollments.filter((e: { id: string }) => activityEnrollmentIds.includes(e.id))
   const enrollMap = new Map(enrollmentsForActivity.map((e: { id: string; user_id: string; course_id: string }) => [e.id, e]))
-  const userIds = Array.from(new Set(enrollmentsForActivity.map((e: { user_id: string }) => e.user_id)))
-  const { data: userProfiles } = userIds.length ? await db.from('user_profiles').select('id, full_name').in('id', userIds) : { data: [] }
+  const allUserIds = Array.from(new Set(allEnrollments.map((e: { user_id: string }) => e.user_id)))
+  const { data: userProfiles } = allUserIds.length ? await db.from('user_profiles').select('id, full_name').in('id', allUserIds) : { data: [] }
   const userMap = new Map((userProfiles ?? []).map((u: { id: string; full_name: string | null }) => [u.id, u.full_name ?? 'Learner']))
+
+  const topLearners = Object.entries(learnerAgg)
+    .map(([userId, agg]) => {
+      const name = userMap.get(userId) ?? 'Learner'
+      const progress = agg.enrolled ? Math.round(agg.progressSum / agg.enrolled) : 0
+      const averageScore = agg.scores.length ? Math.round(agg.scores.reduce((a, b) => a + b, 0) / agg.scores.length) : 0
+      const initials = name.split(/\s+/).map((s) => s[0]).join('').toUpperCase().slice(0, 2) || '?'
+      return {
+        id: userId,
+        name,
+        avatar: initials,
+        progress,
+        enrolledCourses: agg.enrolled,
+        completedCourses: agg.completed,
+        averageScore,
+        totalTimeSpent: formatLearnerTime(agg.timeSec),
+        trend: progress >= 50 ? 'up' : 'down',
+        trendValue: progress,
+      }
+    })
+    .sort((a, b) => b.progress - a.progress || b.completedCourses - a.completedCourses || b.averageScore - a.averageScore)
+    .slice(0, 6)
+    .map((learner, i) => ({ ...learner, rank: i + 1 }))
   const courseIdsForActivity = Array.from(new Set(enrollmentsForActivity.map((e: { course_id: string }) => e.course_id)))
   const { data: courseTitles } = courseIdsForActivity.length ? await db.from('courses').select('id, title').in('id', courseIdsForActivity) : { data: [] }
   const courseMap = new Map((courseTitles ?? []).map((c: { id: string; title: string }) => [c.id, c.title]))
 
-  const recentActivity = progressRows.filter((p: { completed_at: string | null }) => p.completed_at).sort((a: { completed_at: string }, b: { completed_at: string }) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()).slice(0, 10).map((p: { enrollment_id: string; completed_at: string | null }, i: number) => {
+  const recentActivity = progressRows.filter((p: { completed_at: string | null }) => p.completed_at).sort((a: { completed_at: string }, b: { completed_at: string }) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()).slice(0, activityLimit).map((p: { enrollment_id: string; completed_at: string | null }, i: number) => {
     const enr = enrollMap.get(p.enrollment_id)
     const userName = enr ? userMap.get(enr.user_id) ?? 'Learner' : 'Learner'
     const courseName = enr ? courseMap.get(enr.course_id) ?? 'Course' : 'Course'
@@ -182,6 +231,7 @@ export async function GET(request: Request) {
       avgTime: { current: avgTimeHours, previous: avgTimePrev, change: pctChange(avgTimeHours, avgTimePrev) },
     },
     topCourses,
+    topLearners,
     weeklyData,
     recentActivity,
   }, { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' } })

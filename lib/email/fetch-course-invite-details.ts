@@ -5,7 +5,10 @@ export type CourseInviteDetails = {
   courseTitle: string;
   moduleCount: number;
   lessonCount: number;
+  durationSeconds: number;
   durationLabel: string;
+  avgRating?: number;
+  ratingCount: number;
   inviterName?: string;
 };
 
@@ -50,11 +53,31 @@ export async function fetchCourseInviteDetails(
       );
     }
 
+    let avgRating: number | undefined;
+    let ratingCount = 0;
+    try {
+      const { data: ratings } = await db
+        .from('course_ratings')
+        .select('rating')
+        .eq('course_id', courseId);
+      const rows = (ratings ?? []) as { rating: number }[];
+      ratingCount = rows.length;
+      if (ratingCount > 0) {
+        const sum = rows.reduce((acc, r) => acc + (Number(r.rating) || 0), 0);
+        avgRating = Math.round((sum / ratingCount) * 10) / 10;
+      }
+    } catch {
+      // course_ratings table may not exist on older DBs
+    }
+
     return {
       courseTitle: (course as { title: string }).title,
       moduleCount,
       lessonCount,
+      durationSeconds,
       durationLabel: formatDuration(durationSeconds),
+      avgRating,
+      ratingCount,
       inviterName,
     };
   } catch {
