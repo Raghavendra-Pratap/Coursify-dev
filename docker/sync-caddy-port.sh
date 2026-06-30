@@ -12,7 +12,7 @@ if ! docker ps --format '{{.Names}}' | grep -qx coursify; then
   exit 1
 fi
 
-HOST_PORT="$(docker port coursify 3000/tcp 2>/dev/null | head -1 | sed -E 's/.*:([0-9]+)$/\\1/')"
+HOST_PORT="$(docker port coursify 3000/tcp 2>/dev/null | head -1 | awk -F: '{print $NF}')"
 if [ -z "$HOST_PORT" ]; then
   echo "Could not detect host port for coursify:3000"
   docker port coursify || true

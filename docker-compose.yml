@@ -25,15 +25,5 @@ services:
       - .env.production
     environment:
       NODE_ENV: production
-      # Explicit passthrough so server secrets from .env.production reach Node at runtime
-      # (compose --env-file .env.production supplies values for ${...} below).
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
-      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
-      RESEND_REPLY_TO: ${RESEND_REPLY_TO:-}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      MAGIC_LINK_SECRET: ${MAGIC_LINK_SECRET:-}
-      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
