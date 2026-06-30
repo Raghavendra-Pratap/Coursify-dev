@@ -1,17 +1,19 @@
 import { NextResponse } from 'next/server';
 import { getFromEmail, getResendApiKey, isResendConfigured } from '@/lib/resend-email';
-import { runtimeEnvPresent } from '@/lib/runtime-env';
+import { runtimeEnvDiagnostics } from '@/lib/runtime-env';
 
 /** GET: whether outbound email (Resend) is configured on this deployment. */
 export async function GET() {
   const key = getResendApiKey();
   const configured = isResendConfigured();
+  const diag = runtimeEnvDiagnostics('RESEND_API_KEY');
   return NextResponse.json({
     configured,
-    // Safe diagnostics when configured is false (no secret leaked).
-    keyPresent: runtimeEnvPresent('RESEND_API_KEY'),
-    keyLength: key?.length ?? 0,
+    keyPresent: diag.keyPresent,
+    keyLength: diag.keyLength,
     keyLooksValid: Boolean(key?.startsWith('re_')),
+    fileEnvLoaded: diag.fileEnvLoaded,
+    fileEnvPath: diag.fileEnvPath,
     fromEmail: configured ? getFromEmail() : null,
   });
 }

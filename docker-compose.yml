@@ -25,5 +25,8 @@ services:
       - .env.production
     environment:
       NODE_ENV: production
+    volumes:
+      # Coursify container only — server secrets read at runtime (Next.js trims process.env).
+      - ./.env.production:/app/config/production.env:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"

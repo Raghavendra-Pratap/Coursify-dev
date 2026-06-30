@@ -35,6 +35,10 @@ else
 fi
 
 echo ""
+echo "=== Mounted runtime env file (coursify container only) ==="
+docker exec coursify sh -c 'if [ -f /app/config/production.env ]; then echo "  /app/config/production.env: present"; grep -q "^RESEND_API_KEY=." /app/config/production.env && echo "  RESEND_API_KEY in file: yes" || echo "  RESEND_API_KEY in file: no"; else echo "  /app/config/production.env: MISSING — run git pull && ./docker/build-app.sh"; fi' 2>/dev/null || true
+
+echo ""
 echo "=== coursify container process.env ==="
 docker exec coursify node -e "
 const k = process.env.RESEND_API_KEY;
