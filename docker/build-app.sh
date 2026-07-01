@@ -18,6 +18,7 @@ source "$(dirname "$0")/_env.sh"
 URL=$(read_supabase_env NEXT_PUBLIC_SUPABASE_URL "$ENV_FILE" || true)
 KEY=$(read_supabase_env NEXT_PUBLIC_SUPABASE_ANON_KEY "$ENV_FILE" || true)
 APP=$(read_supabase_env NEXT_PUBLIC_APP_URL "$ENV_FILE" || true)
+SITE=$(read_supabase_env NEXT_PUBLIC_SITE_URL "$ENV_FILE" || true)
 
 if [ -z "$URL" ] || [ -z "$KEY" ]; then
   echo "NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set in .env.production"
@@ -27,6 +28,7 @@ fi
 
 echo "Building with NEXT_PUBLIC_SUPABASE_URL=${URL}"
 echo "                  NEXT_PUBLIC_APP_URL=${APP:-"(not set)"}"
+echo "                  NEXT_PUBLIC_SITE_URL=${SITE:-${APP:-"(not set)"}}"
 
 "$(dirname "$0")/validate-env.sh" "$ENV_FILE"
 
