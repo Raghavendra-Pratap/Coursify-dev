@@ -228,7 +228,15 @@ Kong (`8000`) and Coursify (`3000`) stay on localhost — Caddy proxies them.
 
 ```bash
 cd ~/coursify
-git pull origin main
+export BRANCH=develop   # or main
+./docker/update-vps.sh
+```
+
+Or manually:
+
+```bash
+cd ~/coursify
+git pull origin develop
 ./docker/build-app.sh
 # if schema changed:
 ./docker/apply-schema.sh
