@@ -35,6 +35,7 @@ import { inputValueFromEvent } from '@/lib/dom-event';
 import {
   defaultViewForMode,
   detectLandingIntentFromLocation,
+  isSessionMode,
   persistSessionMode,
   resolveSessionModeForUser,
   stashLandingIntent,
@@ -421,7 +422,20 @@ const CoursifyLMS = () => {
       return;
     }
     const landing = detectLandingIntentFromLocation(window.location.pathname, window.location.search);
-    if (landing) stashLandingIntent(landing);
+    if (landing) {
+      stashLandingIntent(landing);
+      // Marketing entry — don't restore stale ?view= from a prior session while guest.
+      const cleanParams = new URLSearchParams(window.location.search);
+      if (cleanParams.has('view') || cleanParams.has('course') || cleanParams.has('lesson')) {
+        cleanParams.delete('view');
+        cleanParams.delete('course');
+        cleanParams.delete('lesson');
+        const qs = cleanParams.toString();
+        replaceBrowserUrl(qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+      }
+      navRestoredRef.current = true;
+      return;
+    }
     if (navRestoredRef.current) return;
     navRestoredRef.current = true;
     const nav = readAppNavFromUrl() ?? readAppNavFromStorage();
@@ -435,12 +449,13 @@ const CoursifyLMS = () => {
     sessionViewRestoredRef.current = true;
   }, []);
 
-  // Keep ?view=… in the URL and localStorage so refresh returns to the same page.
+  // Keep ?view=… in the URL and localStorage so refresh returns to the same page (signed-in only).
   useEffect(() => {
+    if (!user || !sessionMode) return;
     const nav = buildAppNavState(currentView, editingCourseId, learningCourseId, learningLessonId);
     syncAppNavToUrl(nav);
     writeAppNavToStorage(nav);
-  }, [currentView, editingCourseId, learningCourseId, learningLessonId]);
+  }, [user, sessionMode, currentView, editingCourseId, learningCourseId, learningLessonId]);
 
   // Notifications are shown in the header dropdown; redirect legacy notifications view.
   useEffect(() => {
@@ -682,9 +697,13 @@ const CoursifyLMS = () => {
         const landing = detectLandingIntentFromLocation(window.location.pathname, window.location.search);
         if (landing) stashLandingIntent(landing);
       }
-      const nextPath = loginPath(
-        Object.fromEntries(new URLSearchParams(window.location.search).entries()) as Record<string, string>,
-      );
+      const params = new URLSearchParams(window.location.search);
+      const nextQuery: Record<string, string> = {};
+      const landingParam = params.get('landing');
+      if (isSessionMode(landingParam)) nextQuery.landing = landingParam;
+      const enroll = params.get('enroll');
+      if (enroll) nextQuery.enroll = enroll;
+      const nextPath = loginPath(nextQuery);
       const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`;
       const { data, error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } });
       if (error) {
