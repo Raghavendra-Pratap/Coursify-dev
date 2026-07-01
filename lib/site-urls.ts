@@ -39,6 +39,11 @@ export function getAppUrl(): string {
   );
 }
 
+/** Default instructor/learner shell view for a marketing ?landing= link. */
+export function viewForLandingIntent(landing: string | null | undefined): 'dashboard' | 'courses' {
+  return landing === 'learner' ? 'courses' : 'dashboard';
+}
+
 /** Path to the marketing landing page (same host or external site). */
 export function homePath(): string {
   return ROUTES.home;

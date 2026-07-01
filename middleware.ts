@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { ROUTES } from '@/lib/site-urls'
+import { ROUTES, viewForLandingIntent } from '@/lib/site-urls'
 
 function copyCookies(from: NextResponse, to: NextResponse) {
   from.cookies.getAll().forEach((cookie) => {
@@ -55,6 +55,21 @@ export async function middleware(request: NextRequest) {
     const redirectResponse = NextResponse.redirect(url)
     copyCookies(response, redirectResponse)
     return redirectResponse
+  }
+
+  if (pathname === ROUTES.login && session?.user) {
+    const url = request.nextUrl.clone()
+    const params = url.searchParams
+    if (!params.has('code') && !params.has('error')) {
+      const landing = params.get('landing')
+      const targetView = viewForLandingIntent(landing ?? (params.get('view') === 'courses' ? 'learner' : 'instructor'))
+      if (params.get('view') !== targetView) {
+        params.set('view', targetView)
+        const redirectResponse = NextResponse.redirect(url)
+        copyCookies(response, redirectResponse)
+        return redirectResponse
+      }
+    }
   }
 
   return response

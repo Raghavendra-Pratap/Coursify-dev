@@ -411,7 +411,7 @@ const CoursifyLMS = () => {
   const currentViewRef = useRef(currentView);
   currentViewRef.current = currentView;
 
-  // Restore view + course from URL or last session (runs once on mount — fixes refresh → dashboard).
+  // Stash ?landing= / ?enroll= from URL; enroll redirects immediately.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
@@ -422,9 +422,17 @@ const CoursifyLMS = () => {
       return;
     }
     const landing = detectLandingIntentFromLocation(window.location.pathname, window.location.search);
-    if (landing) {
-      stashLandingIntent(landing);
-      // Marketing entry — don't restore stale ?view= from a prior session while guest.
+    if (landing) stashLandingIntent(landing);
+  }, []);
+
+  // Restore shell view after auth is known (guest vs signed-in).
+  useEffect(() => {
+    if (!authChecked || navRestoredRef.current) return;
+
+    const landing = detectLandingIntentFromLocation(window.location.pathname, window.location.search);
+
+    if (!user && landing) {
+      navRestoredRef.current = true;
       const cleanParams = new URLSearchParams(window.location.search);
       if (cleanParams.has('view') || cleanParams.has('course') || cleanParams.has('lesson')) {
         cleanParams.delete('view');
@@ -433,11 +441,17 @@ const CoursifyLMS = () => {
         const qs = cleanParams.toString();
         replaceBrowserUrl(qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
       }
-      navRestoredRef.current = true;
       return;
     }
-    if (navRestoredRef.current) return;
+
     navRestoredRef.current = true;
+
+    if (user && landing) {
+      setCurrentView(defaultViewForMode(landing));
+      sessionViewRestoredRef.current = true;
+      return;
+    }
+
     const nav = readAppNavFromUrl() ?? readAppNavFromStorage();
     if (!nav) return;
     applyPersistedNav(nav, {
@@ -447,7 +461,7 @@ const CoursifyLMS = () => {
       setLearningLessonId,
     });
     sessionViewRestoredRef.current = true;
-  }, []);
+  }, [authChecked, user]);
 
   // Keep ?view=… in the URL and localStorage so refresh returns to the same page (signed-in only).
   useEffect(() => {
@@ -534,11 +548,26 @@ const CoursifyLMS = () => {
       if (cancelled) return;
       setProfileStats({ courses: count ?? 0, certificates: 0, badges: 0 });
 
-      const { mode } = await resolveSessionModeForUser(user);
+      const { mode, source } = await resolveSessionModeForUser(user);
       if (cancelled) return;
       setSessionMode(mode);
       setSessionModeResolved(true);
-      if (mode) maybeRestoreView(mode);
+      if (mode) {
+        if (source === 'landing') {
+          setCurrentView(defaultViewForMode(mode));
+          sessionViewRestoredRef.current = true;
+          if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            if (params.has('landing')) {
+              params.delete('landing');
+              const qs = params.toString();
+              replaceBrowserUrl(qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+            }
+          }
+        } else {
+          maybeRestoreView(mode);
+        }
+      }
     })();
     return () => {
       cancelled = true;
