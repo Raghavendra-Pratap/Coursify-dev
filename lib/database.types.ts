@@ -375,6 +375,7 @@ export interface Database {
           id: string
           email: string
           course_id: string | null
+          program_id: string | null
           status: string
           created_by: string
           created_at: string
@@ -383,6 +384,7 @@ export interface Database {
           id?: string
           email: string
           course_id?: string | null
+          program_id?: string | null
           status?: string
           created_by: string
           created_at?: string
@@ -391,9 +393,53 @@ export interface Database {
           id?: string
           email?: string
           course_id?: string | null
+          program_id?: string | null
           status?: string
           created_by?: string
           created_at?: string
+        }
+      }
+      course_programs: {
+        Row: {
+          id: string
+          title: string
+          description: string | null
+          created_by: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          description?: string | null
+          created_by: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          title?: string
+          description?: string | null
+          created_by?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      course_program_members: {
+        Row: {
+          program_id: string
+          course_id: string
+          order_index: number
+        }
+        Insert: {
+          program_id: string
+          course_id: string
+          order_index?: number
+        }
+        Update: {
+          program_id?: string
+          course_id?: string
+          order_index?: number
         }
       }
       learner_reminders: {

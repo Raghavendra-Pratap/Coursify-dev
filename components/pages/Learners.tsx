@@ -6,10 +6,20 @@ import {
   CheckCircle, AlertCircle, TrendingUp, Target, Calendar, BookOpen, Star, Send, UserPlus, UserMinus,
   Activity, Trophy, FileDown, ArrowUpRight, ArrowDownRight, Zap, X, Play, FileText, Bell, Award, Eye, Loader2
 } from 'lucide-react';
+import { headerPrimaryBtn, headerSecondaryBtn, iconBtn, learnerStatusBadge, pageHeaderActions, primaryBtn } from '@/components/ui/theme-classes';
 import { supabase } from '@/lib/supabase';
 import { downloadCsv, openMailTo } from '@/lib/download-csv';
 import { fetchJsonCached, readClientCache, SHELL_CACHE_MS } from '@/lib/client-fetch-cache';
 import type { Database } from '@/lib/database.types';
+import { ThemeAvatar, ThemeStatCard, ThemeFilterTab } from '@/components/ui/ThemeStatCard';
+
+type CourseProgram = {
+  id: string;
+  title: string;
+  description: string | null;
+  courseIds: string[];
+  courses: { id: string; title: string; order_index: number }[];
+};
 
 type LearnerInviteInsert = Database['public']['Tables']['learner_invites']['Insert'];
 
@@ -95,7 +105,16 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   const [inviteEmails, setInviteEmails] = useState('');
   const [inviteCustomMessage, setInviteCustomMessage] = useState('');
   const [bulkUploadFile, setBulkUploadFile] = useState<File | null>(null);
-  const [inviteCourseId, setInviteCourseId] = useState<string>('');
+  const [inviteCourseIds, setInviteCourseIds] = useState<string[]>([]);
+  const [inviteProgramId, setInviteProgramId] = useState<string>('');
+  const [coursePrograms, setCoursePrograms] = useState<CourseProgram[]>([]);
+  const [programsLoading, setProgramsLoading] = useState(false);
+  const [showProgramModal, setShowProgramModal] = useState(false);
+  const [programSaving, setProgramSaving] = useState(false);
+  const [editingProgramId, setEditingProgramId] = useState<string | null>(null);
+  const [programTitle, setProgramTitle] = useState('');
+  const [programDescription, setProgramDescription] = useState('');
+  const [programCourseIds, setProgramCourseIds] = useState<string[]>([]);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const [learners, setLearners] = useState<any[]>(initialLearnersState);
@@ -258,6 +277,24 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   }, []);
 
   useEffect(() => {
+    const loadPrograms = async () => {
+      setProgramsLoading(true);
+      try {
+        const res = await fetch('/api/instructor/programs', { credentials: 'include' });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && Array.isArray(data.programs)) {
+          setCoursePrograms(data.programs as CourseProgram[]);
+        }
+      } catch {
+        // tables may not exist until migration is run
+      } finally {
+        setProgramsLoading(false);
+      }
+    };
+    void loadPrograms();
+  }, []);
+
+  useEffect(() => {
     fetch('/api/email/status', { credentials: 'include' })
       .then((r) => r.json())
       .then((d) => setEmailConfigured(Boolean(d?.configured)))
@@ -357,6 +394,95 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
     });
   };
 
+  const openProgramModal = (program?: CourseProgram) => {
+    if (program) {
+      setEditingProgramId(program.id);
+      setProgramTitle(program.title);
+      setProgramDescription(program.description ?? '');
+      setProgramCourseIds(program.courseIds);
+    } else {
+      setEditingProgramId(null);
+      setProgramTitle('');
+      setProgramDescription('');
+      setProgramCourseIds([]);
+    }
+    setShowProgramModal(true);
+  };
+
+  const refreshPrograms = async () => {
+    try {
+      const res = await fetch('/api/instructor/programs', { credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.programs)) {
+        setCoursePrograms(data.programs as CourseProgram[]);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSaveProgram = async () => {
+    if (!programTitle.trim()) {
+      showActionMessage('Program title is required.');
+      return;
+    }
+    if (programCourseIds.length === 0) {
+      showActionMessage('Select at least one course for the program.');
+      return;
+    }
+    setProgramSaving(true);
+    try {
+      const payload = {
+        title: programTitle.trim(),
+        description: programDescription.trim() || undefined,
+        courseIds: programCourseIds,
+      };
+      const res = await fetch(
+        editingProgramId
+          ? `/api/instructor/programs/${editingProgramId}`
+          : '/api/instructor/programs',
+        {
+          method: editingProgramId ? 'PATCH' : 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showActionMessage(data?.error ?? 'Could not save program. Run database/ADD_COURSE_PROGRAMS.sql in Supabase.');
+        return;
+      }
+      await refreshPrograms();
+      setShowProgramModal(false);
+      showActionMessage(editingProgramId ? 'Program updated.' : 'Program created.');
+    } catch {
+      showActionMessage('Could not save program.');
+    } finally {
+      setProgramSaving(false);
+    }
+  };
+
+  const handleDeleteProgram = async (programId: string) => {
+    if (!window.confirm('Delete this program? Pending program invites will lose their link.')) return;
+    try {
+      const res = await fetch(`/api/instructor/programs/${programId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showActionMessage(data?.error ?? 'Could not delete program.');
+        return;
+      }
+      if (inviteProgramId === programId) setInviteProgramId('');
+      await refreshPrograms();
+      showActionMessage('Program deleted.');
+    } catch {
+      showActionMessage('Could not delete program.');
+    }
+  };
+
   const handleInviteLearners = async () => {
     const emailsFromText = parseEmailsFromText(inviteEmails);
     let emailsFromCsv: string[] = [];
@@ -378,33 +504,74 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
       showActionMessage('Sign in to send invitations.');
       return;
     }
-    const courseId = inviteCourseId.trim() || null;
-    const rows: LearnerInviteInsert[] = allEmails.map((email) => ({
-      email,
-      course_id: courseId,
-      status: 'pending',
-      created_by: session.user.id,
-    }));
+    const programId = inviteProgramId.trim() || null;
+    const courseIds = programId ? [] : inviteCourseIds.filter(Boolean);
+    const selectedProgram = coursePrograms.find((p) => p.id === programId);
+
+    const rows: LearnerInviteInsert[] = [];
+    for (const email of allEmails) {
+      if (programId) {
+        rows.push({
+          email,
+          course_id: null,
+          program_id: programId,
+          status: 'pending',
+          created_by: session.user.id,
+        });
+        continue;
+      }
+      if (courseIds.length > 0) {
+        for (const course_id of courseIds) {
+          rows.push({
+            email,
+            course_id,
+            program_id: null,
+            status: 'pending',
+            created_by: session.user.id,
+          });
+        }
+        continue;
+      }
+      rows.push({
+        email,
+        course_id: null,
+        program_id: null,
+        status: 'pending',
+        created_by: session.user.id,
+      });
+    }
     setInviteSending(true);
     const { error } = await (supabase as any).from('learner_invites').insert(rows);
     if (error) {
       setInviteSending(false);
-      showActionMessage('Invites could not be saved. Ensure the learner_invites table exists (see database/schema.sql).');
+      showActionMessage(
+        error.message?.includes('program_id')
+          ? 'Run database/ADD_COURSE_PROGRAMS.sql in Supabase, then try again.'
+          : 'Invites could not be saved. Ensure the learner_invites table exists (see database/schema.sql).',
+      );
       return;
     }
     void refreshPendingInvites();
-    const courseTitle = publishedCourses.find((c) => c.id === courseId)?.title;
+    const selectedCourses = publishedCourses.filter((c) => courseIds.includes(c.id));
     try {
+      const emailBody: Record<string, unknown> = {
+        emails: allEmails,
+        customMessage: inviteCustomMessage.trim() || undefined,
+      };
+      if (programId && selectedProgram) {
+        emailBody.programId = programId;
+        emailBody.programTitle = selectedProgram.title;
+      } else if (courseIds.length > 1) {
+        emailBody.courseIds = courseIds;
+      } else if (courseIds.length === 1) {
+        emailBody.courseId = courseIds[0];
+        emailBody.courseTitle = selectedCourses[0]?.title;
+      }
       const res = await fetch('/api/email/invite', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          emails: allEmails,
-          courseId: courseId || undefined,
-          courseTitle,
-          customMessage: inviteCustomMessage.trim() || undefined,
-        }),
+        body: JSON.stringify(emailBody),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data?.ok) {
@@ -424,7 +591,8 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
     setInviteEmails('');
     setInviteCustomMessage('');
     setBulkUploadFile(null);
-    setInviteCourseId('');
+    setInviteCourseIds([]);
+    setInviteProgramId('');
   };
 
   const handleRemoveLearner = (learnerId: LearnerId) => {
@@ -532,14 +700,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
     if (showLearnerDetail?.id === learner.id) setShowLearnerDetail(null);
   };
 
-  const getStatusColor = (status: string) => {
-    switch(status) {
-      case 'active': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
-      case 'at-risk': return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300';
-      case 'inactive': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
-      default: return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200';
-    }
-  };
+  const getStatusBadgeClass = (status: string) => learnerStatusBadge(status);
 
   const getStatusIcon = (status: string) => {
     switch(status) {
@@ -551,7 +712,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
   };
 
   return (
-    <div className="min-h-full dark:bg-gray-900">
+    <div className="min-h-full bg-canvas">
       {emailConfigured === false && (
         <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-8 py-2 text-sm text-amber-800 dark:text-amber-200">
           Email delivery is not configured. Invites are saved; add <code className="font-mono text-xs">RESEND_API_KEY</code> to <code className="font-mono text-xs">.env.production</code> on your server and restart the app to send invitation emails.
@@ -571,101 +732,64 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
         </div>
       )}
       {/* Header */}
-      <div className="bg-white dark:bg-gray-900 dark:border-gray-800 border-b border-gray-200 dark:border-gray-800 px-8 py-6 sticky top-0 z-20">
+      <div className="bg-surface border-b border-line px-8 py-6 sticky top-0 z-20">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Learners</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">Enrolled learners in your courses — manage and track progress</p>
+            <h1 className="text-2xl font-semibold text-content">Learners</h1>
+            <p className="text-content-secondary mt-1">Enrolled learners in your courses — manage and track progress</p>
             {pendingInvites.length > 0 && (
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{learners.length} enrolled · {pendingInvites.length} pending invite{pendingInvites.length !== 1 ? 's' : ''}</p>
+              <p className="text-sm text-content-muted mt-1">{learners.length} enrolled · {pendingInvites.length} pending invite{pendingInvites.length !== 1 ? 's' : ''}</p>
             )}
           </div>
-          <div className="flex space-x-3">
+          <div className={pageHeaderActions}>
             <button
               type="button"
               onClick={() => exportLearnersCsv(getFilteredLearners())}
-              className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 font-semibold flex items-center transition-all"
+              className={headerSecondaryBtn}
             >
-              <Download className="w-5 h-5 mr-2" />
+              <Download className="w-5 h-5" />
               Export Data
             </button>
             <button 
               onClick={() => setShowInviteModal(true)}
-              className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center shadow-lg transition-all"
+              className={headerPrimaryBtn}
             >
-              <UserPlus className="w-5 h-5 mr-2" />
+              <UserPlus className="w-5 h-5" />
               Invite Learners
             </button>
           </div>
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-4 gap-4 mb-4">
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 p-4 rounded-xl border border-blue-200 dark:border-blue-800">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-blue-600 dark:text-blue-400 font-semibold">Total Learners</p>
-              <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <p className="text-3xl font-bold text-blue-700 dark:text-blue-300">{stats.total}</p>
-          </div>
-          <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 p-4 rounded-xl border border-green-200 dark:border-green-800">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-green-600 font-semibold">Active</p>
-              <Activity className="w-5 h-5 text-green-600" />
-            </div>
-            <p className="text-3xl font-bold text-green-700">{stats.active}</p>
-          </div>
-          <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20 p-4 rounded-xl border border-orange-200 dark:border-orange-800">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-orange-600 dark:text-orange-400 font-semibold">At Risk</p>
-              <AlertCircle className="w-5 h-5 text-orange-600 dark:text-orange-400" />
-            </div>
-            <p className="text-3xl font-bold text-orange-700 dark:text-white">{stats.atRisk}</p>
-          </div>
-          <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 p-4 rounded-xl border border-purple-200 dark:border-purple-800">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-purple-600 dark:text-purple-400 font-semibold">Avg. Completion</p>
-              <Target className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-            </div>
-            <p className="text-3xl font-bold text-purple-700 dark:text-white">{stats.avgCompletion}%</p>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          <ThemeStatCard icon={Users} title="Total Learners" value={stats.total} variant="info" />
+          <ThemeStatCard icon={Activity} title="Active" value={stats.active} variant="success" />
+          <ThemeStatCard icon={AlertCircle} title="At Risk" value={stats.atRisk} variant="warning" />
+          <ThemeStatCard icon={Target} title="Avg. Completion" value={`${stats.avgCompletion}%`} variant="neutral" />
         </div>
+
+        {/* Programs live on My Courses — invite modal still supports saved programs below */}
+        {coursePrograms.length > 0 && (
+          <p className="mb-4 text-xs text-content-muted">
+            Manage programs on <button type="button" onClick={() => setCurrentView('courses')} className="text-violet-600 dark:text-violet-400 font-semibold hover:underline">My Courses</button> (Programs filter).
+          </p>
+        )}
 
         {/* Tabs and Filters */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <button 
-              onClick={() => setSelectedTab('all')}
-              className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedTab === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
-            >
+          <div className="flex items-center gap-2 flex-wrap">
+            <ThemeFilterTab active={selectedTab === 'all'} onClick={() => setSelectedTab('all')}>
               All ({stats.total})
-            </button>
-            <button 
-              onClick={() => setSelectedTab('active')}
-              className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedTab === 'active' ? 'bg-green-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
-            >
+            </ThemeFilterTab>
+            <ThemeFilterTab active={selectedTab === 'active'} onClick={() => setSelectedTab('active')}>
               Active ({stats.active})
-            </button>
-            <button 
-              onClick={() => setSelectedTab('at-risk')}
-              className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedTab === 'at-risk' ? 'bg-orange-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
-            >
+            </ThemeFilterTab>
+            <ThemeFilterTab active={selectedTab === 'at-risk'} onClick={() => setSelectedTab('at-risk')}>
               At Risk ({stats.atRisk})
-            </button>
-            <button 
-              onClick={() => setSelectedTab('inactive')}
-              className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedTab === 'inactive' ? 'bg-red-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
-            >
+            </ThemeFilterTab>
+            <ThemeFilterTab active={selectedTab === 'inactive'} onClick={() => setSelectedTab('inactive')}>
               Inactive ({stats.inactive})
-            </button>
+            </ThemeFilterTab>
           </div>
 
           <div className="flex items-center space-x-3">
@@ -676,14 +800,14 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                 placeholder="Search learners..." 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-lg w-64 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 bg-surface text-content rounded-lg w-64 focus:ring-2 focus:ring-brand focus:border-transparent"
               />
             </div>
 
             <select 
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-semibold"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 bg-surface text-content rounded-lg focus:ring-2 focus:ring-brand focus:border-transparent font-semibold"
             >
               <option value="recent">Recently Active</option>
               <option value="name">Name (A-Z)</option>
@@ -696,16 +820,16 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
 
       {/* Learners List */}
       <div className="p-8">
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="app-card rounded-lg overflow-hidden">
           {loading ? (
             <div className="p-6 space-y-3">
               {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="h-14 rounded-xl bg-gray-100 dark:bg-gray-700 animate-pulse" />
+                <div key={i} className="h-14 rounded-xl bg-raised animate-pulse" />
               ))}
             </div>
           ) : filteredLearners.length === 0 ? (
             <div className="p-12">
-              <div className="text-center text-gray-500 dark:text-gray-400 mb-6">
+              <div className="text-center text-content-muted mb-6">
                 {learnersError ? (
                   <p className="text-amber-600 dark:text-amber-400 font-medium">{learnersError}</p>
                 ) : configMissing ? (
@@ -720,13 +844,13 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
               </div>
               {pendingInvites.length > 0 && (
                 <div className="mt-8 pt-8 border-t border-gray-200 dark:border-gray-600">
-                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Pending invites ({pendingInvites.length})</h4>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">These people have been invited. They will appear in Enrolled learners once they sign up and enroll.</p>
+                  <h4 className="text-sm font-semibold text-content-secondary mb-3">Pending invites ({pendingInvites.length})</h4>
+                  <p className="text-xs text-content-muted mb-4">These people have been invited. They will appear in Enrolled learners once they sign up and enroll.</p>
                   <ul className="space-y-2">
                     {pendingInvites.map((inv) => (
-                      <li key={inv.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-sm">
-                        <span className="text-gray-700 dark:text-gray-200">{inv.email}</span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">{inv.status}</span>
+                      <li key={inv.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 bg-raised/50 rounded-lg text-sm">
+                        <span className="text-content-secondary">{inv.email}</span>
+                        <span className="text-xs text-content-muted capitalize">{inv.status}</span>
                       </li>
                     ))}
                   </ul>
@@ -736,19 +860,17 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
           ) : filteredLearners.map((learner) => (
             <div 
               key={learner.id}
-              className="p-6 border-b border-gray-200 dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all"
+              className="p-6 border-b border-line last:border-b-0 hover:bg-overlay/50 transition-all"
             >
               <div className="flex items-center justify-between">
                 {/* Learner Info */}
                 <div className="flex items-center flex-1">
-                  <div className={`w-16 h-16 bg-gradient-to-br ${learner.avatarColor} rounded-full flex items-center justify-center text-white font-bold text-xl shadow-lg`}>
-                    {learner.avatar}
-                  </div>
+                  <ThemeAvatar initials={learner.avatar} className="w-16 h-16 text-xl" />
                   
                   <div className="ml-4 flex-1">
                     <div className="flex items-center space-x-3 mb-1">
-                      <h3 className="font-bold text-lg dark:text-white">{learner.name}</h3>
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center space-x-1 ${getStatusColor(learner.status)}`}>
+                      <h3 className="font-bold text-lg text-content">{learner.name}</h3>
+                      <span className={`${getStatusBadgeClass(learner.status)} flex items-center space-x-1`}>
                         {getStatusIcon(learner.status)}
                         <span className="capitalize">{learner.status.replace('-', ' ')}</span>
                       </span>
@@ -760,7 +882,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                       )}
                     </div>
                     
-                    <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-300">
+                    <div className="flex items-center space-x-4 text-sm text-content-secondary">
                       <span className="flex items-center">
                         <Mail className="w-4 h-4 mr-1" />
                         {learner.email}
@@ -781,12 +903,12 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                 {/* Stats */}
                 <div className="flex items-center space-x-8 mr-6">
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{learner.enrolledCourses}</p>
-                    <p className="text-xs text-gray-600 dark:text-gray-300">Enrolled</p>
+                    <p className="text-xl font-semibold text-content">{learner.enrolledCourses}</p>
+                    <p className="text-xs text-content-secondary">Enrolled</p>
                   </div>
                   <div className="text-center">
                     <p className="text-2xl font-bold text-green-600 dark:text-green-400">{learner.completedCourses}</p>
-                    <p className="text-xs text-gray-600 dark:text-gray-300">Completed</p>
+                    <p className="text-xs text-content-secondary">Completed</p>
                   </div>
                   <div className="text-center">
                     <div className="flex items-center justify-center space-x-1">
@@ -799,11 +921,11 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                         <ArrowDownRight className="w-5 h-5 text-red-600" />
                       )}
                     </div>
-                    <p className="text-xs text-gray-600 dark:text-gray-300">Avg. Progress</p>
+                    <p className="text-xs text-content-secondary">Avg. Progress</p>
                   </div>
                   <div className="text-center">
                     <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{learner.averageScore}%</p>
-                    <p className="text-xs text-gray-600 dark:text-gray-300">Avg. Score</p>
+                    <p className="text-xs text-content-secondary">Avg. Score</p>
                   </div>
                 </div>
 
@@ -811,26 +933,26 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                 <div className="flex items-center space-x-2">
                   <button 
                     onClick={() => setShowLearnerDetail(learner)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center transition-all"
+                    className={primaryBtn}
                   >
-                    <Eye className="w-4 h-4 mr-2" />
+                    <Eye className="w-4 h-4" />
                     View Details
                   </button>
                   
                   <div className="relative">
                     <button 
                       onClick={() => setActiveDropdown(activeDropdown === learner.id ? null : learner.id)}
-                      className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
+                      className={iconBtn}
                     >
-                      <MoreVertical className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                      <MoreVertical className="w-5 h-5 text-content-secondary" />
                     </button>
 
                     {activeDropdown === learner.id && (
-                      <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-2 z-30">
+                      <div className="absolute right-0 mt-2 w-56 bg-white bg-surface rounded-xl shadow-2xl border border-line py-2 z-30">
                         <button
                           type="button"
                           onClick={() => handleSendMessage(learner)}
-                          className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                          className="w-full px-4 py-2 text-left hover:bg-overlay flex items-center text-sm text-content-secondary"
                         >
                           <Mail className="w-4 h-4 mr-3" />
                           Send Message
@@ -840,7 +962,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                             handleSendReminder(learner.id, learner.email !== '(signed up)' ? learner.email : undefined, learner.name);
                             setActiveDropdown(null);
                           }}
-                          className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                          className="w-full px-4 py-2 text-left hover:bg-overlay flex items-center text-sm text-content-secondary"
                         >
                           <Bell className="w-4 h-4 mr-3" />
                           Send Reminder
@@ -848,7 +970,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                         <button
                           type="button"
                           onClick={() => handleEnrollLearner(learner)}
-                          className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                          className="w-full px-4 py-2 text-left hover:bg-overlay flex items-center text-sm text-content-secondary"
                         >
                           <BookOpen className="w-4 h-4 mr-3" />
                           Enroll in Course
@@ -859,7 +981,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                             exportLearnerProgressCsv(learner);
                             setActiveDropdown(null);
                           }}
-                          className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                          className="w-full px-4 py-2 text-left hover:bg-overlay flex items-center text-sm text-content-secondary"
                         >
                           <FileDown className="w-4 h-4 mr-3" />
                           Export Progress
@@ -884,8 +1006,8 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
               {/* Progress Bar */}
               <div className="mt-4">
                 <div className="flex justify-between text-sm mb-2">
-                  <span className="font-semibold dark:text-white">Overall Progress</span>
-                  <span className="text-gray-600 dark:text-gray-300">{learner.completedCourses} of {learner.enrolledCourses} courses completed</span>
+                  <span className="font-semibold text-content">Overall Progress</span>
+                  <span className="text-content-secondary">{learner.completedCourses} of {learner.enrolledCourses} courses completed</span>
                 </div>
                 <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-3">
                   <div 
@@ -903,22 +1025,22 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
               <div className="mt-4 flex items-center space-x-6 text-sm">
                 <div className="flex items-center">
                   <Trophy className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mr-2" />
-                  <span className="font-semibold dark:text-white">{learner.badges}</span>
-                  <span className="text-gray-600 dark:text-gray-300 ml-1">badges</span>
+                  <span className="font-semibold text-content">{learner.badges}</span>
+                  <span className="text-content-secondary ml-1">badges</span>
                 </div>
                 <div className="flex items-center">
                   <Award className="w-4 h-4 text-purple-600 dark:text-purple-400 mr-2" />
-                  <span className="font-semibold dark:text-white">{learner.certificates}</span>
-                  <span className="text-gray-600 dark:text-gray-300 ml-1">certificates</span>
+                  <span className="font-semibold text-content">{learner.certificates}</span>
+                  <span className="text-content-secondary ml-1">certificates</span>
                 </div>
                 <div className="flex items-center">
                   <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400 mr-2" />
-                  <span className="font-semibold dark:text-white">{learner.totalTimeSpent}</span>
-                  <span className="text-gray-600 dark:text-gray-300 ml-1">learning time</span>
+                  <span className="font-semibold text-content">{learner.totalTimeSpent}</span>
+                  <span className="text-content-secondary ml-1">learning time</span>
                 </div>
                 <div className="flex items-center">
-                  <Calendar className="w-4 h-4 text-gray-600 dark:text-gray-400 mr-2" />
-                  <span className="text-gray-600 dark:text-gray-300">Joined {learner.joinedDate}</span>
+                  <Calendar className="w-4 h-4 text-content-secondary mr-2" />
+                  <span className="text-content-secondary">Joined {learner.joinedDate}</span>
                 </div>
               </div>
             </div>
@@ -929,11 +1051,11 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
       {/* Invite Learners Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-gray-200 dark:border-gray-700">
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between sticky top-0 bg-white dark:bg-gray-800 z-10">
+          <div className="app-card rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-line">
+            <div className="p-6 border-b border-line flex items-center justify-between sticky top-0 bg-white bg-surface z-10">
               <div>
-                <h3 className="text-2xl font-bold dark:text-white">Invite learners</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Invites are saved and an email is sent when Resend is configured.</p>
+                <h3 className="text-2xl font-bold text-content">Invite learners</h3>
+                <p className="text-sm text-content-muted mt-1">Invites are saved and an email is sent when Resend is configured.</p>
               </div>
               <button 
                 onClick={() => {
@@ -942,7 +1064,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                   setInviteCustomMessage('');
                   setBulkUploadFile(null);
                 }}
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-all"
+                className="p-2 rounded-lg hover:bg-overlay text-content-muted transition-all"
                 aria-label="Close"
               >
                 <X className="w-6 h-6" />
@@ -951,40 +1073,40 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
 
             <div className="p-6">
               <div className="mb-6">
-                <label htmlFor="invite-message" className="block text-sm font-semibold mb-2 dark:text-gray-200">Personal message (optional)</label>
+                <label htmlFor="invite-message" className="block text-sm font-semibold mb-2 text-content-secondary">Personal message (optional)</label>
                 <textarea
                   id="invite-message"
                   value={inviteCustomMessage}
                   onChange={(e) => setInviteCustomMessage(e.target.value)}
                   placeholder="Add a note for your learners — shown above the invitation card in the email."
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent h-24 resize-none placeholder:text-gray-400 mb-6"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 bg-raised text-content rounded-xl focus:ring-2 focus:ring-brand focus:border-transparent h-24 resize-none placeholder:text-gray-400 mb-6"
                 />
-                <label htmlFor="invite-emails" className="block text-sm font-semibold mb-2 dark:text-gray-200">Email addresses</label>
+                <label htmlFor="invite-emails" className="block text-sm font-semibold mb-2 text-content-secondary">Email addresses</label>
                 <textarea 
                   id="invite-emails"
                   value={inviteEmails}
                   onChange={(e) => setInviteEmails(e.target.value)}
                   placeholder={'john@company.com\njane@company.com'}
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent h-32 resize-none placeholder:text-gray-400"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 bg-raised text-content rounded-xl focus:ring-2 focus:ring-brand focus:border-transparent h-32 resize-none placeholder:text-gray-400"
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Separate emails with commas or line breaks.</p>
+                <p className="text-xs text-content-muted mt-2">Separate emails with commas or line breaks.</p>
               </div>
 
               <div className="flex items-center my-6">
                 <div className="flex-1 border-t border-gray-200 dark:border-gray-600" />
-                <span className="px-4 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 font-medium">or</span>
+                <span className="px-4 text-xs uppercase tracking-wide text-content-muted font-medium">or</span>
                 <div className="flex-1 border-t border-gray-200 dark:border-gray-600" />
               </div>
 
               <div className="mb-6">
-                <label className="block text-sm font-semibold mb-2 dark:text-gray-200">Bulk upload (CSV)</label>
+                <label className="block text-sm font-semibold mb-2 text-content-secondary">Bulk upload (CSV)</label>
                 <label
                   htmlFor="csv-upload"
-                  className="block border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center hover:border-blue-500 dark:hover:border-blue-500 transition-all cursor-pointer dark:bg-gray-800/50"
+                  className="block border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center hover:border-blue-500 dark:hover:border-blue-500 transition-all cursor-pointer bg-surface/50"
                 >
                   <Upload className="w-10 h-10 text-gray-400 dark:text-gray-500 mx-auto mb-3" />
-                  <p className="font-medium mb-1 dark:text-white">Drop a CSV here or click to browse</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Include an <code className="text-xs">email</code> column</p>
+                  <p className="font-medium mb-1 text-content">Drop a CSV here or click to browse</p>
+                  <p className="text-sm text-content-muted">Include an <code className="text-xs">email</code> column</p>
                   <input
                     type="file"
                     accept=".csv"
@@ -997,7 +1119,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                   <div className="mt-3 flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
                     <div className="flex items-center min-w-0">
                       <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-2 shrink-0" />
-                      <span className="text-sm font-medium dark:text-white truncate">{bulkUploadFile.name}</span>
+                      <span className="text-sm font-medium text-content truncate">{bulkUploadFile.name}</span>
                     </div>
                     <button type="button" onClick={() => setBulkUploadFile(null)} className="text-red-600 dark:text-red-400 hover:text-red-700 p-1">
                       <X className="w-5 h-5" />
@@ -1007,19 +1129,82 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
               </div>
 
               <div className="mb-6">
-                <label htmlFor="invite-course" className="block text-sm font-semibold mb-2 dark:text-gray-200">Course (optional)</label>
+                <label htmlFor="invite-program" className="block text-sm font-semibold mb-2 text-content-secondary">Saved program (recommended)</label>
                 <select
-                  id="invite-course"
-                  value={inviteCourseId}
-                  onChange={(e) => setInviteCourseId(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  id="invite-program"
+                  value={inviteProgramId}
+                  onChange={(e) => {
+                    setInviteProgramId(e.target.value);
+                    if (e.target.value) setInviteCourseIds([]);
+                  }}
+                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 bg-raised text-content rounded-xl focus:ring-2 focus:ring-brand focus:border-transparent mb-2"
                 >
-                  <option value="">No auto-enroll — general invite</option>
-                  {publishedCourses.map((c) => (
-                    <option key={c.id} value={c.id}>{c.title}</option>
+                  <option value="">— Pick courses manually below —</option>
+                  {coursePrograms.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.title} ({p.courseIds.length} courses)
+                    </option>
                   ))}
                 </select>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">When selected, learners are auto-enrolled after sign-up and the email links directly to this course.</p>
+                {inviteProgramId && (
+                  <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                    One invite email · auto-enroll in all {coursePrograms.find((p) => p.id === inviteProgramId)?.courseIds.length ?? 0} courses on sign-up.
+                  </p>
+                )}
+              </div>
+
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-semibold text-content-secondary">Or pick courses ad hoc</label>
+                  {inviteCourseIds.length > 0 && !inviteProgramId && (
+                    <button
+                      type="button"
+                      onClick={() => setInviteCourseIds([])}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                    >
+                      Clear selection
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-content-muted mb-3">
+                  {inviteProgramId
+                    ? 'Clear the program above to select individual courses instead.'
+                    : 'Select one or more published courses. Learners receive one combined email.'}
+                </p>
+                {publishedCourses.length === 0 ? (
+                  <p className="text-sm text-content-muted italic">No published courses yet.</p>
+                ) : (
+                  <div className={`max-h-48 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-xl divide-y divide-gray-200 dark:divide-gray-600 ${inviteProgramId ? 'opacity-50 pointer-events-none' : ''}`}>
+                    {publishedCourses.map((c) => {
+                      const checked = inviteCourseIds.includes(c.id);
+                      return (
+                        <label
+                          key={c.id}
+                          className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-overlay/50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={Boolean(inviteProgramId)}
+                            onChange={() => {
+                              setInviteProgramId('');
+                              setInviteCourseIds((prev) =>
+                                checked ? prev.filter((id) => id !== c.id) : [...prev, c.id],
+                              );
+                            }}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-brand"
+                          />
+                          <span className="text-sm text-content">{c.title}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                {inviteCourseIds.length > 1 && !inviteProgramId && (
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-2 font-medium">
+                    {inviteCourseIds.length} courses selected — one combined invite email per learner.
+                  </p>
+                )}
               </div>
 
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 mb-6">
@@ -1045,7 +1230,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                     setBulkUploadFile(null);
                   }}
                   disabled={inviteSending}
-                  className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold transition-all disabled:opacity-50"
+                  className={`flex-1 ${headerSecondaryBtn} disabled:opacity-50`}
                 >
                   Cancel
                 </button>
@@ -1053,16 +1238,16 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                   type="button"
                   onClick={handleInviteLearners}
                   disabled={inviteSending}
-                  className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold transition-all shadow-lg flex items-center justify-center disabled:opacity-60"
+                  className={`flex-1 ${headerPrimaryBtn} disabled:opacity-60`}
                 >
                   {inviteSending ? (
                     <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      <Loader2 className="w-5 h-5 animate-spin" />
                       Sending…
                     </>
                   ) : (
                     <>
-                      <Send className="w-5 h-5 mr-2" />
+                      <Send className="w-5 h-5" />
                       Send invitations
                     </>
                   )}
@@ -1076,15 +1261,13 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
       {/* Learner Detail Modal */}
       {showLearnerDetail && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-4xl w-full my-8 border border-gray-200 dark:border-gray-700">
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+          <div className="app-card rounded-lg shadow-2xl max-w-4xl w-full my-8 border border-line">
+            <div className="p-6 border-b border-line flex items-center justify-between">
               <div className="flex items-center">
-                <div className={`w-16 h-16 bg-gradient-to-br ${showLearnerDetail.avatarColor} rounded-full flex items-center justify-center text-white font-bold text-2xl shadow-lg`}>
-                  {showLearnerDetail.avatar}
-                </div>
+                <ThemeAvatar initials={showLearnerDetail.avatar} className="w-16 h-16 text-2xl" />
                 <div className="ml-4">
-                  <h3 className="text-2xl font-bold dark:text-white">{showLearnerDetail.name}</h3>
-                  <p className="text-gray-600 dark:text-gray-400">{showLearnerDetail.email}</p>
+                  <h3 className="text-2xl font-bold text-content">{showLearnerDetail.name}</h3>
+                  <p className="text-content-secondary">{showLearnerDetail.email}</p>
                 </div>
               </div>
               <button 
@@ -1097,61 +1280,47 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
 
             <div className="p-6">
               {/* Quick Stats */}
-              <div className="grid grid-cols-4 gap-4 mb-6">
-                <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 p-4 rounded-xl border border-blue-200 dark:border-blue-800">
-                  <p className="text-sm text-blue-600 dark:text-blue-400 font-semibold mb-1">Total Progress</p>
-                  <p className="text-3xl font-bold text-blue-700 dark:text-white">{showLearnerDetail.totalProgress}%</p>
-                </div>
-                <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 p-4 rounded-xl border border-green-200 dark:border-green-800">
-                  <p className="text-sm text-green-600 dark:text-green-400 font-semibold mb-1">Avg. Score</p>
-                  <p className="text-3xl font-bold text-green-700 dark:text-white">{showLearnerDetail.averageScore}%</p>
-                </div>
-                <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 p-4 rounded-xl border border-purple-200 dark:border-purple-800">
-                  <p className="text-sm text-purple-600 dark:text-purple-400 font-semibold mb-1">Certificates</p>
-                  <p className="text-3xl font-bold text-purple-700 dark:text-white">{showLearnerDetail.certificates}</p>
-                </div>
-                <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20 p-4 rounded-xl border border-orange-200 dark:border-orange-800">
-                  <p className="text-sm text-orange-600 dark:text-orange-400 font-semibold mb-1">Time Spent</p>
-                  <p className="text-2xl font-bold text-orange-700 dark:text-white">{showLearnerDetail.totalTimeSpent}</p>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <ThemeStatCard icon={TrendingUp} title="Total Progress" value={`${showLearnerDetail.totalProgress}%`} variant="info" />
+                <ThemeStatCard icon={Star} title="Avg. Score" value={`${showLearnerDetail.averageScore}%`} variant="success" />
+                <ThemeStatCard icon={Award} title="Certificates" value={showLearnerDetail.certificates} variant="neutral" />
+                <ThemeStatCard icon={Clock} title="Time Spent" value={showLearnerDetail.totalTimeSpent} variant="warning" />
               </div>
 
               {/* Profile Info */}
-              <div className="mb-6 bg-gray-50 dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-                <h4 className="font-bold mb-3 dark:text-white">Profile Information</h4>
+              <div className="mb-6 bg-raised rounded-xl p-4 border border-line">
+                <h4 className="font-bold mb-3 text-content">Profile Information</h4>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <p className="text-gray-600 dark:text-gray-400 mb-1">Department</p>
-                    <p className="font-semibold dark:text-white">{showLearnerDetail.department}</p>
+                    <p className="text-content-secondary mb-1">Department</p>
+                    <p className="font-semibold text-content">{showLearnerDetail.department}</p>
                   </div>
                   <div>
-                    <p className="text-gray-600 dark:text-gray-400 mb-1">Role</p>
-                    <p className="font-semibold dark:text-white">{showLearnerDetail.role}</p>
+                    <p className="text-content-secondary mb-1">Role</p>
+                    <p className="font-semibold text-content">{showLearnerDetail.role}</p>
                   </div>
                   <div>
-                    <p className="text-gray-600 dark:text-gray-400 mb-1">Manager</p>
-                    <p className="font-semibold dark:text-white">{showLearnerDetail.manager}</p>
+                    <p className="text-content-secondary mb-1">Manager</p>
+                    <p className="font-semibold text-content">{showLearnerDetail.manager}</p>
                   </div>
                   <div>
-                    <p className="text-gray-600 dark:text-gray-400 mb-1">Joined Date</p>
-                    <p className="font-semibold dark:text-white">{showLearnerDetail.joinedDate}</p>
+                    <p className="text-content-secondary mb-1">Joined Date</p>
+                    <p className="font-semibold text-content">{showLearnerDetail.joinedDate}</p>
                   </div>
                 </div>
               </div>
 
               {/* Enrolled Courses */}
               <div className="mb-6">
-                <h4 className="font-bold mb-3 dark:text-white">Enrolled Courses ({showLearnerDetail.enrolledCourses})</h4>
+                <h4 className="font-bold mb-3 text-content">Enrolled Courses ({showLearnerDetail.enrolledCourses})</h4>
                 <div className="space-y-3">
                   {showLearnerDetail.courses.map((course: any) => (
-                    <div key={course.id} className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 border border-gray-200 dark:border-gray-600">
+                    <div key={course.id} className="bg-gray-50 bg-raised/50 rounded-xl p-4 border border-gray-200 dark:border-gray-600">
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex-1">
-                          <h5 className="font-semibold dark:text-white">{course.name}</h5>
-                          <div className="flex items-center space-x-4 mt-1 text-sm text-gray-600 dark:text-gray-400">
-                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                              course.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
-                            }`}>
+                          <h5 className="font-semibold text-content">{course.name}</h5>
+                          <div className="flex items-center space-x-4 mt-1 text-sm text-content-secondary">
+                            <span className={`c-badge ${course.status === 'completed' ? 'c-badge-ok' : 'c-badge-info'}`}>
                               {course.status === 'completed' ? 'Completed' : 'In Progress'}
                             </span>
                             {course.status === 'completed' ? (
@@ -1163,7 +1332,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                         </div>
                         <div className="text-right">
                           <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{course.score}%</p>
-                          <p className="text-xs text-gray-600 dark:text-gray-400">Score</p>
+                          <p className="text-xs text-content-secondary">Score</p>
                         </div>
                       </div>
                       <div className="flex items-center">
@@ -1175,7 +1344,7 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                             style={{width: `${course.progress}%`}}
                           ></div>
                         </div>
-                        <span className="text-sm font-semibold dark:text-white">{course.progress}%</span>
+                        <span className="text-sm font-semibold text-content">{course.progress}%</span>
                       </div>
                     </div>
                   ))}
@@ -1184,24 +1353,24 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
 
               {/* Recent Activity */}
               <div className="mb-6">
-                <h4 className="font-bold mb-3 dark:text-white">Recent Activity</h4>
+                <h4 className="font-bold mb-3 text-content">Recent Activity</h4>
                 <div className="space-y-3">
                   {showLearnerDetail.activityLog.map((activity: any, idx: number) => (
-                    <div key={idx} className="flex items-center bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
+                    <div key={idx} className="flex items-center bg-gray-50 bg-raised/50 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
                       {activity.type === 'completed' && <CheckCircle className="w-5 h-5 text-green-600 mr-3" />}
                       {activity.type === 'started' && <Play className="w-5 h-5 text-blue-600 mr-3" />}
                       {activity.type === 'quiz-passed' && <Trophy className="w-5 h-5 text-yellow-600 mr-3" />}
                       {activity.type === 'missed-deadline' && <AlertCircle className="w-5 h-5 text-red-600 mr-3" />}
                       {activity.type === 'inactive' && <Clock className="w-5 h-5 text-gray-600 mr-3" />}
                       <div className="flex-1">
-                        <p className="text-sm font-semibold dark:text-white">
+                        <p className="text-sm font-semibold text-content">
                           {activity.type === 'completed' && `Completed ${activity.course}`}
                           {activity.type === 'started' && `Started ${activity.course}`}
                           {activity.type === 'quiz-passed' && `Passed quiz in ${activity.course} with ${activity.score}%`}
                           {activity.type === 'missed-deadline' && `Missed deadline for ${activity.course}`}
                           {activity.type === 'inactive' && 'No activity'}
                         </p>
-                        <p className="text-xs text-gray-600 dark:text-gray-400">{activity.time}</p>
+                        <p className="text-xs text-content-secondary">{activity.time}</p>
                       </div>
                     </div>
                   ))}
@@ -1213,26 +1382,103 @@ const Learners: React.FC<LearnersProps> = ({ setCurrentView }) => {
                 <button
                   type="button"
                   onClick={() => handleSendMessage(showLearnerDetail)}
-                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center justify-center transition-all"
+                  className={`flex-1 ${headerPrimaryBtn}`}
                 >
-                  <Mail className="w-5 h-5 mr-2" />
+                  <Mail className="w-5 h-5" />
                   Send Message
                 </button>
                 <button
                   type="button"
                   onClick={() => handleEnrollLearner(showLearnerDetail)}
-                  className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold flex items-center justify-center transition-all"
+                  className={`flex-1 ${headerSecondaryBtn}`}
                 >
-                  <BookOpen className="w-5 h-5 mr-2" />
+                  <BookOpen className="w-5 h-5" />
                   Enroll in Course
                 </button>
                 <button
                   type="button"
                   onClick={() => exportLearnerProgressCsv(showLearnerDetail)}
-                  className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold flex items-center justify-center transition-all"
+                  className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 text-content-secondary rounded-xl hover:bg-overlay font-semibold flex items-center justify-center transition-all"
                 >
                   <Download className="w-5 h-5 mr-2" />
                   Export Data
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create / edit course program */}
+      {showProgramModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="app-card rounded-lg shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-line">
+            <div className="p-6 border-b border-line flex items-center justify-between">
+              <h3 className="text-xl font-bold text-content">
+                {editingProgramId ? 'Edit program' : 'New course program'}
+              </h3>
+              <button type="button" onClick={() => setShowProgramModal(false)} className="p-2 rounded-lg hover:bg-overlay text-content-secondary">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-content-secondary uppercase tracking-wider mb-1.5">Program name</label>
+                <input
+                  type="text"
+                  value={programTitle}
+                  onChange={(e) => setProgramTitle(e.target.value)}
+                  placeholder="e.g. Google Project Management Certificate"
+                  className="app-input"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-content-secondary uppercase tracking-wider mb-1.5">Description (optional)</label>
+                <textarea
+                  value={programDescription}
+                  onChange={(e) => setProgramDescription(e.target.value)}
+                  className="app-input h-20 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-content-secondary uppercase tracking-wider mb-1.5">Courses in this program</label>
+                <div className="max-h-52 overflow-y-auto border border-line rounded-lg divide-y divide-line">
+                  {publishedCourses.map((c) => {
+                    const checked = programCourseIds.includes(c.id);
+                    return (
+                      <label key={c.id} className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-overlay/50">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setProgramCourseIds((prev) =>
+                              checked ? prev.filter((id) => id !== c.id) : [...prev, c.id],
+                            );
+                          }}
+                          className="rounded border-line text-brand focus:ring-brand/40"
+                        />
+                        <span className="text-sm text-content">{c.title}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowProgramModal(false)}
+                  className="flex-1 c-btn c-btn-ghost py-3"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveProgram()}
+                  disabled={programSaving}
+                  className="flex-1 c-btn c-btn-primary py-3 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {programSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  Save program
                 </button>
               </div>
             </div>

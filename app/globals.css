@@ -1,3 +1,146 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap');
+
+@import './coursify-theme.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Bridge coursify-theme.css (--c-*) → Tailwind / legacy app tokens */
+:root {
+  --accent: var(--c-accent);
+  --accent-hover: var(--c-accent-d);
+  --accent-subtle: var(--c-accent-bg);
+  --accent-border: var(--c-accent-br);
+
+  --info: var(--c-info);
+  --info-subtle: var(--c-info-bg);
+  --success: var(--c-ok);
+  --success-subtle: var(--c-ok-bg);
+  --warning: var(--c-warn);
+  --warning-subtle: var(--c-warn-bg);
+  --danger: var(--c-err);
+  --danger-subtle: var(--c-err-bg);
+
+  --yellow: var(--c-yellow);
+
+  --font-ui: var(--c-font-sans);
+  --font-mono: var(--c-font-mono);
+
+  --radius-sm: var(--c-r-sm);
+  --radius-md: var(--c-r-md);
+  --radius-lg: var(--c-r-lg);
+  --radius-xl: var(--c-r-xl);
+
+  --bg-base: var(--c-bg);
+  --bg-surface: var(--c-s1);
+  --bg-raised: var(--c-s2);
+  --bg-overlay: var(--c-s3);
+
+  --border: var(--c-border);
+  --border-md: var(--c-border-s);
+  --border-lg: var(--c-border-x);
+
+  --text-primary: var(--c-text);
+  --text-secondary: var(--c-text-s);
+  --text-muted: var(--c-text-m);
+  --text-disabled: var(--c-text-d);
+
+  --nav-bg: var(--c-s1);
+  --card-bg: var(--c-s1);
+  --input-bg: var(--c-s3);
+}
+
+@layer base {
+  body {
+    font-family: var(--c-font-sans);
+    font-size: var(--c-text-base);
+    line-height: 1.6;
+    background: var(--c-bg);
+    color: var(--c-text);
+    -webkit-font-smoothing: antialiased;
+    transition: background 0.2s, color 0.2s;
+  }
+}
+
+@layer components {
+  .app-shell { background: var(--c-bg); color: var(--c-text); }
+  .app-header { background: var(--c-s1); }
+
+  .app-card {
+    background: var(--c-s1);
+    border: 0.5px solid var(--c-border);
+    border-radius: var(--c-r-md);
+  }
+
+  .app-input {
+    background: var(--c-s3);
+    border: 0.5px solid var(--c-border-s);
+    border-radius: var(--c-r-sm);
+    color: var(--c-text);
+    font-family: var(--c-font-sans);
+    font-size: var(--c-text-sm);
+    padding: 7px 12px;
+    width: 100%;
+    transition: border-color var(--c-dur) var(--c-ease);
+    outline: none;
+  }
+  .app-input::placeholder { color: var(--c-text-d); }
+  .app-input:focus { border-color: var(--c-accent-br); }
+
+  .btn-brand {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: var(--c-r-sm);
+    font-size: var(--c-text-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--c-dur) var(--c-ease),
+                color var(--c-dur) var(--c-ease),
+                border-color var(--c-dur) var(--c-ease);
+    white-space: nowrap;
+    border: 1px solid var(--c-accent-br);
+    background: var(--c-accent-bg);
+    color: var(--c-accent);
+  }
+  .btn-brand:hover {
+    background: var(--c-accent-bg-hover, rgba(255, 107, 53, 0.16));
+    color: var(--c-accent);
+    border-color: var(--c-accent);
+  }
+
+  .btn-secondary,
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: var(--c-r-sm);
+    font-size: var(--c-text-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--c-dur) var(--c-ease), color var(--c-dur) var(--c-ease), border-color var(--c-dur) var(--c-ease);
+    white-space: nowrap;
+    background: transparent;
+    color: var(--c-text-s);
+    border: 0.5px solid var(--c-border-s);
+  }
+  .btn-secondary:hover,
+  .btn-ghost:hover {
+    background: var(--c-s3);
+    color: var(--c-text);
+    border-color: var(--c-border-x);
+  }
+
+  .section-label {
+    font-family: var(--c-font-mono);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--c-text-m);
+  }
+}

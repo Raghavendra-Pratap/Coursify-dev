@@ -1,0 +1,9 @@
+<svg width="300" height="50" viewBox="0 0 300 50" xmlns="http://www.w3.org/2000/svg">
+  <style>@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&amp;display=swap');</style>
+  <rect x="0" y="3" width="44" height="44" rx="8" fill="#161616" stroke="#242424" stroke-width="0.75"/>
+  <polyline points="12,17 20,25 12,33" fill="none" stroke="#ff6b35" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="22,17 30,25 22,33" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="36" cy="36" r="4" fill="#ff6b35"/>
+  <text x="58" y="24" font-family="DM Mono, monospace" font-size="20" font-weight="500" fill="#ffffff" letter-spacing="0.5">Coursify</text>
+  <text x="59" y="40" font-family="DM Mono, monospace" font-size="9" font-weight="300" fill="#ff6b35" letter-spacing="1.5">LMS · SEGMENTED PIPELINE</text>
+</svg>

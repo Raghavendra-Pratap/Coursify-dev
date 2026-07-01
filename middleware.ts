@@ -1,5 +1,12 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { ROUTES } from '@/lib/site-urls'
+
+function copyCookies(from: NextResponse, to: NextResponse) {
+  from.cookies.getAll().forEach((cookie) => {
+    to.cookies.set(cookie.name, cookie.value, cookie)
+  })
+}
 
 export async function middleware(request: NextRequest) {
   const response = NextResponse.next({ request })
@@ -22,8 +29,33 @@ export async function middleware(request: NextRequest) {
     },
   })
 
-  // Refresh session so cookies stay in sync and session persists on refresh
-  await supabase.auth.getSession()
+  const { data: { session } } = await supabase.auth.getSession()
+
+  const { pathname } = request.nextUrl
+  if (pathname === '/') {
+    const url = request.nextUrl.clone()
+    const params = url.searchParams
+    const hasAppQuery =
+      params.has('enroll') ||
+      params.has('landing') ||
+      params.has('view') ||
+      params.has('code') ||
+      params.has('error')
+
+    if (hasAppQuery) {
+      url.pathname = ROUTES.login
+    } else if (session?.user) {
+      url.pathname = ROUTES.login
+      url.search = ''
+    } else {
+      url.pathname = ROUTES.home
+      url.search = ''
+    }
+
+    const redirectResponse = NextResponse.redirect(url)
+    copyCookies(response, redirectResponse)
+    return redirectResponse
+  }
 
   return response
 }

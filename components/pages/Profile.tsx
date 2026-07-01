@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { ThemeStatCard } from '@/components/ui/ThemeStatCard';
 import {
   Camera,
   MapPin,
@@ -349,7 +350,7 @@ export default function Profile({ setCurrentView }: ProfileProps) {
   if (loading) {
     return (
       <div className="min-h-screen dark:bg-gray-900">
-        <div className="h-48 bg-gradient-to-r from-purple-500 to-blue-600 animate-pulse" />
+        <div className="h-48 surface-2 animate-pulse border-b border-line" />
         <div className="max-w-4xl mx-auto px-6 -mt-16 relative">
           <div className="animate-pulse h-32 bg-gray-200 dark:bg-gray-700 rounded-2xl" />
         </div>
@@ -361,17 +362,17 @@ export default function Profile({ setCurrentView }: ProfileProps) {
     return (
       <div className="p-8 max-w-2xl dark:bg-gray-900 min-h-screen">
         <h2 className="text-xl font-bold mb-2 dark:text-white">Profile</h2>
-        <p className="text-gray-600 dark:text-gray-400">Sign in to view your profile.</p>
+        <p className="text-content-secondary">Sign in to view your profile.</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50/50 dark:bg-gray-900">
+    <div className="min-h-screen bg-canvas">
       {/* Cover */}
       <div
-        className="relative h-48 bg-gradient-to-r from-purple-500 via-purple-600 to-blue-600"
-        style={coverUrl ? { backgroundImage: `url(${coverUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+        className="relative h-48 surface-2 border-b border-line"
+        style={coverUrl ? { backgroundImage: `url(${coverUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : { background: 'linear-gradient(135deg, var(--c-s2) 0%, var(--c-s3) 55%, var(--c-accent-bg) 100%)' }}
       >
         <input
           ref={coverInputRef}
@@ -384,7 +385,7 @@ export default function Profile({ setCurrentView }: ProfileProps) {
           type="button"
           onClick={handleCoverClick}
           disabled={uploadingCover}
-          className="absolute top-4 right-4 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium text-white flex items-center gap-2 disabled:opacity-60"
+          className="absolute top-4 right-4 px-3 py-1.5 c-btn c-btn-ghost text-sm"
         >
           <Camera className="w-4 h-4" />
           {uploadingCover ? 'Uploading…' : 'Change Cover'}
@@ -393,7 +394,7 @@ export default function Profile({ setCurrentView }: ProfileProps) {
 
       <div className="max-w-4xl mx-auto px-6 -mt-20 relative z-10 pb-12">
         {/* Profile header card */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden mb-6">
+        <div className="app-card rounded-2xl border border-line shadow-sm overflow-hidden mb-6">
           <div className="p-6 flex flex-wrap items-start gap-6">
             <div className="relative">
               <input
@@ -407,13 +408,13 @@ export default function Profile({ setCurrentView }: ProfileProps) {
                 type="button"
                 onClick={handleAvatarClick}
                 disabled={uploadingAvatar}
-                className="block w-28 h-28 rounded-2xl overflow-hidden bg-gradient-to-br from-pink-400 to-purple-500 shadow-lg focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                className="block w-28 h-28 rounded-2xl overflow-hidden bg-brand-subtle border border-brand-border shadow-lg focus:ring-2 focus:ring-brand focus:ring-offset-2 focus:ring-offset-surface"
               >
                 {avatarUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
                 ) : (
-                  <span className="w-full h-full flex items-center justify-center text-white font-bold text-4xl">{initials}</span>
+                  <span className="w-full h-full flex items-center justify-center text-brand font-bold text-4xl">{initials}</span>
                 )}
               </button>
               <button
@@ -427,9 +428,9 @@ export default function Profile({ setCurrentView }: ProfileProps) {
               </button>
             </div>
             <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{displayName}</h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-0.5">{role}{organization ? ` • ${organization}` : ''}</p>
-              <div className="flex flex-wrap gap-4 mt-2 text-sm text-gray-500 dark:text-gray-400">
+              <h1 className="text-2xl font-bold text-content">{displayName}</h1>
+              <p className="text-content-secondary mt-0.5">{role}{organization ? ` • ${organization}` : ''}</p>
+              <div className="flex flex-wrap gap-4 mt-2 text-sm text-content-secondary">
                 <span className="flex items-center gap-1"><MapPin className="w-4 h-4" /> {location || '—'}</span>
                 {joinedAt && (
                   <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> Joined {joinedAt}</span>
@@ -439,7 +440,7 @@ export default function Profile({ setCurrentView }: ProfileProps) {
             <div className="flex gap-2">
               <button
                 onClick={openEditModal}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
+                className="px-4 py-2 btn-secondary flex items-center gap-2"
               >
                 <Pencil className="w-4 h-4" />
                 Edit Profile
@@ -448,38 +449,21 @@ export default function Profile({ setCurrentView }: ProfileProps) {
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-5 gap-4 p-6 border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
-            <div className="bg-white dark:bg-gray-700/50 rounded-xl p-4 text-center border border-gray-100 dark:border-gray-600">
-              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.completed}</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">Completed</p>
-            </div>
-            <div className="bg-white dark:bg-gray-700/50 rounded-xl p-4 text-center border border-gray-100 dark:border-gray-600">
-              <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{stats.certificates}</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">Certificates</p>
-            </div>
-            <div className="bg-white dark:bg-gray-700/50 rounded-xl p-4 text-center border border-gray-100 dark:border-gray-600">
-              <p className="text-2xl font-bold text-green-600 dark:text-green-400">{stats.badges}</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">Badges</p>
-            </div>
-            <div className="bg-white dark:bg-gray-700/50 rounded-xl p-4 text-center border border-gray-100 dark:border-gray-600">
-              <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">{stats.streak}</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">Day Streak</p>
-            </div>
-            <div className="bg-white dark:bg-gray-700/50 rounded-xl p-4 text-center border border-gray-100 dark:border-gray-600">
-              <p className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.rank ? `#${stats.rank}` : '—'}</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">Rank</p>
-            </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-6 border-t border-line surface-2">
+            <ThemeStatCard icon={CheckCircle} title="Completed" value={stats.completed} variant="info" />
+            <ThemeStatCard icon={Award} title="Certificates" value={stats.certificates} variant="neutral" />
+            <ThemeStatCard icon={Zap} title="Badges" value={stats.badges} variant="success" />
+            <ThemeStatCard icon={Play} title="Day Streak" value={stats.streak} variant="warning" />
+            <ThemeStatCard icon={GraduationCap} title="Rank" value={stats.rank ? `#${stats.rank}` : '—'} variant="warning" />
           </div>
 
           {/* Tabs */}
-          <div className="flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+          <div className="flex border-b border-line overflow-x-auto px-2 gap-1">
             {tabs.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
-                className={`flex items-center gap-2 px-6 py-4 font-semibold text-sm whitespace-nowrap border-b-2 transition-colors ${
-                  activeTab === id ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                }`}
+                className={`c-nav-tab py-3 ${activeTab === id ? 'active' : ''}`}
               >
                 <Icon className="w-4 h-4" />
                 {label}
@@ -492,48 +476,48 @@ export default function Profile({ setCurrentView }: ProfileProps) {
         {activeTab === 'overview' && (
           <div className="space-y-6">
             {/* Quick Info */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Quick Info</h3>
+            <div className="app-card rounded-2xl border border-line p-6">
+              <h3 className="text-lg font-bold text-content mb-4">Quick Info</h3>
               <div className="space-y-3">
                 {email && (
-                  <div className="flex items-center gap-3 text-gray-700 dark:text-gray-300">
-                    <Mail className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                  <div className="flex items-center gap-3 text-content-secondary">
+                    <Mail className="w-4 h-4 text-content-muted" />
                     <span>{email}</span>
                   </div>
                 )}
                 {organization && (
-                  <div className="flex items-center gap-3 text-gray-700 dark:text-gray-300">
-                    <Briefcase className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                  <div className="flex items-center gap-3 text-content-secondary">
+                    <Briefcase className="w-4 h-4 text-content-muted" />
                     <span>{organization}</span>
                   </div>
                 )}
-                <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
-                  <Phone className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                <div className="flex items-center gap-3 text-content-secondary">
+                  <Phone className="w-4 h-4 text-content-muted" />
                   <span>—</span>
                 </div>
-                <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
-                  <Globe className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                <div className="flex items-center gap-3 text-content-secondary">
+                  <Globe className="w-4 h-4 text-content-muted" />
                   <span>{location || '—'}</span>
                 </div>
               </div>
             </div>
 
             {/* Recent Activity */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Recent Activity</h3>
+            <div className="app-card rounded-2xl border border-line p-6">
+              <h3 className="text-lg font-bold text-content mb-4">Recent Activity</h3>
               {recentActivity.length === 0 ? (
-                <p className="text-gray-500 dark:text-gray-400 text-sm">No recent activity yet.</p>
+                <p className="text-content-secondary text-sm">No recent activity yet.</p>
               ) : (
                 <ul className="space-y-4">
                   {recentActivity.map((a) => (
                     <li key={a.id} className="flex items-start gap-3">
                       {a.type === 'completed' && <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />}
-                      {a.type === 'started' && <Play className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />}
+                      {a.type === 'started' && <Play className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />}
                       {a.type === 'certificate' && <GraduationCap className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0 mt-0.5" />}
                       {a.type === 'badge' && <Award className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />}
                       <div>
-                        <p className="font-medium text-gray-900 dark:text-white">{a.title}</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{a.timeAgo}{a.meta ? ` · ${a.meta}` : ''}</p>
+                        <p className="font-medium text-content">{a.title}</p>
+                        <p className="text-sm text-content-secondary">{a.timeAgo}{a.meta ? ` · ${a.meta}` : ''}</p>
                       </div>
                     </li>
                   ))}
@@ -542,9 +526,9 @@ export default function Profile({ setCurrentView }: ProfileProps) {
             </div>
 
             {/* Learning Progress */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Learning Progress</h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Overall Completion</p>
+            <div className="app-card rounded-2xl border border-line p-6">
+              <h3 className="text-lg font-bold text-content mb-4">Learning Progress</h3>
+              <p className="text-sm text-content-secondary mb-2">Overall Completion</p>
               <div className="h-3 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden mb-4">
                 <div
                   className="h-full bg-purple-500 dark:bg-purple-600 rounded-full transition-all"
@@ -552,14 +536,14 @@ export default function Profile({ setCurrentView }: ProfileProps) {
                 />
               </div>
               <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{overallCompletion}%</p>
-              <div className="flex gap-6 mt-2 text-sm text-gray-600 dark:text-gray-400">
+              <div className="flex gap-6 mt-2 text-sm text-content-secondary">
                 <span>{timeSpentHours}h Time Spent</span>
                 <span>{avgScore}% Avg. Score</span>
               </div>
             </div>
 
             {/* Current Streak */}
-            <div className="bg-gradient-to-r from-orange-500 to-amber-500 rounded-2xl p-6 text-white relative overflow-hidden">
+            <div className="surface-2 border border-line rounded-2xl p-6 text-white relative overflow-hidden">
               <Zap className="absolute top-4 right-4 w-12 h-12 text-white/30" />
               <p className="text-3xl font-bold">{stats.streak} days in a row</p>
               <p className="text-white/90 mt-1">Keep it up! Learn tomorrow to maintain your streak.</p>
@@ -568,23 +552,23 @@ export default function Profile({ setCurrentView }: ProfileProps) {
         )}
 
         {activeTab === 'about' && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">About</h3>
-            <p className="text-gray-600 dark:text-gray-400">Add a short bio in Edit Profile.</p>
+          <div className="app-card rounded-2xl border border-line p-6">
+            <h3 className="text-lg font-bold text-content mb-4">About</h3>
+            <p className="text-content-secondary">Add a short bio in Edit Profile.</p>
           </div>
         )}
 
         {activeTab === 'courses' && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Courses</h3>
+          <div className="app-card rounded-2xl border border-line p-6">
+            <h3 className="text-lg font-bold text-content mb-4">Courses</h3>
             {enrolledCourses.length === 0 ? (
-              <p className="text-gray-600 dark:text-gray-400">You haven’t enrolled in any courses yet.</p>
+              <p className="text-content-secondary">You haven’t enrolled in any courses yet.</p>
             ) : (
               <ul className="space-y-3">
                 {enrolledCourses.map((c) => (
-                  <li key={c.id} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
-                    <span className="font-medium text-gray-900 dark:text-white">{c.title}</span>
-                    <span className="text-sm text-gray-500 dark:text-gray-400">
+                  <li key={c.id} className="flex items-center justify-between py-2 border-b border-line last:border-0">
+                    <span className="font-medium text-content">{c.title}</span>
+                    <span className="text-sm text-content-secondary">
                       {c.completed_at ? 'Completed' : `${c.progress_percentage}%`}
                     </span>
                   </li>
@@ -595,24 +579,24 @@ export default function Profile({ setCurrentView }: ProfileProps) {
         )}
 
         {activeTab === 'achievements' && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Achievements</h3>
+          <div className="app-card rounded-2xl border border-line p-6">
+            <h3 className="text-lg font-bold text-content mb-4">Achievements</h3>
             {achievements.length === 0 ? (
-              <p className="text-gray-600 dark:text-gray-400">Complete courses and lessons to unlock achievements.</p>
+              <p className="text-content-secondary">Complete courses and lessons to unlock achievements.</p>
             ) : (
               <div className="grid gap-3">
                 {achievements.map((a) => (
                   <div
                     key={a.id}
-                    className={`flex items-center justify-between p-4 rounded-xl border ${a.unlockedAt ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 opacity-75'}`}
+                    className={`flex items-center justify-between p-4 rounded-xl border ${a.unlockedAt ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' : 'surface-2 border-gray-200 dark:border-gray-600 opacity-75'}`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${a.unlockedAt ? 'bg-amber-500 text-white' : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400'}`}>
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${a.unlockedAt ? 'bg-amber-500 text-white' : 'bg-gray-300 dark:bg-gray-600 text-content-secondary'}`}>
                         <Award className="w-5 h-5" />
                       </div>
                       <div>
-                        <p className="font-semibold text-gray-900 dark:text-white">{a.title}</p>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">{a.description}</p>
+                        <p className="font-semibold text-content">{a.title}</p>
+                        <p className="text-sm text-content-secondary">{a.description}</p>
                       </div>
                     </div>
                     {a.unlockedAt ? (
@@ -620,7 +604,7 @@ export default function Profile({ setCurrentView }: ProfileProps) {
                         {a.unlockedAt === 'Just now' ? 'Unlocked' : new Date(a.unlockedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </span>
                     ) : (
-                      <span className="text-sm text-gray-500 dark:text-gray-400">Locked</span>
+                      <span className="text-sm text-content-secondary">Locked</span>
                     )}
                   </div>
                 ))}
@@ -630,10 +614,10 @@ export default function Profile({ setCurrentView }: ProfileProps) {
         )}
 
         {activeTab === 'certificates' && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Certificates</h3>
+          <div className="app-card rounded-2xl border border-line p-6">
+            <h3 className="text-lg font-bold text-content mb-4">Certificates</h3>
             {enrolledCourses.filter((c) => c.completed_at).length === 0 ? (
-              <p className="text-gray-600 dark:text-gray-400">Complete courses to earn certificates. Your certificates will appear here.</p>
+              <p className="text-content-secondary">Complete courses to earn certificates. Your certificates will appear here.</p>
             ) : (
               <div className="grid gap-3">
                 {enrolledCourses
@@ -645,8 +629,8 @@ export default function Profile({ setCurrentView }: ProfileProps) {
                           <GraduationCap className="w-5 h-5" />
                         </div>
                         <div>
-                          <p className="font-semibold text-gray-900 dark:text-white">{c.title}</p>
-                          <p className="text-sm text-gray-600 dark:text-gray-400">Completed {c.progress_percentage ?? 100}%</p>
+                          <p className="font-semibold text-content">{c.title}</p>
+                          <p className="text-sm text-content-secondary">Completed {c.progress_percentage ?? 100}%</p>
                         </div>
                       </div>
                       <span className="text-sm text-green-700 dark:text-green-300">
@@ -663,56 +647,56 @@ export default function Profile({ setCurrentView }: ProfileProps) {
       {/* Edit Profile Modal */}
       {showEditModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowEditModal(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6 border border-gray-200 dark:border-gray-700" onClick={(e) => e.stopPropagation()}>
+          <div className="app-card rounded-2xl shadow-xl max-w-md w-full p-6 border border-line" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Edit Profile</h3>
-              <button onClick={() => setShowEditModal(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
+              <h3 className="text-xl font-bold text-content">Edit Profile</h3>
+              <button onClick={() => setShowEditModal(false)} className="p-2 hover:bg-raised rounded-lg">
                 <X className="w-5 h-5 dark:text-gray-200" />
               </button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Name</label>
+                <label className="block text-sm font-semibold text-content-secondary mb-1">Name</label>
                 <input
                   type="text"
                   value={editFullName}
                   onChange={(e) => setEditFullName(e.target.value)}
                   placeholder="Your name"
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  className="w-full px-4 py-2 border border-line rounded-xl focus:ring-2 focus:ring-brand focus:border-transparent app-input"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Position / Department</label>
+                <label className="block text-sm font-semibold text-content-secondary mb-1">Position / Department</label>
                 <input
                   type="text"
                   value={editOrganization}
                   onChange={(e) => setEditOrganization(e.target.value)}
                   placeholder="e.g. Product, Engineering"
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  className="w-full px-4 py-2 border border-line rounded-xl focus:ring-2 focus:ring-brand focus:border-transparent app-input"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Location</label>
+                <label className="block text-sm font-semibold text-content-secondary mb-1">Location</label>
                 <input
                   type="text"
                   value={editLocation}
                   onChange={(e) => setEditLocation(e.target.value)}
                   placeholder="e.g. San Francisco, CA"
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  className="w-full px-4 py-2 border border-line rounded-xl focus:ring-2 focus:ring-brand focus:border-transparent app-input"
                 />
               </div>
             </div>
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setShowEditModal(false)}
-                className="flex-1 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+                className="flex-1 py-2.5 border border-line rounded-xl font-semibold text-gray-700 dark:text-gray-200 hover:bg-raised"
               >
                 Cancel
               </button>
               <button
                 onClick={saveEditProfile}
                 disabled={savingProfile}
-                className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50"
+                className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-semibold disabled:opacity-50"
               >
                 {savingProfile ? 'Saving…' : 'Save'}
               </button>

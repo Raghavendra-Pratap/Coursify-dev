@@ -4,13 +4,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, Users, Plus, Clock, Video, Edit, X, Eye, Filter, Grid, List, Star, TrendingUp, TrendingDown,
   Download, Share2, Copy, Trash2, Archive, MoreVertical, BookOpen, CheckCircle, Award, Mail, Link2, Globe,
-  Search, BarChart3, Folder, AlertCircle, UserPlus, Loader2
+  Search, BarChart3, Folder, AlertCircle, UserPlus, Loader2, Layers
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import CourseProgramSection from '@/components/CourseProgramSection';
 import { downloadCsv } from '@/lib/download-csv';
 import { getPreferences, getCourseRecommendationScore } from '@/lib/preference-loop';
 import type { LearnerPreferences } from '@/lib/preference-loop';
 import { fetchJsonCached, readClientCache, SHELL_CACHE_MS } from '@/lib/client-fetch-cache';
+import { ThemeStatCard, ThemeFilterTab } from '@/components/ui/ThemeStatCard';
+import { courseStatusBadge, enrollmentStageBadge, headerPrimaryBtn, headerSecondaryBtn, iconBtn, pageHeaderActions, thumbOverlayIconBtn } from '@/components/ui/theme-classes';
 
 type SessionMode = 'instructor' | 'learner' | null;
 
@@ -201,6 +204,8 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
     () => (typeof instructorCache?.totalUniqueLearners === 'number' ? instructorCache.totalUniqueLearners : null)
   );
   const [userRole, setUserRole] = useState<'learner' | 'instructor' | 'admin' | null>(null);
+  const [programCount, setProgramCount] = useState(0);
+  const [programCreateRequested, setProgramCreateRequested] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -346,7 +351,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
   const getFilteredCourses = () => {
     let filtered = courses;
 
-    if (selectedFilter !== 'all') {
+    if (selectedFilter !== 'all' && selectedFilter !== 'programs') {
       filtered = filtered.filter(c => c.status === selectedFilter);
     }
 
@@ -386,6 +391,10 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
   };
 
   const filteredCourses = getFilteredCourses();
+  const publishedCoursesForPrograms = courses
+    .filter((c) => c.status === 'published' && typeof c.id === 'string')
+    .map((c) => ({ id: c.id as string, title: c.title, status: c.status, learners: c.learners }));
+  const programsOnlyView = selectedFilter === 'programs';
 
   const toggleCourseSelection = (courseId: CourseId) => {
     setSelectedCourses(prev => 
@@ -842,65 +851,33 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
   if (isLearnerView) {
     return (
       <div>
-        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-8 py-6 sticky top-0 z-20">
+        <div className="bg-surface border-b border-line px-8 py-6 sticky top-0 z-20">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">My learning</h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">Your enrolled courses. Continue where you left off.</p>
+              <h1 className="text-2xl font-semibold text-content">My learning</h1>
+              <p className="text-content-secondary mt-1">Your enrolled courses. Continue where you left off.</p>
             </div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-            <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 p-4 rounded-xl border border-blue-200 dark:border-blue-800">
-              <p className="text-sm text-blue-600 dark:text-blue-400 font-semibold mb-1">Enrolled</p>
-              <p className="text-3xl font-bold text-blue-700 dark:text-blue-300">{learnerStats.enrolled}</p>
-            </div>
-            <div className="bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-900/20 dark:to-amber-800/20 p-4 rounded-xl border border-amber-200 dark:border-amber-800">
-              <p className="text-sm text-amber-600 dark:text-amber-400 font-semibold mb-1">In progress</p>
-              <p className="text-3xl font-bold text-amber-700 dark:text-amber-300">{learnerStats.inProgress}</p>
-            </div>
-            <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 p-4 rounded-xl border border-green-200 dark:border-green-800">
-              <p className="text-sm text-green-600 dark:text-green-400 font-semibold mb-1">Completed</p>
-              <p className="text-3xl font-bold text-green-700 dark:text-green-300">{learnerStats.completed}</p>
-            </div>
-            <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20 p-4 rounded-xl border border-orange-200 dark:border-orange-800">
-              <p className="text-sm text-orange-600 dark:text-orange-400 font-semibold mb-1">Avg. completion</p>
-              <p className="text-3xl font-bold text-orange-700 dark:text-orange-300">{learnerStats.avgCompletion}%</p>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            <ThemeStatCard icon={BookOpen} title="Enrolled" value={learnerStats.enrolled} variant="info" />
+            <ThemeStatCard icon={Clock} title="In progress" value={learnerStats.inProgress} variant="warning" />
+            <ThemeStatCard icon={CheckCircle} title="Completed" value={learnerStats.completed} variant="success" />
+            <ThemeStatCard icon={TrendingUp} title="Avg. completion" value={`${learnerStats.avgCompletion}%`} variant="warning" />
           </div>
             <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center space-x-3">
-              <button
-                onClick={() => setLearnerFilter('all')}
-                className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                  learnerFilter === 'all' ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-              >
+              <ThemeFilterTab active={learnerFilter === 'all'} onClick={() => setLearnerFilter('all')}>
                 All ({enrolledCourses.length})
-              </button>
-              <button
-                onClick={() => setLearnerFilter('enrolled')}
-                className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                  learnerFilter === 'enrolled' ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-              >
+              </ThemeFilterTab>
+              <ThemeFilterTab active={learnerFilter === 'enrolled'} onClick={() => setLearnerFilter('enrolled')}>
                 Enrolled ({learnerStats.enrolled})
-              </button>
-              <button
-                onClick={() => setLearnerFilter('in_progress')}
-                className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                  learnerFilter === 'in_progress' ? 'bg-amber-600 text-white shadow-lg' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-              >
+              </ThemeFilterTab>
+              <ThemeFilterTab active={learnerFilter === 'in_progress'} onClick={() => setLearnerFilter('in_progress')}>
                 In progress ({learnerStats.inProgress})
-              </button>
-              <button
-                onClick={() => setLearnerFilter('completed')}
-                className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                  learnerFilter === 'completed' ? 'bg-green-600 text-white shadow-lg' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-              >
+              </ThemeFilterTab>
+              <ThemeFilterTab active={learnerFilter === 'completed'} onClick={() => setLearnerFilter('completed')}>
                 Completed ({learnerStats.completed})
-              </button>
+              </ThemeFilterTab>
             </div>
             <div className="flex items-center space-x-3">
               <div className="relative">
@@ -910,24 +887,24 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                   placeholder="Search courses..."
                   value={learnerSearch}
                   onChange={(e) => setLearnerSearch(e.target.value)}
-                  className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg w-56 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="app-input pl-10 w-56"
                 />
               </div>
               <select
                 value={learnerSort}
                 onChange={(e) => setLearnerSort(e.target.value as 'recent' | 'name' | 'progress')}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-semibold"
+                className="app-input font-semibold w-auto"
               >
                 <option value="recent">Most recent</option>
                 <option value="name">Name (A–Z)</option>
                 <option value="progress">Progress</option>
               </select>
-              <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-                <button onClick={() => setViewMode('grid')} className={`p-2 rounded transition-all ${viewMode === 'grid' ? 'bg-white dark:bg-gray-600 shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
-                  <Grid className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+              <div className="flex bg-raised rounded-lg p-1">
+                <button onClick={() => setViewMode('grid')} className={`p-2 rounded transition-all ${viewMode === 'grid' ? 'surface-1 shadow-sm' : 'hover:bg-overlay'}`}>
+                  <Grid className="w-5 h-5 text-content-secondary" />
                 </button>
-                <button onClick={() => setViewMode('list')} className={`p-2 rounded transition-all ${viewMode === 'list' ? 'bg-white dark:bg-gray-600 shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
-                  <List className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                <button onClick={() => setViewMode('list')} className={`p-2 rounded transition-all ${viewMode === 'list' ? 'surface-1 shadow-sm' : 'hover:bg-overlay'}`}>
+                  <List className="w-5 h-5 text-content-secondary" />
                 </button>
               </div>
             </div>
@@ -935,17 +912,17 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
         </div>
         <div className="p-8">
           {enrolledLoading ? (
-            <div className="text-center py-16 text-gray-500 dark:text-gray-400">Loading your courses…</div>
+            <div className="text-center py-16 text-content-muted">Loading your courses…</div>
           ) : filteredEnrolled.length === 0 ? (
-            <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-600">
+            <div className="text-center py-16 app-card rounded-lg border-2 border-dashed border-line">
               <BookOpen className="w-20 h-20 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">No courses found</h3>
-              <p className="text-gray-600 dark:text-gray-400 mb-6">
+              <h3 className="text-xl font-semibold text-content mb-2">No courses found</h3>
+              <p className="text-content-secondary mb-6">
                 {learnerSearch ? `No courses match "${learnerSearch}"` : 'When you’re invited to a course, it will appear here.'}
               </p>
             </div>
           ) : viewMode === 'grid' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {filteredEnrolled.map((c) => {
                 const stage = getEnrollmentStage(c);
                 const modules = c.module_count ?? 0;
@@ -955,48 +932,46 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                 const myRating = c.my_rating;
                 const lastUpdated = c.updated_at ? formatCourseDate(c.updated_at) : null;
                 return (
-                  <div key={c.id} className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-xl transition-all group">
-                    <div className="bg-gradient-to-br from-blue-400 to-blue-600 h-36 flex items-center justify-center relative">
-                      <Video className="w-16 h-16 text-white opacity-80" />
-                      <span className={`absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-semibold ${
-                        stage === 'completed' ? 'bg-green-500 text-white' : stage === 'in_progress' ? 'bg-amber-500 text-white' : 'bg-blue-500 text-white'
-                      }`}>
+                  <div key={c.id} className="app-card rounded-lg overflow-hidden hover:shadow-xl transition-all group">
+                    <div className="c-course-thumb h-36">
+                      <Video className="w-12 h-12 thumb-icon opacity-60" />
+                      <span className={enrollmentStageBadge(stage)}>
                         {getStageLabel(stage)}
                       </span>
                     </div>
                     <div className="p-5">
-                      <h3 className="font-bold text-lg mb-3 line-clamp-1 text-gray-900 dark:text-white">{c.title}</h3>
+                      <h3 className="font-bold text-lg mb-3 line-clamp-1 text-content">{c.title}</h3>
                       <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-4">
-                        <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                        <div className="flex items-center text-sm text-content-secondary">
                           <BookOpen className="w-4 h-4 mr-2 flex-shrink-0" />
                           <span>{modules} module{modules !== 1 ? 's' : ''}</span>
                         </div>
-                        <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                        <div className="flex items-center text-sm text-content-secondary">
                           <Clock className="w-4 h-4 mr-2 flex-shrink-0" />
                           <span>{durationStr}</span>
                         </div>
                         <div className="flex items-center text-sm">
                           <Star className={`w-4 h-4 mr-1 flex-shrink-0 ${(avgRating ?? 0) > 0 ? 'text-yellow-500 fill-yellow-500' : 'text-gray-300 dark:text-gray-500'}`} />
-                          <span className="font-semibold text-gray-900 dark:text-white">{avgRating != null && avgRating > 0 ? avgRating.toFixed(1) : 'N/A'}</span>
-                          {totalRatings > 0 && <span className="text-gray-500 dark:text-gray-400 ml-1 text-xs">({totalRatings})</span>}
+                          <span className="font-semibold text-content">{avgRating != null && avgRating > 0 ? avgRating.toFixed(1) : 'N/A'}</span>
+                          {totalRatings > 0 && <span className="text-content-muted ml-1 text-xs">({totalRatings})</span>}
                         </div>
                         <button
                           type="button"
                           onClick={() => openRateModal(c)}
-                          className="flex items-center text-sm text-blue-600 dark:text-blue-400 hover:underline justify-start"
+                          className="flex items-center text-sm text-brand hover:underline justify-start"
                         >
                           {myRating != null ? 'Update rating' : 'Rate course'}
                         </button>
                       </div>
                       <div className="mb-4">
                         <div className="flex justify-between text-sm mb-1">
-                          <span className="text-gray-600 dark:text-gray-400">My progress</span>
-                          <span className="font-semibold text-gray-900 dark:text-white">{c.progress_percentage ?? 0}%</span>
+                          <span className="text-content-secondary">My progress</span>
+                          <span className="font-semibold text-content">{c.progress_percentage ?? 0}%</span>
                         </div>
-                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                        <div className="w-full c-progress h-2">
                           <div
-                            className={`h-2 rounded-full transition-all ${
-                              stage === 'completed' ? 'bg-green-500' : stage === 'in_progress' ? 'bg-amber-500' : 'bg-blue-500'
+                            className={`c-progress-fill h-2 ${
+                              stage === 'completed' ? 'ok' : stage === 'in_progress' ? 'warn' : ''
                             }`}
                             style={{ width: `${Math.min(100, c.progress_percentage ?? 0)}%` }}
                           />
@@ -1004,16 +979,16 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                       </div>
                       <button
                         onClick={() => onStartCourse?.(c.course_id)}
-                        className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center justify-center gap-2 transition-all"
+                        className="w-full c-btn c-btn-primary text-base font-semibold"
                       >
                         {getStageButtonLabel(stage)}
                         <Play className="w-4 h-4" />
                       </button>
                       {lastUpdated && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">Updated {lastUpdated}</p>
+                        <p className="text-xs text-content-muted mt-3">Updated {lastUpdated}</p>
                       )}
                       {c.my_review && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">Your review: {c.my_review}</p>
+                        <p className="text-xs text-content-muted mt-1 line-clamp-2">Your review: {c.my_review}</p>
                       )}
                     </div>
                   </div>
@@ -1021,30 +996,30 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
               })}
             </div>
           ) : (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="app-card rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                <table className="c-table">
+                  <thead>
                     <tr>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Course</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Modules</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Duration</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Rating</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Progress</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">Updated</th>
-                      <th className="px-6 py-4 text-right text-sm font-semibold text-gray-900 dark:text-white">Action</th>
+                      <th>Course</th>
+                      <th>Modules</th>
+                      <th>Duration</th>
+                      <th>Rating</th>
+                      <th>Progress</th>
+                      <th>Updated</th>
+                      <th className="text-right">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
+                  <tbody>
                     {filteredEnrolled.map((c) => (
-                      <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                      <tr key={c.id} className="hover:bg-overlay/50">
                         <td className="px-6 py-4">
-                          <span className="font-medium text-gray-900 dark:text-white">{c.title}</span>
+                          <span className="font-medium text-content">{c.title}</span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{c.module_count ?? 0}</td>
-                        <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{formatCourseDuration(c.duration_seconds ?? 0)}</td>
+                        <td className="px-6 py-4 text-sm text-content-secondary">{c.module_count ?? 0}</td>
+                        <td className="px-6 py-4 text-sm text-content-secondary">{formatCourseDuration(c.duration_seconds ?? 0)}</td>
                         <td className="px-6 py-4">
-                          <button type="button" onClick={() => openRateModal(c)} className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline">
+                          <button type="button" onClick={() => openRateModal(c)} className="flex items-center gap-1 text-sm text-brand hover:underline">
                             <Star className={`w-4 h-4 ${(c.avg_rating ?? 0) > 0 ? 'text-yellow-500 fill-yellow-500' : ''}`} />
                             {(c.avg_rating ?? 0) > 0 ? c.avg_rating!.toFixed(1) : 'Rate'}
                           </button>
@@ -1054,16 +1029,16 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                             <div className="w-24 h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
                               <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min(100, c.progress_percentage ?? 0)}%` }} />
                             </div>
-                            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{c.progress_percentage ?? 0}%</span>
+                            <span className="text-sm font-medium text-content-secondary">{c.progress_percentage ?? 0}%</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{c.updated_at ? formatCourseDate(c.updated_at) : '—'}</td>
+                        <td className="px-6 py-4 text-sm text-content-muted">{c.updated_at ? formatCourseDate(c.updated_at) : '—'}</td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <button type="button" onClick={() => openRateModal(c)} className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700" title="Rate & review">
+                            <button type="button" onClick={() => openRateModal(c)} className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 text-content-secondary hover:bg-overlay" title="Rate & review">
                               <Star className="w-4 h-4" />
                             </button>
-                            <button onClick={() => onStartCourse?.(c.course_id)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center gap-2">
+                            <button onClick={() => onStartCourse?.(c.course_id)} className="c-btn c-btn-primary text-base font-semibold">
                               {getStageButtonLabel(getEnrollmentStage(c))}
                               <Play className="w-4 h-4" />
                             </button>
@@ -1081,9 +1056,9 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
         {/* Rate & review modal */}
         {rateModalCourse && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => !rateSubmitting && setRateModalCourse(null)}>
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Rate this course</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 line-clamp-1">{rateModalCourse.title}</p>
+            <div className="app-card rounded-lg shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-xl font-bold text-content mb-1">Rate this course</h3>
+              <p className="text-sm text-content-muted mb-4 line-clamp-1">{rateModalCourse.title}</p>
               <div className="flex gap-1 mb-4">
                 {[1, 2, 3, 4, 5].map((star) => (
                   <button
@@ -1097,7 +1072,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                   </button>
                 ))}
               </div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Review (optional)</label>
+              <label className="block text-sm font-medium text-content-secondary mb-1">Review (optional)</label>
               <textarea
                 value={rateModalReview}
                 onChange={(e) => setRateModalReview(e.target.value)}
@@ -1108,10 +1083,10 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
               />
               {rateError && <p className="text-sm text-red-600 dark:text-red-400 mb-2">{rateError}</p>}
               <div className="flex gap-2 justify-end">
-                <button type="button" onClick={() => !rateSubmitting && setRateModalCourse(null)} className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+                <button type="button" onClick={() => !rateSubmitting && setRateModalCourse(null)} className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-content-secondary hover:bg-overlay">
                   Cancel
                 </button>
-                <button type="button" onClick={submitRate} disabled={rateSubmitting || rateModalRating < 1} className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 font-medium">
+                <button type="button" onClick={submitRate} disabled={rateSubmitting || rateModalRating < 1} className="c-btn c-btn-primary disabled:opacity-50">
                   {rateSubmitting ? 'Saving…' : 'Submit'}
                 </button>
               </div>
@@ -1123,9 +1098,9 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
   }
 
   return (
-    <div className="min-h-full dark:bg-gray-900">
+    <div className="min-h-full bg-canvas">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-900 dark:border-gray-800 border-b border-gray-200 dark:border-gray-800 px-8 py-6 sticky top-0 z-20">
+      <div className="bg-surface border-b border-line px-8 py-6 sticky top-0 z-20">
         {configMissing && (
           <div className="mb-4 text-sm text-amber-700 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-2">
             Configure Supabase (see BACKEND_SETUP.md) to load and save courses.
@@ -1133,75 +1108,52 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
         )}
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">My Courses</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">Manage and organize your learning content</p>
+            <h1 className="text-2xl font-semibold text-content">My Courses</h1>
+            <p className="text-content-secondary mt-1">Manage and organize your learning content</p>
           </div>
-          <button 
-            onClick={openCreateCourse}
-            className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center shadow-lg transition-all"
-          >
-            <Plus className="w-5 h-5 mr-2" />
-            Create New Course
-          </button>
+          <div className={pageHeaderActions}>
+            <button
+              type="button"
+              onClick={() => setProgramCreateRequested(true)}
+              className={headerSecondaryBtn}
+            >
+              <Layers className="w-5 h-5" />
+              New Program
+            </button>
+            <button
+              onClick={openCreateCourse}
+              className={headerPrimaryBtn}
+            >
+              <Plus className="w-5 h-5" />
+              Create New Course
+            </button>
+          </div>
         </div>
 
         {/* Stats Bar */}
-        <div className="grid grid-cols-5 gap-4 mb-4">
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 p-4 rounded-xl border border-blue-200 dark:border-blue-800">
-            <p className="text-sm text-blue-600 dark:text-blue-400 font-semibold mb-1">Total Courses</p>
-            <p className="text-3xl font-bold text-blue-700 dark:text-white">{statsData.total}</p>
-          </div>
-          <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 p-4 rounded-xl border border-green-200 dark:border-green-800">
-            <p className="text-sm text-green-600 dark:text-green-400 font-semibold mb-1">Published</p>
-            <p className="text-3xl font-bold text-green-700 dark:text-white">{statsData.published}</p>
-          </div>
-          <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 dark:from-yellow-900/20 dark:to-yellow-800/20 p-4 rounded-xl border border-yellow-200 dark:border-yellow-800">
-            <p className="text-sm text-yellow-600 dark:text-yellow-400 font-semibold mb-1">Drafts</p>
-            <p className="text-3xl font-bold text-yellow-700 dark:text-white">{statsData.draft}</p>
-          </div>
-          <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 p-4 rounded-xl border border-purple-200 dark:border-purple-800">
-            <p className="text-sm text-purple-600 dark:text-purple-400 font-semibold mb-1">Total Learners</p>
-            <p className="text-3xl font-bold text-purple-700 dark:text-white">{statsData.totalLearners}</p>
-          </div>
-          <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20 p-4 rounded-xl border border-orange-200 dark:border-orange-800">
-            <p className="text-sm text-orange-600 dark:text-orange-400 font-semibold mb-1">Avg. Completion</p>
-            <p className="text-3xl font-bold text-orange-700 dark:text-white">{statsData.avgCompletion}%</p>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-4">
+          <ThemeStatCard icon={Video} title="Total Courses" value={statsData.total} variant="info" />
+          <ThemeStatCard icon={CheckCircle} title="Published" value={statsData.published} variant="success" />
+          <ThemeStatCard icon={Edit} title="Drafts" value={statsData.draft} variant="warning" />
+          <ThemeStatCard icon={Users} title="Total Learners" value={statsData.totalLearners} variant="neutral" />
+          <ThemeStatCard icon={TrendingUp} title="Avg. Completion" value={`${statsData.avgCompletion}%`} variant="warning" />
         </div>
 
         {/* Filters and Actions */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <button 
-              onClick={() => setSelectedFilter('all')}
-              className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedFilter === 'all' 
-                  ? 'bg-blue-600 text-white shadow-lg' 
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
-            >
+          <div className="flex items-center gap-1 flex-wrap">
+            <ThemeFilterTab active={selectedFilter === 'all'} onClick={() => setSelectedFilter('all')}>
               All ({courses.length})
-            </button>
-            <button 
-              onClick={() => setSelectedFilter('published')}
-              className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedFilter === 'published' 
-                  ? 'bg-green-600 text-white shadow-lg' 
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
-            >
+            </ThemeFilterTab>
+            <ThemeFilterTab active={selectedFilter === 'published'} onClick={() => setSelectedFilter('published')}>
               Published ({courses.filter(c => c.status === 'published').length})
-            </button>
-            <button 
-              onClick={() => setSelectedFilter('draft')}
-              className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                selectedFilter === 'draft' 
-                  ? 'bg-yellow-600 text-white shadow-lg' 
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
-            >
+            </ThemeFilterTab>
+            <ThemeFilterTab active={selectedFilter === 'draft'} onClick={() => setSelectedFilter('draft')}>
               Drafts ({courses.filter(c => c.status === 'draft').length})
-            </button>
+            </ThemeFilterTab>
+            <ThemeFilterTab active={selectedFilter === 'programs'} onClick={() => setSelectedFilter('programs')}>
+              Programs ({programCount})
+            </ThemeFilterTab>
           </div>
 
           <div className="flex items-center space-x-3">
@@ -1212,14 +1164,14 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                 placeholder="Search courses..." 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-lg w-64 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 bg-surface text-content rounded-lg w-64 focus:ring-2 focus:ring-brand focus:border-transparent"
               />
             </div>
 
             <select 
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-semibold"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 bg-surface text-content rounded-lg focus:ring-2 focus:ring-brand focus:border-transparent font-semibold"
             >
               <option value="recent">Most Recent</option>
               <option value="recommended">Recommended for you</option>
@@ -1228,22 +1180,22 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
               <option value="completion">Highest Completion</option>
             </select>
 
-            <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+            <div className="flex bg-raised rounded-lg p-1">
               <button 
                 onClick={() => setViewMode('grid')}
                 className={`p-2 rounded transition-all ${
-                  viewMode === 'grid' ? 'bg-white dark:bg-gray-600 shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-600'
+                  viewMode === 'grid' ? 'surface-1 shadow-sm' : 'hover:bg-overlay'
                 }`}
               >
-                <Grid className="w-5 h-5 dark:text-gray-200" />
+                <Grid className="w-5 h-5 text-content-secondary" />
               </button>
               <button 
                 onClick={() => setViewMode('list')}
                 className={`p-2 rounded transition-all ${
-                  viewMode === 'list' ? 'bg-white dark:bg-gray-600 shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-600'
+                  viewMode === 'list' ? 'surface-1 shadow-sm' : 'hover:bg-overlay'
                 }`}
               >
-                <List className="w-5 h-5 dark:text-gray-200" />
+                <List className="w-5 h-5 text-content-secondary" />
               </button>
             </div>
           </div>
@@ -1252,23 +1204,44 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
 
       {/* Courses Grid/List */}
       <div className="p-8">
+        <CourseProgramSection
+          publishedCourses={publishedCoursesForPrograms}
+          userId={userId}
+          searchQuery={searchQuery}
+          programsOnly={false}
+          showCards={false}
+          createRequested={programCreateRequested}
+          onCreateHandled={() => setProgramCreateRequested(false)}
+          onProgramsChange={setProgramCount}
+        />
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden animate-pulse">
-                <div className="h-48 bg-gray-200 dark:bg-gray-700" />
+              <div key={i} className="app-card rounded-lg overflow-hidden animate-pulse">
+                <div className="h-48 bg-gray-200 bg-raised" />
                 <div className="p-5 space-y-3">
-                  <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
-                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
+                  <div className="h-5 bg-gray-200 bg-raised rounded w-3/4" />
+                  <div className="h-4 bg-gray-200 bg-raised rounded w-1/2" />
                 </div>
               </div>
             ))}
           </div>
-        ) : filteredCourses.length === 0 ? (
-          <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-600">
+        ) : programsOnlyView ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <CourseProgramSection
+              publishedCourses={publishedCoursesForPrograms}
+              userId={userId}
+              searchQuery={searchQuery}
+              programsOnly
+              showCards
+              onProgramsChange={setProgramCount}
+            />
+          </div>
+        ) : filteredCourses.length === 0 && programCount === 0 ? (
+          <div className="text-center py-16 bg-white bg-surface rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-600">
             <Folder className="w-20 h-20 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
-            <h3 className="text-2xl font-bold mb-2 dark:text-white">No courses found</h3>
-            <p className="text-gray-600 dark:text-gray-400 mb-6">
+            <h3 className="text-2xl font-bold mb-2 text-content">No courses found</h3>
+            <p className="text-content-secondary mb-6">
               {searchQuery 
                 ? `No courses match "${searchQuery}"`
                 : `No ${selectedFilter} courses yet`
@@ -1276,60 +1249,68 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
             </p>
             <button 
               onClick={openCreateCourse}
-              className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold"
+              className="c-btn c-btn-primary"
             >
               Create Your First Course
             </button>
           </div>
         ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <CourseProgramSection
+              publishedCourses={publishedCoursesForPrograms}
+              userId={userId}
+              searchQuery={searchQuery}
+              programsOnly={false}
+              showCards
+              onProgramsChange={setProgramCount}
+            />
             {filteredCourses.map((course) => (
               <div 
                 key={course.id}
-                className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-xl transition-all group"
+                className="app-card rounded-lg overflow-hidden hover:shadow-xl transition-all group"
               >
                 {/* Thumbnail */}
-                <div className={`bg-gradient-to-br ${thumbnailColors[course.thumbnail]} h-48 flex items-center justify-center relative`}>
-                  <Video className="w-20 h-20 text-white opacity-80" />
+                <div className="c-course-thumb h-48">
+                  <Video className="w-16 h-16 thumb-icon opacity-60" />
                   
-                  <span className={`absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-semibold ${
-                    course.status === 'published' ? 'bg-green-500 text-white' :
-                    course.status === 'draft' ? 'bg-yellow-500 text-white' :
-                    'bg-gray-500 text-white'
-                  }`}>
+                  <span className={courseStatusBadge(course.status)}>
                     {course.status.charAt(0).toUpperCase() + course.status.slice(1)}
                   </span>
                   {course.status === 'published' && course.hasUnpublishedChanges && (course.createdBy === userId || userRole === 'admin') && (
-                    <span className="absolute bottom-4 left-4 px-2 py-1 rounded bg-amber-500/90 text-white text-xs font-medium" title="Republish to release latest to learners">Unpublished changes</span>
+                    <span className="absolute bottom-4 left-4 c-badge c-badge-warn" title="Republish to release latest to learners">Unpublished changes</span>
                   )}
 
                   {/* Quick Actions */}
-                  <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-all flex space-x-2">
-                    <button 
+                  <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-all flex gap-2">
+                    <button
+                      type="button"
                       onClick={() => handleShareCourse(course)}
-                      className="p-2 bg-white dark:bg-gray-700 rounded-lg shadow-lg hover:bg-gray-50 dark:hover:bg-gray-600"
+                      className={thumbOverlayIconBtn}
+                      title="Share course"
                     >
-                      <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-200" />
+                      <Share2 />
                     </button>
                     <div className="relative">
-                      <button 
+                      <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setActiveDropdown(activeDropdown === course.id ? null : course.id);
                         }}
-                        className="p-2 bg-white dark:bg-gray-700 rounded-lg shadow-lg hover:bg-gray-50 dark:hover:bg-gray-600"
+                        className={thumbOverlayIconBtn}
+                        title="More actions"
                       >
-                        <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-200" />
+                        <MoreVertical />
                       </button>
 
                       {activeDropdown === course.id && (
-                        <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-2 z-30">
+                        <div className="absolute right-0 mt-2 w-48 app-card rounded-lg shadow-2xl border border-line py-2 z-30">
                           <button 
                             onClick={() => {
                               handleDuplicateCourse(course);
                               setActiveDropdown(null);
                             }}
-                            className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                            className="w-full px-4 py-2 text-left hover:bg-overlay flex items-center text-sm text-content-secondary"
                           >
                             <Copy className="w-4 h-4 mr-2" />
                             Duplicate
@@ -1339,14 +1320,14 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                               handleArchiveCourse(course.id);
                               setActiveDropdown(null);
                             }}
-                            className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                            className="w-full px-4 py-2 text-left hover:bg-overlay flex items-center text-sm text-content-secondary"
                           >
                             <Archive className="w-4 h-4 mr-2" />
                             Archive
                           </button>
                           <button 
                             onClick={() => { openCollaboratorsModal(course); }}
-                            className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                            className="w-full px-4 py-2 text-left hover:bg-overlay flex items-center text-sm text-content-secondary"
                           >
                             <UserPlus className="w-4 h-4 mr-2" />
                             Collaborators
@@ -1356,7 +1337,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                               exportCourseCsv(course);
                               setActiveDropdown(null);
                             }}
-                            className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                            className="w-full px-4 py-2 text-left hover:bg-overlay flex items-center text-sm text-content-secondary"
                           >
                             <Download className="w-4 h-4 mr-2" />
                             Export
@@ -1381,28 +1362,28 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                 {/* Content */}
                 <div className="p-6">
                   <div className="mb-4">
-                    <h3 className="font-bold text-lg mb-2 line-clamp-1 dark:text-white">{course.title}</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">{course.description}</p>
+                    <h3 className="font-bold text-lg mb-2 line-clamp-1 text-content">{course.title}</h3>
+                    <p className="text-sm text-content-secondary line-clamp-2">{course.description}</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 mb-4">
-                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                    <div className="flex items-center text-sm text-content-secondary">
                       <BookOpen className="w-4 h-4 mr-2" />
                       <span>{course.modules} modules</span>
                     </div>
-                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                    <div className="flex items-center text-sm text-content-secondary">
                       <Users className="w-4 h-4 mr-2" />
                       <span>{course.learners} learners</span>
                     </div>
-                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                    <div className="flex items-center text-sm text-content-secondary">
                       <Clock className="w-4 h-4 mr-2" />
                       <span>{course.duration}</span>
                     </div>
                     <div className="flex items-center text-sm">
                       <Star className="w-4 h-4 mr-1 text-yellow-500 fill-yellow-500" />
-                      <span className="font-semibold dark:text-white">{course.avgRating || 'N/A'}</span>
+                      <span className="font-semibold text-content">{course.avgRating || 'N/A'}</span>
                       {course.totalRatings > 0 && (
-                        <span className="text-gray-600 dark:text-gray-400 ml-1">({course.totalRatings})</span>
+                        <span className="text-content-secondary ml-1">({course.totalRatings})</span>
                       )}
                     </div>
                   </div>
@@ -1410,7 +1391,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                   {course.completion > 0 && (
                     <div className="mb-4">
                       <div className="flex justify-between text-sm mb-2">
-                        <span className="text-gray-600 dark:text-gray-400">Avg. Completion</span>
+                        <span className="text-content-secondary">Avg. Completion</span>
                         <span className="font-semibold flex items-center">
                           {course.completion}%
                           {course.trend === 'up' ? (
@@ -1435,44 +1416,46 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
 
                   <div className="flex flex-wrap gap-2 mb-4">
                     {course.tags.slice(0, 2).map((tag, idx) => (
-                      <span key={idx} className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 rounded-full">
+                      <span key={idx} className="text-xs bg-raised text-content-secondary px-2 py-1 rounded-full">
                         {tag}
                       </span>
                     ))}
                     {course.tags.length > 2 && (
-                      <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 rounded-full">
+                      <span className="text-xs bg-raised text-content-secondary px-2 py-1 rounded-full">
                         +{course.tags.length - 2}
                       </span>
                     )}
                   </div>
 
-                  <div className="flex space-x-2">
-                    <button 
+                  <div className="flex gap-2">
+                    <button
                       onClick={() => { if (typeof course.id === 'string' && onEditCourse) onEditCourse(course.id); else openCreateCourse(); }}
-                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center justify-center transition-all"
+                      className={`flex-1 c-btn c-btn-sm ${
+                        course.status === 'published' ? 'c-btn-accent' : 'c-btn-ghost'
+                      }`}
                     >
-                      <Edit className="w-4 h-4 mr-2" />
+                      <Edit className="w-4 h-4" />
                       Edit
                     </button>
                     <button
                       type="button"
                       onClick={() => handlePreviewCourse(course)}
-                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                      className={iconBtn}
                       title="Preview course"
                     >
-                      <Eye className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                      <Eye />
                     </button>
                     <button
                       type="button"
                       onClick={handleOpenAnalytics}
-                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                      className={iconBtn}
                       title="View analytics"
                     >
-                      <BarChart3 className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                      <BarChart3 />
                     </button>
                   </div>
 
-                  <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                  <div className="mt-4 pt-4 border-t border-line flex items-center justify-between text-xs text-content-muted">
                     <span>Updated {course.lastUpdated}</span>
                     <div className="flex items-center space-x-2">
                       {course.hasQuiz && (
@@ -1492,11 +1475,10 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
             ))}
           </div>
         ) : (
-          // List View
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="app-card rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                <thead className="bg-gray-50 bg-raised border-b border-gray-200 dark:border-gray-600">
                   <tr>
                     <th className="px-6 py-4 text-left">
                       <input 
@@ -1511,18 +1493,18 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                         }}
                       />
                     </th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Course</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Status</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Learners</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Completion</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Rating</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Last Updated</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Actions</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-content-secondary">Course</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-content-secondary">Status</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-content-secondary">Learners</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-content-secondary">Completion</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-content-secondary">Rating</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-content-secondary">Last Updated</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-content-secondary">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                   {filteredCourses.map((course) => (
-                    <tr key={course.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all">
+                    <tr key={course.id} className="hover:bg-overlay/50 transition-all">
                       <td className="px-6 py-4">
                         <input 
                           type="checkbox"
@@ -1533,22 +1515,19 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <div className={`w-12 h-12 bg-gradient-to-br ${thumbnailColors[course.thumbnail]} rounded-lg flex items-center justify-center mr-4`}>
+                          <div className="w-12 h-12 bg-info-subtle border border-line rounded-lg flex items-center justify-center mr-4">
+                            <Video className="w-6 h-6 text-info" />
                             <Video className="w-6 h-6 text-white" />
                           </div>
                           <div>
-                            <p className="font-semibold text-sm dark:text-white">{course.title}</p>
-                            <p className="text-xs text-gray-600 dark:text-gray-400">{course.modules} modules • {course.duration}</p>
+                            <p className="font-semibold text-sm text-content">{course.title}</p>
+                            <p className="text-xs text-content-secondary">{course.modules} modules • {course.duration}</p>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col gap-1">
-                          <span className={`inline-flex w-fit px-3 py-1 rounded-full text-xs font-semibold ${
-                            course.status === 'published' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' :
-                            course.status === 'draft' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300' :
-                            'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
-                          }`}>
+                          <span className={`c-badge ${course.status === 'published' ? 'c-badge-published' : course.status === 'draft' ? 'c-badge-draft' : 'c-badge-mute'}`}>
                             {course.status.charAt(0).toUpperCase() + course.status.slice(1)}
                           </span>
                           {course.status === 'published' && course.hasUnpublishedChanges && (course.createdBy === userId || userRole === 'admin') && (
@@ -1558,9 +1537,9 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <Users className="w-4 h-4 mr-2 text-gray-600 dark:text-gray-400" />
-                          <span className="font-semibold dark:text-white">{course.learners}</span>
-                          <span className="text-gray-600 dark:text-gray-400 text-sm ml-1">/ {course.enrolled}</span>
+                          <Users className="w-4 h-4 mr-2 text-content-secondary" />
+                          <span className="font-semibold text-content">{course.learners}</span>
+                          <span className="text-content-secondary text-sm ml-1">/ {course.enrolled}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -1575,61 +1554,61 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                               style={{width: `${course.completion}%`}}
                             ></div>
                           </div>
-                          <span className="text-sm font-semibold dark:text-white">{course.completion}%</span>
+                          <span className="text-sm font-semibold text-content">{course.completion}%</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
                           <Star className="w-4 h-4 text-yellow-500 fill-yellow-500 mr-1" />
-                          <span className="font-semibold dark:text-white">{course.avgRating || 'N/A'}</span>
+                          <span className="font-semibold text-content">{course.avgRating || 'N/A'}</span>
                           {course.totalRatings > 0 && (
-                            <span className="text-gray-600 dark:text-gray-400 text-sm ml-1">({course.totalRatings})</span>
+                            <span className="text-content-secondary text-sm ml-1">({course.totalRatings})</span>
                           )}
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <p className="text-sm text-gray-600 dark:text-gray-400">{course.lastUpdated}</p>
+                        <p className="text-sm text-content-secondary">{course.lastUpdated}</p>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-2">
                           <button 
                             onClick={() => { if (typeof course.id === 'string' && onEditCourse) onEditCourse(course.id); else openCreateCourse(); }}
-                            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all" 
+                            className="p-2 hover:bg-overlay rounded-lg transition-all" 
                             title="Edit"
                           >
-                            <Edit className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                            <Edit className="w-4 h-4 text-content-secondary" />
                           </button>
                           <button
                             type="button"
                             onClick={() => handlePreviewCourse(course)}
-                            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
+                            className="p-2 hover:bg-overlay rounded-lg transition-all"
                             title="Preview course"
                           >
-                            <Eye className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                            <Eye className="w-4 h-4 text-content-secondary" />
                           </button>
                           <button
                             type="button"
                             onClick={handleOpenAnalytics}
-                            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
+                            className="p-2 hover:bg-overlay rounded-lg transition-all"
                             title="View analytics"
                           >
-                            <BarChart3 className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                            <BarChart3 className="w-4 h-4 text-content-secondary" />
                           </button>
                           <div className="relative">
                             <button 
                               onClick={() => setActiveDropdown(activeDropdown === course.id ? null : course.id)}
-                              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
+                              className="p-2 hover:bg-overlay rounded-lg transition-all"
                             >
-                              <MoreVertical className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                              <MoreVertical className="w-4 h-4 text-content-secondary" />
                             </button>
                             {activeDropdown === course.id && (
-                              <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-2 z-30">
+                              <div className="absolute right-0 mt-2 w-48 app-card rounded-lg shadow-2xl border border-line py-2 z-30">
                                 <button 
                                   onClick={() => {
                                     handleShareCourse(course);
                                     setActiveDropdown(null);
                                   }}
-                                  className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                                  className="w-full px-4 py-2 text-left hover:bg-overlay flex items-center text-sm text-content-secondary"
                                 >
                                   <Share2 className="w-4 h-4 mr-2" />
                                   Share
@@ -1639,14 +1618,14 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                                     handleDuplicateCourse(course);
                                     setActiveDropdown(null);
                                   }}
-                                  className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                                  className="w-full px-4 py-2 text-left hover:bg-overlay flex items-center text-sm text-content-secondary"
                                 >
                                   <Copy className="w-4 h-4 mr-2" />
                                   Duplicate
                                 </button>
                                 <button 
                                   onClick={() => { openCollaboratorsModal(course); setActiveDropdown(null); }}
-                                  className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                                  className="w-full px-4 py-2 text-left hover:bg-overlay flex items-center text-sm text-content-secondary"
                                 >
                                   <UserPlus className="w-4 h-4 mr-2" />
                                   Collaborators
@@ -1656,7 +1635,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                                     exportCourseCsv(course);
                                     setActiveDropdown(null);
                                   }}
-                                  className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center text-sm dark:text-gray-200"
+                                  className="w-full px-4 py-2 text-left hover:bg-overlay flex items-center text-sm text-content-secondary"
                                 >
                                   <Download className="w-4 h-4 mr-2" />
                                   Export
@@ -1693,7 +1672,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
             <button
               type="button"
               onClick={handleBulkShare}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold flex items-center transition-all"
+              className="px-4 py-2 bg-blue-600 rounded-lg font-semibold flex items-center transition-all"
             >
               <Share2 className="w-4 h-4 mr-2" />
               Share
@@ -1727,14 +1706,14 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
       {/* Delete Confirmation Modal */}
       {showDeleteModal && courseToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full mx-4 border border-gray-200 dark:border-gray-700">
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+          <div className="app-card rounded-lg shadow-2xl max-w-md w-full mx-4 border border-line">
+            <div className="p-6 border-b border-line">
               <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
                 <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
               </div>
-              <h3 className="text-2xl font-bold text-center mb-2 dark:text-white">Delete Course?</h3>
-              <p className="text-gray-600 dark:text-gray-400 text-center">
-                Are you sure you want to delete <span className="font-semibold dark:text-white">&quot;{courseToDelete.title}&quot;</span>? This action cannot be undone.
+              <h3 className="text-2xl font-bold text-center mb-2 text-content">Delete Course?</h3>
+              <p className="text-content-secondary text-center">
+                Are you sure you want to delete <span className="font-semibold text-content">&quot;{courseToDelete.title}&quot;</span>? This action cannot be undone.
               </p>
             </div>
             <div className="p-6">
@@ -1755,7 +1734,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                     setShowDeleteModal(false);
                     setCourseToDelete(null);
                   }}
-                  className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold transition-all dark:text-gray-200"
+                  className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-overlay font-semibold transition-all text-content-secondary"
                 >
                   Cancel
                 </button>
@@ -1777,13 +1756,13 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
         const showCollaboratorInvite = canInviteCollaborators(courseForCollaborators, userId, courseOwnerId);
         return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] flex flex-col">
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Collaborators — {courseForCollaborators.title}</h3>
+          <div className="app-card rounded-lg shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-line flex items-center justify-between shrink-0">
+              <h3 className="text-xl font-bold text-content">Collaborators — {courseForCollaborators.title}</h3>
               <button
                 type="button"
                 onClick={() => { setShowCollaboratorsModal(false); setCourseForCollaborators(null); setInviteError(null); }}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                className="p-2 hover:bg-overlay rounded-lg"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1797,10 +1776,10 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                 <>
                   <ul className="space-y-2 mb-6">
                     {collaboratorsList.map((c) => (
-                      <li key={c.id} className="flex items-center justify-between gap-2 py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
-                        <span className="text-gray-900 dark:text-white font-medium truncate">
+                      <li key={c.id} className="flex items-center justify-between gap-2 py-2 border-b border-gray-100 border-line last:border-0">
+                        <span className="text-content font-medium truncate">
                           {c.full_name ?? 'Unknown'}
-                          {c.isOwner && <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">(Owner)</span>}
+                          {c.isOwner && <span className="ml-2 text-xs text-content-muted">(Owner)</span>}
                         </span>
                         {!c.isOwner && (effectiveOwnerId === userId || c.id === userId) && (
                           <button
@@ -1815,22 +1794,22 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                     ))}
                   </ul>
                   {showCollaboratorInvite ? (
-                    <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-                      <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Invite co-instructor</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">They must already have a Coursify account with this email.</p>
+                    <div className="pt-4 border-t border-line">
+                      <p className="text-sm font-semibold text-content-secondary mb-2">Invite co-instructor</p>
+                      <p className="text-xs text-content-muted mb-3">They must already have a Coursify account with this email.</p>
                       <div className="flex gap-2">
                         <input
                           type="email"
                           placeholder="Email address"
                           value={inviteEmail}
                           onChange={(e) => { setInviteEmail(e.target.value); setInviteError(null); }}
-                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500"
+                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white bg-raised text-content placeholder-gray-500"
                         />
                         <button
                           type="button"
                           onClick={handleInviteCollaborator}
                           disabled={inviteLoading || !inviteEmail.trim()}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1 shrink-0"
+                          className="c-btn c-btn-primary disabled:opacity-50 shrink-0"
                         >
                           {inviteLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                           Invite
@@ -1840,7 +1819,7 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                       {inviteError && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{inviteError}</p>}
                     </div>
                   ) : (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <p className="text-xs text-content-muted pt-4 border-t border-line">
                       Only the course owner can invite co-instructors.
                     </p>
                   )}
@@ -1878,9 +1857,9 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
 
         return (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-lg w-full mx-4 border border-gray-200 dark:border-gray-700">
-              <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                <h3 className="text-2xl font-bold dark:text-white">Share Course</h3>
+            <div className="app-card rounded-lg shadow-2xl max-w-lg w-full mx-4 border border-line">
+              <div className="p-6 border-b border-line flex items-center justify-between">
+                <h3 className="text-2xl font-bold text-content">Share Course</h3>
                 <button 
                   onClick={() => {
                     setShowShareModal(false);
@@ -1892,15 +1871,15 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                     setShareInviteError(null);
                     setShareInviteSuccess(null);
                   }}
-                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
+                  className="p-2 hover:bg-overlay rounded-lg transition-all"
                 >
-                  <X className="w-6 h-6 dark:text-gray-200" />
+                  <X className="w-6 h-6 text-content-secondary" />
                 </button>
               </div>
 
               <div className="p-6">
                 <div className="mb-6">
-                  <p className="text-sm font-semibold mb-2 dark:text-gray-200">Share link (magic link)</p>
+                  <p className="text-sm font-semibold mb-2 text-content-secondary">Share link (magic link)</p>
                   {shareMagicLinkError && (
                     <p className="text-sm text-amber-600 dark:text-amber-400 mb-2">{shareMagicLinkError}. Showing course link instead.</p>
                   )}
@@ -1909,13 +1888,13 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                       type="text" 
                       value={shareMagicLinkLoading ? 'Loading…' : displayUrl}
                       readOnly
-                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white"
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 bg-raised text-content"
                     />
                     <button 
                       type="button"
                       onClick={handleCopy}
                       disabled={shareMagicLinkLoading}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center transition-all shrink-0 disabled:opacity-70"
+                      className="c-btn c-btn-primary shrink-0 disabled:opacity-70"
                     >
                       <Copy className="w-4 h-4 mr-2" />
                       {shareCopyFeedback ? 'Copied!' : 'Copy'}
@@ -1923,35 +1902,35 @@ const MyCourses: React.FC<MyCoursesProps> = ({ setCurrentView, onCreateCourse, o
                   </div>
                 </div>
 
-                <div className="mb-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-                  <p className="text-sm font-semibold mb-2 dark:text-gray-200 flex items-center gap-2">
+                <div className="mb-6 pt-6 border-t border-line">
+                  <p className="text-sm font-semibold mb-2 text-content-secondary flex items-center gap-2">
                     <Mail className="w-4 h-4" />
                     Invite learners by email
                   </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                    Sends an invitation to enroll in <strong className="font-medium text-gray-700 dark:text-gray-300">{courseTitle}</strong>. Learners sign in with the same email.
+                  <p className="text-xs text-content-muted mb-3">
+                    Sends an invitation to enroll in <strong className="font-medium text-content-secondary">{courseTitle}</strong>. Learners sign in with the same email.
                   </p>
-                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Personal message (optional)</label>
+                  <label className="block text-xs font-semibold text-content-secondary mb-1.5">Personal message (optional)</label>
                   <textarea
                     value={shareInviteMessage}
                     onChange={(e) => { setShareInviteMessage(e.target.value); setShareInviteError(null); setShareInviteSuccess(null); }}
                     placeholder="Add a note for your learners — shown above the invitation card in the email."
                     rows={3}
-                    className="w-full px-4 py-2 mb-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white placeholder-gray-500 text-sm"
+                    className="w-full px-4 py-2 mb-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white bg-raised text-content placeholder-gray-500 text-sm"
                   />
-                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Email addresses</label>
+                  <label className="block text-xs font-semibold text-content-secondary mb-1.5">Email addresses</label>
                   <textarea
                     value={shareInviteEmails}
                     onChange={(e) => { setShareInviteEmails(e.target.value); setShareInviteError(null); setShareInviteSuccess(null); }}
                     placeholder="email@example.com, one per line or comma-separated"
                     rows={3}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white placeholder-gray-500 text-sm"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white bg-raised text-content placeholder-gray-500 text-sm"
                   />
                   <button
                     type="button"
                     onClick={handleShareInviteLearners}
                     disabled={shareInviteLoading || !shareInviteEmails.trim()}
-                    className="mt-3 w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="mt-3 w-full c-btn c-btn-primary disabled:opacity-50"
                   >
                     {shareInviteLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
                     Send invitations

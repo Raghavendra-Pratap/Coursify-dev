@@ -25,6 +25,7 @@ MIGRATIONS=(
   "$ROOT/database/ADD_QUIZ_FORM_URL.sql"
   "$ROOT/database/ADD_QUIZ_WEBHOOK_ENTRY.sql"
   "$ROOT/database/WEBHOOK_QUIZ_TOKEN_USED.sql"
+  "$ROOT/database/ADD_COURSE_PROGRAMS.sql"
   "$ROOT/database/DEFAULT_ROLE_INSTRUCTOR.sql"
   "$ROOT/database/FIX_COURSES_INSERT_RLS.sql"
   "$ROOT/database/FIX_LESSONS_RLS.sql"

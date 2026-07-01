@@ -4,6 +4,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { HelpCircle, ChevronDown, ChevronRight, Send, BookOpen, MessageSquare, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { fetchJsonCached, readClientCache, SHELL_CACHE_MS } from '@/lib/client-fetch-cache';
+import {
+  answerQuoteBorder,
+  listCardIcon,
+  listCardIconWrap,
+  primaryBtn,
+} from '@/components/ui/theme-classes';
 
 export type QuestionRow = {
   id: string;
@@ -153,11 +159,11 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
   if (!userId) {
     return (
       <div className="p-8 max-w-3xl">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Q & A</h1>
-        <p className="text-gray-600 dark:text-gray-400 mb-8">Sign in to see your questions and answers.</p>
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-6 text-center">
-          <HelpCircle className="w-12 h-12 text-amber-500 mx-auto mb-3" />
-          <p className="text-amber-800 dark:text-amber-200 font-medium">Sign in to view Q & A</p>
+        <h1 className="text-2xl font-semibold text-content mb-2">Q & A</h1>
+        <p className="text-content-secondary mb-8">Sign in to see your questions and answers.</p>
+        <div className="app-card rounded-lg p-6 text-center border border-warning/30 bg-warning-subtle">
+          <HelpCircle className="w-12 h-12 text-warning mx-auto mb-3" />
+          <p className="text-content font-medium">Sign in to view Q & A</p>
         </div>
       </div>
     );
@@ -165,28 +171,28 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
 
   return (
     <div className="p-8 max-w-4xl">
-      <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Q & A</h1>
-      <p className="text-gray-600 dark:text-gray-400 mb-8">
+      <h1 className="text-2xl font-semibold text-content mb-2">Q & A</h1>
+      <p className="text-content-secondary mb-8">
         {sessionMode === 'instructor'
           ? 'Questions from learners across your courses. Answer here or while editing the course.'
           : 'All questions you’ve asked and their answers. Add a follow-up to continue the thread.'}
       </p>
 
       {error && (
-        <div className="mb-6 p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm">
+        <div className="mb-6 p-4 rounded-xl bg-danger-subtle border border-danger/30 text-danger text-sm">
           {error}
         </div>
       )}
 
       {loading ? (
-        <p className="text-gray-500 dark:text-gray-400">Loading…</p>
+        <p className="text-content-muted">Loading…</p>
       ) : threads.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-12 text-center">
-          <MessageSquare className="w-16 h-16 text-gray-300 dark:text-gray-500 mx-auto mb-4" />
-          <p className="text-gray-600 dark:text-gray-400 font-medium">
+        <div className="app-card rounded-2xl p-12 text-center">
+          <MessageSquare className="w-16 h-16 text-content-muted mx-auto mb-4 opacity-50" />
+          <p className="text-content-secondary font-medium">
             {sessionMode === 'instructor' ? 'No questions from learners yet' : 'No questions yet'}
           </p>
-          <p className="text-sm text-gray-500 dark:text-gray-500 mt-1">
+          <p className="text-sm text-content-muted mt-1">
             {sessionMode === 'instructor'
               ? 'When learners ask questions in a course, they’ll appear here.'
               : 'Ask a question from the Take Course page (open a lesson and click “Ask a question”).'}
@@ -195,7 +201,7 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
             <button
               type="button"
               onClick={() => setCurrentView('courses')}
-              className="mt-6 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+              className={`mt-6 ${primaryBtn} c-btn-sm`}
             >
               Go to My learning
             </button>
@@ -209,44 +215,46 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
             return (
               <div
                 key={thread.id}
-                className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+                className="app-card rounded-xl overflow-hidden"
               >
                 <button
                   type="button"
                   onClick={() => setExpandedId((id) => (id === thread.id ? null : thread.id))}
-                  className="w-full flex items-center gap-3 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                  className="w-full flex items-center gap-3 p-4 text-left hover:bg-overlay/50 transition-colors"
                 >
                   {isExpanded ? (
-                    <ChevronDown className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                    <ChevronDown className="w-5 h-5 text-content-muted flex-shrink-0" />
                   ) : (
-                    <ChevronRight className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                    <ChevronRight className="w-5 h-5 text-content-muted flex-shrink-0" />
                   )}
-                  <BookOpen className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                  <div className={`${listCardIconWrap} w-10 h-10`}>
+                    <BookOpen className={`${listCardIcon} w-5 h-5`} />
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 dark:text-white truncate">
+                    <p className="font-medium text-content truncate">
                       {thread.courseTitle ?? 'Course'} · {thread.lessonTitle ?? 'Lesson'}
                     </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate mt-0.5">{thread.question_text}</p>
+                    <p className="text-sm text-content-muted truncate mt-0.5">{thread.question_text}</p>
                   </div>
-                  <span className="text-xs text-gray-400 flex-shrink-0">
+                  <span className="text-xs text-content-muted flex-shrink-0">
                     {thread.followUps?.length ? `${(thread.followUps.length + 1)} messages` : '1 message'}
                   </span>
                 </button>
 
                 {isExpanded && (
-                  <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-4">
+                  <div className="border-t border-line p-4 space-y-4">
                     {/* Root Q & A */}
                     <div className="pl-2">
-                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                      <p className="text-xs font-medium text-content-muted mb-1">
                         Question — {displayName(thread.askedByName, thread.asked_by)}
                       </p>
-                      <p className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">{thread.question_text}</p>
+                      <p className="text-sm text-content whitespace-pre-wrap">{thread.question_text}</p>
                       {thread.answer_text ? (
-                        <div className="mt-3 pl-3 border-l-2 border-blue-400 dark:border-blue-500">
-                          <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-1">
+                        <div className={`mt-3 pl-3 ${answerQuoteBorder}`}>
+                          <p className="text-xs font-medium text-accent mb-1">
                             Answer — {displayName(thread.answeredByName, thread.answered_by)}
                           </p>
-                          <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{thread.answer_text}</p>
+                          <p className="text-sm text-content-secondary whitespace-pre-wrap">{thread.answer_text}</p>
                           <div className="mt-1 flex items-center justify-between gap-2">
                             <span />
                             {sessionMode === 'instructor' && userId && thread.courseCreatorId === userId && (
@@ -270,35 +278,35 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
                             onChange={(e) => setAnswerText((prev) => ({ ...prev, [thread.id]: e.target.value }))}
                             placeholder="Write your answer…"
                             rows={2}
-                            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm resize-none"
+                            className="w-full app-input text-sm resize-none"
                           />
                           <button
                             type="button"
                             onClick={() => handleAnswer(thread.course_id, thread.id)}
                             disabled={answeringId === thread.id || !(answerText[thread.id] ?? '').trim()}
-                            className="mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                            className={`mt-2 flex items-center gap-2 ${primaryBtn} c-btn-sm disabled:opacity-50`}
                           >
                             <Send className="w-3.5 h-3.5" />
                             {answeringId === thread.id ? 'Sending…' : 'Send answer'}
                           </button>
                         </div>
                       )}
-                      <p className="text-xs text-gray-400 mt-2">{rootCreated}</p>
+                      <p className="text-xs text-content-muted mt-2">{rootCreated}</p>
                     </div>
 
                     {/* Follow-ups */}
                     {(thread.followUps ?? []).map((f) => (
-                      <div key={f.id} className="pl-4 border-l-2 border-gray-200 dark:border-gray-600 space-y-1">
-                        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                      <div key={f.id} className="pl-4 border-l-2 border-line space-y-1">
+                        <p className="text-xs font-medium text-content-muted">
                           Follow-up — {displayName(f.askedByName, f.asked_by)}
                         </p>
-                        <p className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">{f.question_text}</p>
+                        <p className="text-sm text-content whitespace-pre-wrap">{f.question_text}</p>
                         {f.answer_text ? (
-                          <div className="mt-2 pl-3 border-l-2 border-blue-400 dark:border-blue-500">
-                            <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-1">
+                          <div className={`mt-2 pl-3 ${answerQuoteBorder}`}>
+                            <p className="text-xs font-medium text-accent mb-1">
                               Answer — {displayName(f.answeredByName, f.answered_by)}
                             </p>
-                            <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{f.answer_text}</p>
+                            <p className="text-sm text-content-secondary whitespace-pre-wrap">{f.answer_text}</p>
                             <div className="mt-1 flex items-center justify-between gap-2">
                               <span />
                               {sessionMode === 'instructor' && userId && f.courseCreatorId === userId && (
@@ -322,39 +330,39 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
                               onChange={(e) => setAnswerText((prev) => ({ ...prev, [f.id]: e.target.value }))}
                               placeholder="Write your answer…"
                               rows={2}
-                              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm resize-none"
+                              className="w-full app-input text-sm resize-none"
                             />
                             <button
                               type="button"
                               onClick={() => handleAnswer(f.course_id, f.id)}
                               disabled={answeringId === f.id || !(answerText[f.id] ?? '').trim()}
-                              className="mt-1 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                              className={`mt-1 flex items-center gap-2 ${primaryBtn} c-btn-sm disabled:opacity-50`}
                             >
                               <Send className="w-3.5 h-3.5" />
                               {answeringId === f.id ? 'Sending…' : 'Send answer'}
                             </button>
                           </div>
                         )}
-                        <p className="text-xs text-gray-400 mt-1">{new Date(f.created_at).toLocaleString()}</p>
+                        <p className="text-xs text-content-muted mt-1">{new Date(f.created_at).toLocaleString()}</p>
                       </div>
                     ))}
 
                     {/* Add follow-up (learner only) */}
                     {sessionMode === 'learner' && (
-                      <div className="pt-3 border-t border-gray-100 dark:border-gray-700">
+                      <div className="pt-3 border-t border-line">
                         <textarea
                           value={followUpText[thread.id] ?? ''}
                           onChange={(e) => setFollowUpText((prev) => ({ ...prev, [thread.id]: e.target.value }))}
                           placeholder="Add a follow-up question…"
                           rows={2}
-                          className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm resize-none"
+                          className="w-full app-input text-sm resize-none"
                           disabled={!!submittingId}
                         />
                         <button
                           type="button"
                           onClick={() => handleAddFollowUp(thread.course_id, thread.id)}
                           disabled={submittingId === thread.id || !(followUpText[thread.id] ?? '').trim()}
-                          className="mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                          className={`mt-2 flex items-center gap-2 ${primaryBtn} c-btn-sm disabled:opacity-50`}
                         >
                           <Send className="w-3.5 h-3.5" />
                           {submittingId === thread.id ? 'Sending…' : 'Add follow-up'}
@@ -366,7 +374,7 @@ export default function QAndA({ setCurrentView, sessionMode, onStartCourse }: QA
                       <button
                         type="button"
                         onClick={() => onStartCourse(thread.course_id)}
-                        className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                        className="text-sm text-accent hover:underline"
                       >
                         Open course →
                       </button>

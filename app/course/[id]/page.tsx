@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { CourseInviteAuthGate } from '@/components/CourseInviteAuthGate'
 import { CourseInviteBoardingPass } from '@/components/CourseInviteBoardingPass'
 import { supabase } from '@/lib/supabase'
+import { persistSessionMode, stashLandingIntent } from '@/lib/session-mode'
 
 type Course = {
   id: string
@@ -45,6 +46,10 @@ export default function CoursePage({ params }: { params: { id: string } }) {
 
   const id = typeof params.id === 'string' ? params.id : (params as unknown as { id: string }).id
   const signInHref = `/course/${encodeURIComponent(id)}`
+
+  useEffect(() => {
+    stashLandingIntent('learner')
+  }, [])
 
   useEffect(() => {
     if (!id) {
@@ -102,7 +107,12 @@ export default function CoursePage({ params }: { params: { id: string } }) {
       try {
         const res = await fetch('/api/courses/' + encodeURIComponent(id) + '/enroll', { method: 'POST', credentials: 'include' })
         if (cancelled) return
-        if (res.ok) setAutoEnrolled(true)
+        if (res.ok) {
+          const sessionData = await fetch('/api/auth/session', { credentials: 'include' }).then((r) => r.json()).catch(() => ({}))
+          const userId = sessionData?.session?.user?.id as string | undefined
+          await persistSessionMode('learner', userId)
+          setAutoEnrolled(true)
+        }
         else setAutoEnrolled(false)
       } catch {
         if (!cancelled) setAutoEnrolled(false)
@@ -124,9 +134,9 @@ export default function CoursePage({ params }: { params: { id: string } }) {
         setEnrollError(data?.error || 'Enrollment failed')
         return
       }
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('coursify_session_mode', 'learner')
-      }
+      const sessionData = await fetch('/api/auth/session', { credentials: 'include' }).then((r) => r.json()).catch(() => ({}))
+      const userId = sessionData?.session?.user?.id as string | undefined
+      await persistSessionMode('learner', userId)
       window.location.href = '/'
     } catch {
       setEnrollError('Something went wrong.')

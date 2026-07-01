@@ -8,6 +8,81 @@
 
 ---
 
+## Hierarchy (read this first)
+
+Coursify matches the in-app editor: **Course → Module → Lesson → Content item → Video segments**.
+
+```
+Course
+ └── Module (order_index unique per course)
+      └── Lesson (order_index unique per module)   ← DB constraint: lessons_module_id_order_index_key
+           └── Content item (order_index unique per lesson)
+                └── Video segment(s) — multiple CSV rows, same content_order + segment_sequence
+```
+
+### One CSV row = what?
+
+| CSV concept | Maps to | Notes |
+|-------------|---------|--------|
+| `module_order` + `module_title` | One **module** | `module_order` must be **unique per course** (1, 2, 3…). |
+| `lesson_order` + `lesson_title` | One **lesson** | `lesson_order` must be **unique per module**. Two different lesson titles with the same `lesson_order` in one module **will fail import**. |
+| `content_order` + `content_type` | One **content item** | e.g. one video block, one reading, one quiz. |
+| `segment_sequence` (video only) | One **video segment** | Many rows can share the same `content_order`; segments are merged in order. |
+
+### “Repeat previous row” rule
+
+If `module_title` or `lesson_title` is **blank**, the parser reuses the previous row’s module or lesson.  
+`module_order` / `lesson_order` still apply from the current row (or last resolved value if blank).
+
+### Video segments (multiple rows, one lesson item)
+
+All rows with the **same** `module_order`, `lesson_order`, `lesson_title`, and `content_order`, and `content_type=video`, become **one** video content item with segments ordered by `segment_sequence` (1, 2, 3…).
+
+**Example — lesson “Project management”, one video item, nine segments:**
+
+```csv
+...,1,Foundations...,2,Project management,,,2,video,1,Introduction to Course 1,...
+...,1,Foundations...,2,Project management,,,2,video,2,What is project management,...
+...,1,Foundations...,2,Project management,,,2,video,9,Wrap-up,...
+```
+
+Same `lesson_order=2`, same `content_order=2`, different `segment_sequence`.
+
+### Common import error: duplicate `lesson_order`
+
+Postgres enforces `UNIQUE(module_id, order_index)` on lessons.
+
+**Symptom:** `duplicate key value violates unique constraint "lessons_module_id_order_index_key"`
+
+**Cause:** Two different lessons in the same module share the same `lesson_order` (often a mis-typed row after export/merge).
+
+**Example (bad row):**
+
+| Row | module | lesson_order | lesson_title |
+|-----|--------|--------------|--------------|
+| 75 | 2 | 4 | Utilizing resources and tools… |
+| 76 | 2 | **1** | Utilizing resources and tools… ← should stay **4** |
+
+Row 76 collides with “Project initiation essential” (also `lesson_order=1` in module 2).
+
+**Fix:** Set `lesson_order` (and usually `content_order`) to match the lesson block; set `segment_sequence` to the next number in that block (e.g. 10 after 9).
+
+### Order columns: 1-based in CSV, 0-based in DB
+
+Template uses **1-based** orders (`1` = first). The importer converts to 0-based `order_index` for Postgres.
+
+### Checklist before import
+
+1. Each **module** in a course has a distinct `module_order`.  
+2. Each **lesson** in a module has a distinct `lesson_order`.  
+3. Segments of the same video share `content_order`; only `segment_sequence` increments.  
+4. `video_source` matches URL: `google_drive` for Drive links, `youtube` for YouTube, `external_url` otherwise.  
+5. Remove stray spaces in `course_title` if needed.
+
+Template file: `/public/course-import-template.csv` · Parser: `lib/parseCourseSheet.ts` · API: `POST /api/instructor/courses/import-from-sheet`
+
+---
+
 ## Current Data Model (recap)
 
 | Level | Table | Key fields |
@@ -65,6 +140,7 @@ One CSV/Excel sheet. **First row**: course-level (course title, course descripti
 **Parsing rules**:
 - For any row where `module_title` or `lesson_title` is blank, reuse the previous row’s module/lesson.
 - **Segments**: Rows with the same module, lesson, and `content_order` and `content_type=video` are treated as one video content item with multiple segments. Use `segment_sequence` (1, 2, 3, …) to order segments. Stored as 0-based `segment_index` in the database.
+- **Uniqueness**: `(module_order, module_title)` identifies a module; `(lesson_order, lesson_title)` identifies a lesson **within that module**. Reusing `lesson_order` for a different lesson title in the same module causes a DB unique violation — see [Hierarchy](#hierarchy-read-this-first).
 
 **Example (minimal)**:
 
@@ -140,10 +216,11 @@ Easier to read for “one row per lesson”, but wider and more rigid. Can be ad
 
 ### 4. Edge cases
 
-- **Duplicate module/lesson**: Same (module_order, module_title) or (lesson_order, lesson_title) in different rows — treat as same module/lesson (merge content).
+- **Duplicate module/lesson keys**: Same `(module_order, module_title)` or `(lesson_order, lesson_title)` in different rows — treat as same module/lesson (merge content). **Different** lesson titles with the **same** `lesson_order` in one module are **not** merged; they collide on insert — fix the sheet or add parser validation (TODO).
 - **Empty rows**: Skip.
 - **Missing course title**: Take from first data row’s `course_title` or require first row to have course_title.
 - **Permissions**: Only authenticated instructor (or admin) can call import API; `created_by` = current user; RLS on courses/modules/lessons/content already enforce ownership.
+- **Large certificates**: Import **one course per CSV** (e.g. six modules = six separate imports). Use [course groups](./COURSE_GROUPS_PLAN.md) to invite learners to all courses in one step.
 
 ---
 

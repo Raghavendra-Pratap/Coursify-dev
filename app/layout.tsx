@@ -3,10 +3,15 @@ import type { ReactNode } from 'react'
 import './globals.css'
 import { DisableContextMenu } from '@/components/DisableContextMenu'
 import { AuthProvider } from '@/contexts/AuthContext'
+import { DevHydrationHint } from '@/components/DevHydrationHint'
 
 export const metadata: Metadata = {
   title: 'Coursify LMS',
-  description: 'Learning Management System with micro-video management',
+  description: 'Micro-video learning management',
+  icons: {
+    icon: [{ url: '/brand/coursify-mark.svg', type: 'image/svg+xml' }],
+    apple: '/apple-icon.png',
+  },
 }
 
 export default function RootLayout({
@@ -16,7 +21,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className="bg-gray-900 text-gray-100 min-h-screen">
+      <body className="min-h-screen app-shell">
+        <DevHydrationHint />
         <AuthProvider>
         <DisableContextMenu />
         {children}

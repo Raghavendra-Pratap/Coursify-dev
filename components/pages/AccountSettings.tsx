@@ -19,6 +19,8 @@ import {
 import { fetchJsonCached, readClientCache } from '@/lib/client-fetch-cache';
 import { supabase } from '@/lib/supabase';
 import { LearningPreferences } from '../LearningPreferences';
+import { MfaSetupModal } from '@/components/MfaSetupModal';
+import { headerPrimaryBtn, headerSecondaryBtn } from '@/components/ui/theme-classes';
 
 const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'invite@bsoc.space';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
@@ -105,7 +107,6 @@ export default function AccountSettings() {
   const [lastSignIn, setLastSignIn] = useState<string | null>(null);
   const [mfaEnabled, setMfaEnabled] = useState(false);
   const [showMfaModal, setShowMfaModal] = useState(false);
-  const [mfaMessage, setMfaMessage] = useState<string | null>(null);
   const [downloadingData, setDownloadingData] = useState(false);
   const [downloadDataMessage, setDownloadDataMessage] = useState<string | null>(null);
   const [showHelpModal, setShowHelpModal] = useState(false);
@@ -117,6 +118,7 @@ export default function AccountSettings() {
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', settings.theme === 'dark');
+    document.documentElement.setAttribute('data-mode', settings.theme);
   }, [settings.theme]);
 
   useEffect(() => {
@@ -276,29 +278,15 @@ export default function AccountSettings() {
         localStorage.removeItem(STORAGE_KEY);
       }
       setShowDeactivateModal(false);
-      router.push('/');
-      window.location.href = '/';
+      router.push('/home');
+      window.location.href = '/home';
     } finally {
       setDeactivating(false);
     }
   };
 
-  const handleManageMfa = async () => {
-    setMfaMessage(null);
+  const handleManageMfa = () => {
     setShowMfaModal(true);
-    try {
-      const { data: factors, error } = await supabase.auth.mfa.listFactors();
-      if (error) throw error;
-      const totp = factors?.totp ?? [];
-      setMfaEnabled(totp.some((f) => f.status === 'verified'));
-      if (totp.length === 0) {
-        setMfaMessage('Two-factor authentication is not enabled. Enroll via Supabase Auth MFA in your project dashboard, or ask your admin to enable TOTP for your organization.');
-      } else {
-        setMfaMessage(`You have ${totp.length} authenticator factor(s) configured.`);
-      }
-    } catch {
-      setMfaMessage('Could not load MFA status. Ensure MFA is enabled in your Supabase project.');
-    }
   };
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -340,10 +328,10 @@ export default function AccountSettings() {
     title: string;
     children: React.ReactNode;
   }) => (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 mb-6">
+    <div className="app-card rounded-xl border border-line p-6 mb-6">
       <div className="flex items-center gap-2 mb-4">
-        <Icon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-        <h3 className="text-lg font-bold text-gray-900 dark:text-white">{title}</h3>
+        <Icon className="w-5 h-5 text-content-secondary" />
+        <h3 className="text-lg font-bold text-content">{title}</h3>
       </div>
       {children}
     </div>
@@ -358,10 +346,10 @@ export default function AccountSettings() {
     description?: string;
     action: React.ReactNode;
   }) => (
-    <div className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-700 last:border-0">
+    <div className="flex items-center justify-between py-3 border-b border-line last:border-0">
       <div>
-        <p className="font-semibold text-gray-900 dark:text-white">{label}</p>
-        {description && <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>}
+        <p className="font-semibold text-content">{label}</p>
+        {description && <p className="text-sm text-content-secondary mt-0.5">{description}</p>}
       </div>
       <div className="flex-shrink-0 ml-4">{action}</div>
     </div>
@@ -370,9 +358,9 @@ export default function AccountSettings() {
   return (
     <div className="p-8 max-w-3xl mx-auto">
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Account Settings</h2>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">Manage your account preferences and security</p>
-        <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
+        <h2 className="text-2xl font-bold text-content">Account Settings</h2>
+        <p className="text-content-secondary mt-1">Manage your account preferences and security</p>
+        <p className="text-sm text-content-muted mt-2">
           Theme and password change work now. In-app notification settings are saved to your account. Other options are saved locally.
         </p>
       </div>
@@ -385,7 +373,7 @@ export default function AccountSettings() {
             <button
               type="button"
               onClick={() => { setShowPasswordModal(true); setPasswordError(null); setPasswordSuccess(false); setNewPassword(''); setConfirmPassword(''); }}
-              className="px-4 py-2 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
+              className="px-4 py-2 text-sm font-semibold text-accent hover:bg-raised rounded-lg"
             >
               Change
             </button>
@@ -398,7 +386,7 @@ export default function AccountSettings() {
             <button
               type="button"
               onClick={handleManageMfa}
-              className="px-4 py-2 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
+              className="px-4 py-2 text-sm font-semibold text-accent hover:bg-raised rounded-lg"
             >
               {mfaEnabled ? 'Manage' : 'Set up'}
             </button>
@@ -408,7 +396,7 @@ export default function AccountSettings() {
           label="Active Sessions"
           description={lastSignIn ? `Last sign-in: ${lastSignIn}` : 'Current browser session'}
           action={
-            <span className="text-xs text-gray-600 dark:text-gray-400 px-2 max-w-[12rem] truncate" title={sessionEmail ?? undefined}>
+            <span className="text-xs text-content-secondary px-2 max-w-[12rem] truncate" title={sessionEmail ?? undefined}>
               {sessionEmail ?? 'Signed in'}
             </span>
           }
@@ -420,17 +408,17 @@ export default function AccountSettings() {
           label="Theme"
           description="Choose your interface theme"
           action={
-            <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 p-0.5 bg-gray-100 dark:bg-gray-700">
+            <div className="flex rounded-lg border border-line p-0.5 surface-2">
               <button
                 onClick={() => update({ theme: 'light' })}
-                className={`p-2 rounded-md ${settings.theme === 'light' ? 'bg-white dark:bg-gray-600 shadow text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}
+                className={`p-2 rounded-md ${settings.theme === 'light' ? 'surface-1 shadow text-accent' : 'text-content-muted'}`}
                 title="Light"
               >
                 <Sun className="w-4 h-4" />
               </button>
               <button
                 onClick={() => update({ theme: 'dark' })}
-                className={`p-2 rounded-md ${settings.theme === 'dark' ? 'bg-white dark:bg-gray-600 shadow text-indigo-600 dark:text-indigo-400' : 'text-gray-500 dark:text-gray-400'}`}
+                className={`p-2 rounded-md ${settings.theme === 'dark' ? 'surface-1 shadow text-accent' : 'text-content-muted'}`}
                 title="Dark"
               >
                 <Moon className="w-4 h-4" />
@@ -445,7 +433,7 @@ export default function AccountSettings() {
             <select
               value={settings.language}
               onChange={(e) => update({ language: e.target.value })}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+              className="px-3 py-2 border border-line rounded-lg text-sm font-medium focus:ring-2 focus:ring-brand app-input"
             >
               <option value="en">English</option>
               <option value="es">Spanish</option>
@@ -458,7 +446,7 @@ export default function AccountSettings() {
       </Section>
 
       <Section icon={Bell} title="Notification settings">
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Manage email reminders (local) and in-app alerts (saved to your account).</p>
+        <p className="text-xs text-content-secondary mb-2">Manage email reminders (local) and in-app alerts (saved to your account).</p>
         <Row
           label="Email Notifications"
           description="Receive updates via email"
@@ -467,7 +455,7 @@ export default function AccountSettings() {
               type="checkbox"
               checked={settings.emailNotifications}
               onChange={(e) => update({ emailNotifications: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-brand"
             />
           }
         />
@@ -479,7 +467,7 @@ export default function AccountSettings() {
               type="checkbox"
               checked={settings.courseReminders}
               onChange={(e) => update({ courseReminders: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-brand"
             />
           }
         />
@@ -491,7 +479,7 @@ export default function AccountSettings() {
               type="checkbox"
               checked={settings.achievementNotifications}
               onChange={(e) => update({ achievementNotifications: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-brand"
             />
           }
         />
@@ -503,13 +491,13 @@ export default function AccountSettings() {
               type="checkbox"
               checked={settings.weeklyReports}
               onChange={(e) => update({ weeklyReports: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-brand"
             />
           }
         />
 
 
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 mb-2">In-app notifications (saved to account)</p>
+        <p className="text-xs text-content-secondary mt-3 mb-2">In-app notifications (saved to account)</p>
         <Row
           label="Course Updates"
           description="Notify me when enrolled courses are updated"
@@ -519,7 +507,7 @@ export default function AccountSettings() {
               checked={notificationPreferences.notify_course_updates}
               onChange={(e) => updateNotificationPreference('notify_course_updates', e.target.checked)}
               disabled={notifPrefLoading || notifPrefSaving === 'notify_course_updates'}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-60"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-brand disabled:opacity-60"
             />
           }
         />
@@ -532,7 +520,7 @@ export default function AccountSettings() {
               checked={notificationPreferences.notify_question_answers}
               onChange={(e) => updateNotificationPreference('notify_question_answers', e.target.checked)}
               disabled={notifPrefLoading || notifPrefSaving === 'notify_question_answers'}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-60"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-brand disabled:opacity-60"
             />
           }
         />
@@ -545,7 +533,7 @@ export default function AccountSettings() {
               checked={notificationPreferences.notify_new_questions}
               onChange={(e) => updateNotificationPreference('notify_new_questions', e.target.checked)}
               disabled={notifPrefLoading || notifPrefSaving === 'notify_new_questions'}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-60"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-brand disabled:opacity-60"
             />
           }
         />
@@ -558,7 +546,7 @@ export default function AccountSettings() {
               checked={notificationPreferences.notify_enrollments}
               onChange={(e) => updateNotificationPreference('notify_enrollments', e.target.checked)}
               disabled={notifPrefLoading || notifPrefSaving === 'notify_enrollments'}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-60"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-brand disabled:opacity-60"
             />
           }
         />
@@ -566,7 +554,7 @@ export default function AccountSettings() {
       </Section>
 
       <Section icon={BookOpen} title="Learning Preferences">
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Saved locally for when we add these features.</p>
+        <p className="text-xs text-content-secondary mb-2">Saved locally for when we add these features.</p>
         <Row
           label="Sound Effects"
           description="Play sounds for actions and achievements"
@@ -575,7 +563,7 @@ export default function AccountSettings() {
               type="checkbox"
               checked={settings.soundEffects}
               onChange={(e) => update({ soundEffects: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-brand"
             />
           }
         />
@@ -587,23 +575,23 @@ export default function AccountSettings() {
               type="checkbox"
               checked={settings.autoplayVideos}
               onChange={(e) => update({ autoplayVideos: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-brand"
             />
           }
         />
       </Section>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 mb-6">
+      <div className="app-card rounded-xl border border-line p-6 mb-6">
         <div className="flex items-center gap-2 mb-4">
-          <BookOpen className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-          <h3 className="text-lg font-bold text-gray-900 dark:text-white">Inferred Learning Preferences</h3>
+          <BookOpen className="w-5 h-5 text-content-secondary" />
+          <h3 className="text-lg font-bold text-content">Inferred Learning Preferences</h3>
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Weights learned from your activity (video, reading, quiz). Display only for now.</p>
+        <p className="text-sm text-content-secondary mb-4">Weights learned from your activity (video, reading, quiz). Display only for now.</p>
         <LearningPreferences />
       </div>
 
       <Section icon={User} title="Privacy">
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Saved locally; will apply when profile visibility is implemented.</p>
+        <p className="text-xs text-content-secondary mb-2">Saved locally; will apply when profile visibility is implemented.</p>
         <Row
           label="Public Profile"
           description="Make your profile visible to others"
@@ -612,7 +600,7 @@ export default function AccountSettings() {
               type="checkbox"
               checked={settings.publicProfile}
               onChange={(e) => update({ publicProfile: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-brand"
             />
           }
         />
@@ -624,7 +612,7 @@ export default function AccountSettings() {
               type="checkbox"
               checked={settings.showAchievements}
               onChange={(e) => update({ showAchievements: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-brand"
             />
           }
         />
@@ -636,7 +624,7 @@ export default function AccountSettings() {
               type="checkbox"
               checked={settings.showLearningProgress}
               onChange={(e) => update({ showLearningProgress: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-brand"
             />
           }
         />
@@ -651,7 +639,7 @@ export default function AccountSettings() {
               type="button"
               onClick={handleDownloadMyData}
               disabled={downloadingData}
-              className="px-4 py-2 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg disabled:opacity-60"
+              className="px-4 py-2 text-sm font-semibold text-accent hover:bg-raised rounded-lg disabled:opacity-60"
             >
               {downloadingData ? 'Exporting…' : 'Download'}
             </button>
@@ -664,7 +652,7 @@ export default function AccountSettings() {
           label="Clear Cache"
           description="Clear locally stored preferences (works now)"
           action={
-            <button onClick={handleClearCache} className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
+            <button onClick={handleClearCache} className="p-2 text-content-secondary hover:text-gray-700 dark:hover:text-gray-200 hover:bg-raised rounded-lg">
               <ChevronRight className="w-5 h-5" />
             </button>
           }
@@ -679,7 +667,7 @@ export default function AccountSettings() {
             <button
               type="button"
               onClick={() => setShowHelpModal(true)}
-              className="px-4 py-2 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
+              className="px-4 py-2 text-sm font-semibold text-accent hover:bg-raised rounded-lg"
             >
               Open
             </button>
@@ -692,7 +680,7 @@ export default function AccountSettings() {
             <button
               type="button"
               onClick={handleContactSupport}
-              className="px-4 py-2 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
+              className="px-4 py-2 text-sm font-semibold text-accent hover:bg-raised rounded-lg"
             >
               Email
             </button>
@@ -703,8 +691,8 @@ export default function AccountSettings() {
           description="Usage terms and privacy summary"
           action={
             <div className="flex gap-2">
-              <button type="button" onClick={() => setShowTermsModal(true)} className="px-3 py-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Terms</button>
-              <button type="button" onClick={() => setShowPrivacyModal(true)} className="px-3 py-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Privacy</button>
+              <button type="button" onClick={() => setShowTermsModal(true)} className="px-3 py-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-raised rounded-lg">Terms</button>
+              <button type="button" onClick={() => setShowPrivacyModal(true)} className="px-3 py-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-raised rounded-lg">Privacy</button>
             </div>
           }
         />
@@ -718,21 +706,21 @@ export default function AccountSettings() {
         <div className="space-y-3">
           <div className="flex items-center justify-between py-2">
             <div>
-              <p className="font-semibold text-gray-900 dark:text-white">Deactivate Account</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Sign out and clear local preferences on this device</p>
+              <p className="font-semibold text-content">Deactivate Account</p>
+              <p className="text-sm text-content-secondary">Sign out and clear local preferences on this device</p>
             </div>
             <button
               type="button"
               onClick={() => setShowDeactivateModal(true)}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-200 font-semibold rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
+              className="px-4 py-2 border border-line text-gray-800 dark:text-gray-200 font-semibold rounded-lg hover:bg-raised"
             >
               Deactivate
             </button>
           </div>
           <div className="flex items-center justify-between py-2">
             <div>
-              <p className="font-semibold text-gray-900 dark:text-white">Delete Account Permanently</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400">This action cannot be undone</p>
+              <p className="font-semibold text-content">Delete Account Permanently</p>
+              <p className="text-sm text-content-secondary">This action cannot be undone</p>
             </div>
             <button
               onClick={() => setShowDeleteConfirm(true)}
@@ -746,10 +734,10 @@ export default function AccountSettings() {
 
       {showPasswordModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowPasswordModal(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+          <div className="app-card rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Change password</h3>
-              <button onClick={() => setShowPasswordModal(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg dark:text-gray-200">
+              <h3 className="text-lg font-bold text-content">Change password</h3>
+              <button onClick={() => setShowPasswordModal(false)} className="p-2 hover:bg-raised rounded-lg dark:text-gray-200">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -761,33 +749,33 @@ export default function AccountSettings() {
                 <p className="text-sm text-green-600 dark:text-green-400">Password updated. You can close this.</p>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New password</label>
+                <label className="block text-sm font-medium text-content-secondary mb-1">New password</label>
                 <input
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                  className="w-full px-4 py-2 border border-line rounded-lg app-input"
                   placeholder="At least 6 characters"
                   minLength={6}
                   autoComplete="new-password"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Confirm new password</label>
+                <label className="block text-sm font-medium text-content-secondary mb-1">Confirm new password</label>
                 <input
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                  className="w-full px-4 py-2 border border-line rounded-lg app-input"
                   placeholder="Repeat password"
                   autoComplete="new-password"
                 />
               </div>
               <div className="flex gap-3">
-                <button type="button" onClick={() => setShowPasswordModal(false)} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
+                <button type="button" onClick={() => setShowPasswordModal(false)} className={`flex-1 ${headerSecondaryBtn}`}>
                   Cancel
                 </button>
-                <button type="submit" disabled={changingPassword} className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50">
+                <button type="submit" disabled={changingPassword} className={`flex-1 ${headerPrimaryBtn} disabled:opacity-50`}>
                   {changingPassword ? 'Updating…' : 'Update password'}
                 </button>
               </div>
@@ -798,9 +786,9 @@ export default function AccountSettings() {
 
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowDeleteConfirm(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Delete account?</h3>
-            <p className="text-gray-600 dark:text-gray-400 text-sm mb-6">
+          <div className="app-card rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-content mb-2">Delete account?</h3>
+            <p className="text-content-secondary text-sm mb-6">
               This will permanently delete your account and all associated data. This action cannot be undone.
             </p>
             {deleteError && (
@@ -809,7 +797,7 @@ export default function AccountSettings() {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+                className={`flex-1 ${headerSecondaryBtn}`}
               >
                 Cancel
               </button>
@@ -836,8 +824,8 @@ export default function AccountSettings() {
                     }
                     await supabase.auth.signOut();
                     setShowDeleteConfirm(false);
-                    router.push('/');
-                    window.location.href = '/';
+                    router.push('/home');
+                    window.location.href = '/home';
                   } catch {
                     setDeleteError('Request failed.');
                   } finally {
@@ -855,72 +843,68 @@ export default function AccountSettings() {
       )}
 
       {showMfaModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowMfaModal(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Two-factor authentication</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              {mfaMessage ?? (mfaEnabled ? 'Your account has MFA enabled.' : 'MFA is not enabled on this account.')}
-            </p>
-            <button type="button" onClick={() => setShowMfaModal(false)} className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700">Close</button>
-          </div>
-        </div>
+        <MfaSetupModal
+          open={showMfaModal}
+          onClose={() => setShowMfaModal(false)}
+          onStatusChange={setMfaEnabled}
+        />
       )}
 
       {showHelpModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowHelpModal(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-3">Help Center</h3>
-            <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2 list-disc pl-5">
+          <div className="app-card rounded-2xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-content mb-3">Help Center</h3>
+            <ul className="text-sm text-content-secondary space-y-2 list-disc pl-5">
               <li>Create courses from <strong>My Courses → Create</strong>.</li>
               <li>Invite learners from <strong>Learners</strong> or the course share modal.</li>
               <li>Track progress on the <strong>Dashboard</strong> and <strong>Analytics</strong> pages.</li>
               <li>Videos can be YouTube, Google Drive, or any public URL with HH:MM:SS segments.</li>
               <li>Set <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">NEXT_PUBLIC_APP_URL</code> for correct invite links in email.</li>
             </ul>
-            <button type="button" onClick={() => setShowHelpModal(false)} className="mt-6 w-full py-2.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700">Close</button>
+            <button type="button" onClick={() => setShowHelpModal(false)} className={`mt-6 w-full ${headerPrimaryBtn}`}>Close</button>
           </div>
         </div>
       )}
 
       {showTermsModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowTermsModal(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-3">Terms of Use</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+          <div className="app-card rounded-2xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-content mb-3">Terms of Use</h3>
+            <p className="text-sm text-content-secondary leading-relaxed">
               Coursify is provided for learning and course management. You are responsible for content you publish and learners you invite.
               Do not upload unlawful material or share access credentials. We may suspend accounts that abuse the service.
               The service is provided as-is without warranty; availability may change during beta.
             </p>
-            <button type="button" onClick={() => setShowTermsModal(false)} className="mt-6 w-full py-2.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700">Close</button>
+            <button type="button" onClick={() => setShowTermsModal(false)} className={`mt-6 w-full ${headerPrimaryBtn}`}>Close</button>
           </div>
         </div>
       )}
 
       {showPrivacyModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowPrivacyModal(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-3">Privacy Policy</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+          <div className="app-card rounded-2xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-content mb-3">Privacy Policy</h3>
+            <p className="text-sm text-content-secondary leading-relaxed">
               We store account data (email, profile) and learning activity (enrollments, progress) in Supabase to operate the LMS.
               Video content stays on YouTube, Google Drive, or URLs you provide — we do not host video files.
               Email invites are sent via Resend when configured. Use <strong>Download My Data</strong> to export your records.
               Contact {SUPPORT_EMAIL} to request account deletion.
             </p>
-            <button type="button" onClick={() => setShowPrivacyModal(false)} className="mt-6 w-full py-2.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700">Close</button>
+            <button type="button" onClick={() => setShowPrivacyModal(false)} className={`mt-6 w-full ${headerPrimaryBtn}`}>Close</button>
           </div>
         </div>
       )}
 
       {showDeactivateModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowDeactivateModal(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Deactivate on this device?</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+          <div className="app-card rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-content mb-2">Deactivate on this device?</h3>
+            <p className="text-sm text-content-secondary mb-6">
               This signs you out and clears local Coursify preferences. Your account and course data remain until you delete the account permanently.
             </p>
             <div className="flex gap-3">
-              <button type="button" onClick={() => setShowDeactivateModal(false)} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl font-semibold text-gray-700 dark:text-gray-200">Cancel</button>
-              <button type="button" onClick={handleDeactivateAccount} disabled={deactivating} className="flex-1 py-2.5 bg-gray-800 dark:bg-gray-600 text-white rounded-xl font-semibold disabled:opacity-50">{deactivating ? 'Signing out…' : 'Deactivate'}</button>
+              <button type="button" onClick={() => setShowDeactivateModal(false)} className={`flex-1 ${headerSecondaryBtn}`}>Cancel</button>
+              <button type="button" onClick={handleDeactivateAccount} disabled={deactivating} className={`flex-1 ${headerSecondaryBtn} disabled:opacity-50`}>{deactivating ? 'Signing out…' : 'Deactivate'}</button>
             </div>
           </div>
         </div>

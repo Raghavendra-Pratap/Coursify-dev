@@ -1,7 +1,7 @@
-'use client'
+import { redirect } from 'next/navigation';
+import { ROUTES } from '@/lib/site-urls';
 
-import CoursifyLMS from '@/components/CoursifyLMS'
-
-export default function Home() {
-  return <CoursifyLMS />
+/** Root → marketing home. Signed-in users are sent to the LMS from middleware when possible. */
+export default function RootPage() {
+  redirect(ROUTES.home);
 }

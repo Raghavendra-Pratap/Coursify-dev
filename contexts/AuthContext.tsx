@@ -21,6 +21,21 @@ type AuthState = {
 const AuthContext = createContext<AuthState | null>(null)
 
 const SESSION_RETRY_DELAY_MS = 250
+const AUTH_INIT_TIMEOUT_MS = 8000
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
@@ -38,24 +53,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           refresh_token: serverSession.refresh_token,
         })
       } catch {
-        return serverSession
+        return serverSession as Session
       }
-      const { data: { session: s } } = await supabase.auth.getSession()
-      return s as Session | null
+      return serverSession as Session
     }
     return null
   }, [])
 
   const refreshSession = useCallback(async () => {
-    const { data: { session: s } } = await supabase.auth.getSession()
-    if (s?.user) {
-      setSession(s as Session)
+    const fromServer = await hydrateFromServer()
+    if (fromServer?.user) {
+      setSession(fromServer)
       return
     }
-    const fromServer = await hydrateFromServer()
-    if (fromServer?.user) setSession(fromServer)
+    const { data: { session: s } } = await withTimeout(
+      supabase.auth.getSession(),
+      AUTH_INIT_TIMEOUT_MS,
+      { data: { session: null }, error: null },
+    )
+    if (s?.user) setSession(s as Session)
     else setSession(null)
   }, [hydrateFromServer])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.dispatchEvent(new Event('coursify:hydrated'))
+    ;(window as unknown as { __coursifyHydrated?: boolean }).__coursifyHydrated = true
+  }, [])
 
   useEffect(() => {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
@@ -67,29 +91,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false
 
     const init = async (retryCount = 0) => {
-      const { data: { session: s } } = await supabase.auth.getSession()
-      if (cancelled) return
-      if (s?.user) {
-        setSession(s as Session)
-        setIsLoading(false)
-        return
-      }
-      const fromServer = await hydrateFromServer()
-      if (cancelled) return
-      if (fromServer?.user) {
-        setSession(fromServer)
-        setIsLoading(false)
-        return
-      }
-      if (retryCount < 1) {
-        await new Promise((r) => setTimeout(r, SESSION_RETRY_DELAY_MS))
+      try {
+        const fromServer = await hydrateFromServer()
         if (cancelled) return
-        const again = await hydrateFromServer()
-        if (cancelled) return
-        if (again?.user) setSession(again)
+        if (fromServer?.user) {
+          setSession(fromServer)
+          return
+        }
+
+        // No server session — trust cookie state; skip client getSession (avoids auth-lock hangs).
+        if (retryCount < 1) {
+          await new Promise((r) => setTimeout(r, SESSION_RETRY_DELAY_MS))
+          if (cancelled) return
+          const again = await hydrateFromServer()
+          if (cancelled) return
+          if (again?.user) {
+            setSession(again)
+            return
+          }
+        }
+
+        setSession(null)
+      } catch {
+        if (!cancelled) setSession(null)
+      } finally {
+        if (!cancelled) setIsLoading(false)
       }
-      setSession(null)
-      setIsLoading(false)
     }
 
     init()

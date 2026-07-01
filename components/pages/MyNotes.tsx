@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { StickyNote, BookOpen, ChevronRight, ArrowLeft } from 'lucide-react';
+import { listCardBtn, listCardChevron, listCardIcon, listCardIconWrap, primaryBtn } from '@/components/ui/theme-classes';
 import { useAuth } from '@/contexts/AuthContext';
 import { fetchJsonCached, readClientCache, SHELL_CACHE_MS } from '@/lib/client-fetch-cache';
 
@@ -21,7 +22,6 @@ type NoteEntry = {
 interface MyNotesProps {
   setCurrentView: (view: string) => void;
   onStartCourse?: (courseId: string) => void;
-  /** When provided, opening a lesson will open the course in take view with this lesson selected (if your app supports it). */
   onOpenLesson?: (courseId: string, lessonId: string) => void;
 }
 
@@ -127,7 +127,6 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
     return userId ? `${NOTES_STORAGE_PREFIX}${userId}_${courseId}_${lessonId}` : null;
   }, [userId]);
 
-  // When a course notebook is open, check if course still exists and which lessons exist
   useEffect(() => {
     if (!selectedCourseId) {
       setCourseExists(null);
@@ -165,7 +164,6 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
     return () => { cancelled = true; };
   }, [selectedCourseId]);
 
-  // Load note content when expanding or when notebook is open
   useEffect(() => {
     if (!userId || selectedCourseNotes.length === 0) return;
     const next: Record<string, string> = { ...noteContents };
@@ -188,17 +186,16 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
   if (!userId) {
     return (
       <div className="p-8 max-w-3xl">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">My Notes</h1>
-        <p className="text-gray-600 dark:text-gray-400 mb-8">Sign in to see your notes from enrolled courses. Notes are stored locally and remain available even if a course is removed.</p>
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-6 text-center">
-          <StickyNote className="w-12 h-12 text-amber-500 mx-auto mb-3" />
-          <p className="text-amber-800 dark:text-amber-200 font-medium">Sign in to view your notes</p>
+        <h1 className="text-2xl font-semibold text-content mb-2">My Notes</h1>
+        <p className="text-content-secondary mb-8">Sign in to see your notes from enrolled courses. Notes are stored locally and remain available even if a course is removed.</p>
+        <div className="app-card rounded-lg p-6 text-center border border-warning/30 bg-warning-subtle">
+          <StickyNote className="w-12 h-12 text-warning mx-auto mb-3" />
+          <p className="text-content font-medium">Sign in to view your notes</p>
         </div>
       </div>
     );
   }
 
-  // Notebook view: one course's notes with module · lesson reference
   if (selectedCourseId) {
     const notes = selectedCourseNotes;
     const courseTitle = selectedCourseTitle;
@@ -210,28 +207,26 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
         <button
           type="button"
           onClick={() => setSelectedCourseId(null)}
-          className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium mb-6 transition-colors"
+          className="flex items-center gap-2 text-content-secondary hover:text-content font-medium mb-6 transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />
           Back to My Notes
         </button>
         <div className="flex items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              {courseTitle}
-            </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            <h1 className="text-2xl font-bold text-content">{courseTitle}</h1>
+            <p className="text-sm text-content-secondary mt-0.5">
               One notebook per course · {notes.length} note{notes.length !== 1 ? 's' : ''}
             </p>
           </div>
           {!courseAvailable && (
-            <span className="text-sm text-amber-600 dark:text-amber-400 font-medium">Course no longer available</span>
+            <span className="text-sm text-warning font-medium">Course no longer available</span>
           )}
           {courseAvailable && onStartCourse && (
             <button
               type="button"
               onClick={() => onStartCourse(selectedCourseId)}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+              className="c-btn c-btn-primary c-btn-sm"
             >
               Open course
             </button>
@@ -239,8 +234,8 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
         </div>
 
         {notes.length === 0 ? (
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center">
-            <p className="text-gray-500 dark:text-gray-400">No notes in this notebook.</p>
+          <div className="app-card rounded-lg p-8 text-center">
+            <p className="text-content-muted">No notes in this notebook.</p>
           </div>
         ) : (
           <div className="space-y-6">
@@ -251,35 +246,30 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
               const refLabel = [entry.moduleTitle, entry.lessonTitle].filter(Boolean).join(' · ') || entry.lessonTitle || 'Lesson';
 
               return (
-                <article
-                  key={`${entry.courseId}:${entry.lessonId}`}
-                  className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden"
-                >
-                  <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                      {refLabel}
-                    </p>
+                <article key={`${entry.courseId}:${entry.lessonId}`} className="app-card rounded-lg overflow-hidden">
+                  <div className="px-4 py-3 border-b border-line flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-content">{refLabel}</p>
                     <div className="flex items-center gap-2">
                       {!lessonAvailableNow && (
-                        <span className="text-xs text-amber-600 dark:text-amber-400">Lesson no longer available</span>
+                        <span className="text-xs text-warning">Lesson no longer available</span>
                       )}
                       {courseAvailable && lessonAvailableNow && onOpenLesson && (
                         <button
                           type="button"
                           onClick={() => onOpenLesson(entry.courseId, entry.lessonId)}
-                          className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                          className="text-sm text-accent hover:underline"
                         >
                           Open lesson →
                         </button>
                       )}
-                      <span className="text-xs text-gray-400 dark:text-gray-500">
+                      <span className="text-xs text-content-muted">
                         {new Date(entry.updatedAt).toLocaleString()}
                       </span>
                     </div>
                   </div>
                   <div className="p-4">
-                    <div className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 p-3 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap min-h-[3rem]">
-                      {content || <span className="text-gray-400 dark:text-gray-500 italic">No note content</span>}
+                    <div className="rounded-lg border border-line bg-raised p-3 text-sm text-content-secondary whitespace-pre-wrap min-h-[3rem]">
+                      {content || <span className="text-content-muted italic">No note content</span>}
                     </div>
                   </div>
                 </article>
@@ -291,29 +281,28 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
     );
   }
 
-  // Main view: one card per course (notebooks)
   return (
     <div className="p-8 max-w-4xl">
-      <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">My Notes</h1>
-      <p className="text-gray-600 dark:text-gray-400 mb-8">
+      <h1 className="text-2xl font-semibold text-content mb-2">My Notes</h1>
+      <p className="text-content-secondary mb-8">
         All your notes from enrolled courses in one place. One notebook per course. Notes are stored locally and remain available even if a course is deleted.
       </p>
 
       {notesLoading ? (
         <div className="space-y-4">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-24 rounded-xl bg-gray-100 dark:bg-gray-700 animate-pulse" />
+            <div key={i} className="h-24 rounded-lg bg-raised animate-pulse" />
           ))}
         </div>
       ) : entries.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-12 text-center">
-          <StickyNote className="w-16 h-16 text-gray-300 dark:text-gray-500 mx-auto mb-4" />
-          <p className="text-gray-600 dark:text-gray-400 font-medium">No notes yet</p>
-          <p className="text-sm text-gray-500 dark:text-gray-500 mt-1">Take notes while taking a course — they’ll appear here as one notebook per course.</p>
+        <div className="app-card rounded-lg p-12 text-center">
+          <StickyNote className="w-16 h-16 text-content-muted mx-auto mb-4" />
+          <p className="text-content font-medium">No notes yet</p>
+          <p className="text-sm text-content-secondary mt-1">Take notes while taking a course — they’ll appear here as one notebook per course.</p>
           <button
             type="button"
             onClick={() => setCurrentView('courses')}
-            className="mt-6 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+            className={`mt-6 ${primaryBtn} c-btn-sm`}
           >
             Go to My learning
           </button>
@@ -328,16 +317,16 @@ export default function MyNotes({ setCurrentView, onStartCourse, onOpenLesson }:
                 key={courseId}
                 type="button"
                 onClick={() => setSelectedCourseId(courseId)}
-                className="flex items-center gap-3 p-5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-left hover:border-blue-400 dark:hover:border-blue-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all shadow-sm"
+                className={listCardBtn}
               >
-                <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center">
-                  <BookOpen className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                <div className={listCardIconWrap}>
+                  <BookOpen className={listCardIcon} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900 dark:text-white truncate">{courseTitle}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{count} note{count !== 1 ? 's' : ''}</p>
+                  <p className="font-semibold text-content truncate">{courseTitle}</p>
+                  <p className="text-sm text-content-secondary">{count} note{count !== 1 ? 's' : ''}</p>
                 </div>
-                <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                <ChevronRight className={listCardChevron} />
               </button>
             );
           })}

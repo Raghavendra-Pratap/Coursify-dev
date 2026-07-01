@@ -7,6 +7,8 @@ import {
   normalizeInviteCustomMessage,
 } from '@/lib/email/boarding-pass-invite';
 import type { CourseInviteDetails } from '@/lib/email/fetch-course-invite-details';
+import type { ProgramInviteDetails } from '@/lib/email/fetch-program-invite-details';
+import { buildMagicGoUrl } from '@/lib/magic-link';
 import { lookupRecipientDisplayNames } from '@/lib/email/lookup-recipient-name';
 import { runtimeEnv } from '@/lib/runtime-env';
 
@@ -110,7 +112,7 @@ export function buildCollaboratorInviteEmail(options: {
   courseId: string;
 }): { subject: string; text: string } {
   const inviter = options.inviterName?.trim() || 'A course owner';
-  const editHref = `${appUrl}?view=create&course=${encodeURIComponent(options.courseId)}`;
+  const editHref = `${appUrl}/login?view=create&course=${encodeURIComponent(options.courseId)}&landing=instructor`;
   const courseTitle = options.courseTitle;
 
   return {
@@ -189,6 +191,56 @@ export async function sendInviteEmails(options: {
         avgRating: options.courseDetails?.avgRating,
         ratingCount: options.courseDetails?.ratingCount,
       });
+      await sendEmail({ to, subject, text, html });
+      sent++;
+    } catch {
+      failed.push(to);
+    }
+  }
+  return { sent, failed };
+}
+
+/** One email per recipient listing all courses (group / program invite) — transactional template. */
+export async function sendMultiCourseInviteEmails(options: {
+  emails: string[];
+  courseTitles: string[];
+  programId?: string;
+  programTitle?: string;
+  inviterName?: string;
+  customMessage?: string;
+  programDetails?: ProgramInviteDetails | null;
+}): Promise<{ sent: number; failed: string[] }> {
+  const valid = options.emails.filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+  if (valid.length === 0) throw new Error('No valid email addresses');
+  if (options.courseTitles.length === 0) throw new Error('No courses selected');
+
+  const programTitle = options.programTitle?.trim() || options.programDetails?.programTitle;
+  const recipientNames = await lookupRecipientDisplayNames(valid);
+  const enrollUrl = options.programId
+    ? buildMagicGoUrl('program', options.programId, appUrl)
+    : appUrl;
+
+  let sent = 0;
+  const failed: string[] = [];
+  for (const to of valid) {
+    try {
+      const inviteOptions = {
+        recipientEmail: to,
+        recipientName: recipientNames.get(to.trim().toLowerCase()),
+        courseTitle: programTitle,
+        courseId: options.programId,
+        description: options.programDetails?.description,
+        inviterName: options.programDetails?.inviterName ?? options.inviterName,
+        enrollUrl,
+        customMessage: normalizeInviteCustomMessage(options.customMessage),
+        moduleCount: options.programDetails?.moduleCount,
+        lessonCount: options.programDetails?.lessonCount,
+        durationLabel: options.programDetails?.durationLabel,
+        programCourseTitles: options.courseTitles,
+      };
+      const subject = buildBoardingPassInviteSubject(programTitle, inviteOptions.inviterName, true);
+      const text = buildBoardingPassInviteText(inviteOptions);
+      const html = buildInviteEmailHtml(inviteOptions);
       await sendEmail({ to, subject, text, html });
       sent++;
     } catch {

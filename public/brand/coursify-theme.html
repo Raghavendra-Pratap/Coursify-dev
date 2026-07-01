@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Coursify — App Theme Reference</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    /* ═══════════════════════════════════════════════
+       COURSIFY DESIGN TOKENS
+       Copy these into your globals.css / tailwind config
+    ═══════════════════════════════════════════════ */
+
+    :root {
+      /* ── Accent ── */
+      --accent:        #ff6b35;
+      --accent-hover:  #e85520;
+      --accent-subtle: rgba(255,107,53,0.1);
+      --accent-border: rgba(255,107,53,0.25);
+
+      /* ── Semantic status ── */
+      --info:          #3b82f6;
+      --info-subtle:   rgba(59,130,246,0.1);
+      --success:       #22c55e;
+      --success-subtle:rgba(34,197,94,0.1);
+      --warning:       #f59e0b;
+      --warning-subtle:rgba(245,158,11,0.1);
+      --danger:        #ef4444;
+      --danger-subtle: rgba(239,68,68,0.1);
+
+      /* ── BSOC yellow (parent brand) ── */
+      --yellow:        #d4ff47;
+
+      /* ── Typography ── */
+      --font-ui:    'Inter', system-ui, sans-serif;
+      --font-mono:  'DM Mono', monospace;
+
+      /* ── Radius ── */
+      --radius-sm:  4px;
+      --radius-md:  8px;
+      --radius-lg:  12px;
+      --radius-xl:  16px;
+    }
+
+    /* ── DARK MODE (default) ── */
+    [data-mode="dark"] {
+      --bg-base:    #080808;
+      --bg-surface: #0f0f0f;
+      --bg-raised:  #161616;
+      --bg-overlay: #1e1e1e;
+
+      --border:     rgba(255,255,255,0.07);
+      --border-md:  rgba(255,255,255,0.12);
+      --border-lg:  rgba(255,255,255,0.18);
+
+      --text-primary:   rgba(255,255,255,0.92);
+      --text-secondary: rgba(255,255,255,0.5);
+      --text-muted:     rgba(255,255,255,0.28);
+      --text-disabled:  rgba(255,255,255,0.16);
+
+      --nav-bg:     rgba(8,8,8,0.92);
+      --card-bg:    #0f0f0f;
+      --input-bg:   #141414;
+    }
+
+    /* ── LIGHT MODE ── */
+    [data-mode="light"] {
+      --bg-base:    #f8f8f6;
+      --bg-surface: #ffffff;
+      --bg-raised:  #f2f2f0;
+      --bg-overlay: #e8e8e6;
+
+      --border:     rgba(0,0,0,0.07);
+      --border-md:  rgba(0,0,0,0.12);
+      --border-lg:  rgba(0,0,0,0.18);
+
+      --text-primary:   rgba(0,0,0,0.88);
+      --text-secondary: rgba(0,0,0,0.5);
+      --text-muted:     rgba(0,0,0,0.32);
+      --text-disabled:  rgba(0,0,0,0.2);
+
+      --nav-bg:     rgba(248,248,246,0.94);
+      --card-bg:    #ffffff;
+      --input-bg:   #f4f4f2;
+    }
+
+    /* ─────────────────────────────────────────── */
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+      font-size: 14px;
+      line-height: 1.5;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    /* ── Layout ── */
+    .page { max-width: 1100px; margin: 0 auto; padding: 32px 32px 80px; }
+
+    /* ── Section headers ── */
+    .section-title {
+      font-family: var(--font-mono);
+      font-size: 10px; font-weight: 400;
+      letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+    .section { margin-bottom: 48px; }
+
+    /* ── Mode toggle ── */
+    .toggle-bar {
+      position: sticky; top: 0; z-index: 99;
+      background: var(--nav-bg);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 32px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .toggle-logo {
+      display: flex; align-items: center; gap: 10px;
+      font-family: var(--font-mono); font-size: 13px; font-weight: 500;
+      color: var(--text-primary);
+    }
+    .toggle-logo-bars { display: flex; flex-direction: column; gap: 3px; }
+    .tlb { height: 3px; border-radius: 2px; }
+    .toggle-btn {
+      font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+      letter-spacing: 0.16em; text-transform: uppercase;
+      background: var(--bg-raised); border: 1px solid var(--border-md);
+      color: var(--text-secondary); padding: 7px 16px; border-radius: var(--radius-sm);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .toggle-btn:hover { color: var(--text-primary); border-color: var(--border-lg); }
+    .toggle-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); letter-spacing: 0.16em; }
+
+    /* ══════════════════════════════════
+       COMPONENT STYLES
+    ══════════════════════════════════ */
+
+    /* ── Colour palette ── */
+    .palette { display: flex; flex-direction: column; gap: 10px; }
+    .palette-row { display: flex; gap: 8px; align-items: center; }
+    .swatch {
+      width: 44px; height: 44px; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); flex-shrink: 0;
+    }
+    .swatch-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+    .swatch-name  { font-size: 12px; font-weight: 500; color: var(--text-primary); }
+
+    /* ── Buttons ── */
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .btn {
+      font-family: var(--font-ui); font-size: 13px; font-weight: 500;
+      padding: 8px 18px; border-radius: var(--radius-sm);
+      border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+      transition: all 0.15s; text-decoration: none; white-space: nowrap;
+    }
+    .btn-primary   { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary { background: var(--bg-raised); color: var(--text-primary); border: 1px solid var(--border-md); }
+    .btn-secondary:hover { border-color: var(--border-lg); }
+    .btn-ghost     { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+    .btn-ghost:hover { color: var(--text-primary); border-color: var(--border-md); }
+    .btn-danger    { background: var(--danger-subtle); color: var(--danger); border: 1px solid rgba(239,68,68,0.2); }
+    .btn-success   { background: var(--success-subtle); color: var(--success); border: 1px solid rgba(34,197,94,0.2); }
+    .btn-sm { font-size: 12px; padding: 5px 12px; }
+    .btn-icon { padding: 8px; width: 34px; height: 34px; justify-content: center; }
+
+    /* ── Nav ── */
+    .nav-demo {
+      background: var(--nav-bg); border: 1px solid var(--border);
+      border-radius: var(--radius-md); overflow: hidden;
+    }
+    .nav-inner {
+      padding: 0 16px;
+      display: flex; align-items: center; gap: 0;
+      border-bottom: 1px solid var(--border);
+      height: 48px;
+    }
+    .nav-brand {
+      display: flex; align-items: center; gap: 8px;
+      font-family: var(--font-mono); font-size: 13px; font-weight: 500;
+      color: var(--text-primary); padding-right: 20px;
+      border-right: 1px solid var(--border); margin-right: 4px;
+    }
+    .nav-tab {
+      font-size: 12px; font-weight: 500; color: var(--text-secondary);
+      padding: 0 14px; height: 100%;
+      display: flex; align-items: center; gap: 6px;
+      border-bottom: 2px solid transparent;
+      cursor: pointer; transition: all 0.15s; white-space: nowrap;
+    }
+    .nav-tab:hover { color: var(--text-primary); }
+    .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .nav-tab .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+
+    /* ── Stat cards ── */
+    .stats-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; }
+    .stat-card {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: 16px 18px;
+    }
+    .stat-card-label {
+      font-size: 11px; color: var(--text-muted); font-weight: 500;
+      margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+    }
+    .stat-icon {
+      width: 20px; height: 20px; border-radius: var(--radius-sm);
+      display: flex; align-items: center; justify-content: center; font-size: 11px;
+    }
+    .stat-card-val {
+      font-size: 26px; font-weight: 600; color: var(--text-primary);
+      letter-spacing: -0.03em; line-height: 1; margin-bottom: 6px;
+    }
+    .stat-card-delta {
+      font-size: 11px; font-weight: 500; display: flex; align-items: center; gap: 3px;
+    }
+    .delta-up   { color: var(--success); }
+    .delta-down { color: var(--danger); }
+    .delta-sub  { color: var(--text-muted); font-weight: 400; }
+
+    /* left accent bar on stat cards */
+    .stat-card.info    { border-left: 2px solid var(--info); }
+    .stat-card.success { border-left: 2px solid var(--success); }
+    .stat-card.warning { border-left: 2px solid var(--warning); }
+    .stat-card.neutral { border-left: 2px solid var(--border-md); }
+
+    .stat-icon.info    { background: var(--info-subtle); color: var(--info); }
+    .stat-icon.success { background: var(--success-subtle); color: var(--success); }
+    .stat-icon.warning { background: var(--warning-subtle); color: var(--warning); }
+    .stat-icon.neutral { background: var(--bg-raised); color: var(--text-muted); }
+
+    /* ── Course card ── */
+    .cards-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+    .course-card {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); overflow: hidden;
+      transition: border-color 0.15s;
+    }
+    .course-card:hover { border-color: var(--border-md); }
+    .course-thumb {
+      height: 120px; background: var(--bg-raised);
+      display: flex; align-items: center; justify-content: center;
+      position: relative; overflow: hidden;
+    }
+    .thumb-icon { font-size: 28px; opacity: 0.3; }
+    .thumb-gradient-a { background: linear-gradient(135deg, #1e1e2e 0%, #2d1b69 100%); }
+    .thumb-gradient-b { background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%); }
+    .thumb-gradient-c { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); }
+    .thumb-badge {
+      position: absolute; top: 10px; left: 10px;
+      font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+      padding: 3px 8px; border-radius: 20px; text-transform: uppercase;
+    }
+    .badge-published { background: var(--success-subtle); color: var(--success); border: 1px solid rgba(34,197,94,0.25); }
+    .badge-draft     { background: var(--warning-subtle); color: var(--warning); border: 1px solid rgba(245,158,11,0.25); }
+    .badge-program   { background: var(--accent-subtle); color: var(--accent); border: 1px solid var(--accent-border); }
+
+    .course-body { padding: 14px 16px 16px; }
+    .course-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; line-height: 1.4; }
+    .course-meta {
+      display: flex; gap: 14px; flex-wrap: wrap;
+      font-size: 11px; color: var(--text-muted); margin-bottom: 12px;
+    }
+    .course-meta span { display: flex; align-items: center; gap: 4px; }
+    .progress-track {
+      height: 3px; background: var(--bg-overlay);
+      border-radius: 2px; margin-bottom: 12px; overflow: hidden;
+    }
+    .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+    .course-actions { display: flex; gap: 8px; }
+
+    /* ── Learner row ── */
+    .learner-table { width: 100%; }
+    .learner-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
+      background: var(--card-bg);
+    }
+    .learner-row:first-child { border-radius: var(--radius-md) var(--radius-md) 0 0; border-top: 1px solid var(--border); border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+    .learner-row:last-child  { border-radius: 0 0 var(--radius-md) var(--radius-md); border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+    .learner-row:not(:first-child):not(:last-child) { border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+
+    .avatar {
+      width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+      background: var(--accent-subtle); border: 1px solid var(--accent-border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600; color: var(--accent);
+      font-family: var(--font-mono);
+    }
+    .learner-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+    .learner-email { font-size: 11px; color: var(--text-muted); }
+    .learner-stats { margin-left: auto; display: flex; gap: 24px; }
+    .l-stat { text-align: right; }
+    .l-stat-val { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .l-stat-label { font-size: 10px; color: var(--text-muted); letter-spacing: 0.08em; }
+    .status-pill {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+      padding: 2px 8px; border-radius: 20px; text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .status-active { background: var(--success-subtle); color: var(--success); border: 1px solid rgba(34,197,94,0.2); }
+    .status-risk   { background: var(--warning-subtle); color: var(--warning); border: 1px solid rgba(245,158,11,0.2); }
+
+    /* ── Inputs ── */
+    .input-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+    .input-group { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 200px; }
+    .input-label { font-size: 11px; font-weight: 500; color: var(--text-secondary); }
+    .input {
+      width: 100%; padding: 8px 12px;
+      background: var(--input-bg); border: 1px solid var(--border-md);
+      border-radius: var(--radius-sm); color: var(--text-primary);
+      font-family: var(--font-ui); font-size: 13px;
+      outline: none; transition: border-color 0.15s;
+    }
+    .input:focus { border-color: var(--accent); }
+    .input::placeholder { color: var(--text-disabled); }
+
+    /* ── Badges ── */
+    .badge-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .badge {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+      padding: 3px 9px; border-radius: 20px; text-transform: uppercase;
+    }
+
+    /* ── Typography scale ── */
+    .type-row { margin-bottom: 14px; display: flex; align-items: baseline; gap: 16px; }
+    .type-label { font-family: var(--font-mono); font-size: 9px; color: var(--text-muted); letter-spacing: 0.12em; width: 100px; flex-shrink: 0; }
+
+    /* ── Course builder sidebar ── */
+    .builder-demo {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: var(--radius-md); overflow: hidden; display: flex;
+    }
+    .builder-sidebar {
+      width: 220px; flex-shrink: 0; border-right: 1px solid var(--border);
+      background: var(--bg-surface); padding: 16px 12px;
+    }
+    .builder-main { flex: 1; padding: 20px 24px; }
+    .module-item {
+      background: var(--accent-subtle); border: 1px solid var(--accent-border);
+      border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 6px;
+    }
+    .module-label { font-size: 11px; font-weight: 500; color: var(--accent); }
+    .lesson-item {
+      background: var(--bg-raised); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 6px 10px; margin: 4px 0 4px 12px;
+      font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px;
+    }
+    .lesson-item.active { color: var(--text-primary); border-color: var(--border-md); }
+    .add-btn-inline {
+      font-size: 11px; color: var(--text-muted); padding: 4px 10px; margin-left: 12px;
+      border: 1px dashed var(--border); border-radius: var(--radius-sm);
+      cursor: pointer; width: calc(100% - 12px);
+      background: transparent; text-align: left; transition: all 0.15s;
+    }
+    .add-btn-inline:hover { color: var(--accent); border-color: var(--accent-border); }
+
+    .content-add-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .add-content-btn {
+      font-size: 11px; font-weight: 500;
+      padding: 6px 12px; border-radius: var(--radius-sm); border: none;
+      cursor: pointer; display: flex; align-items: center; gap: 5px;
+    }
+    .btn-add-video    { background: rgba(59,130,246,0.12); color: var(--info); }
+    .btn-add-reading  { background: var(--accent-subtle); color: var(--accent); }
+    .btn-add-assess   { background: rgba(168,85,247,0.12); color: #a855f7; }
+    .btn-add-form     { background: rgba(34,197,94,0.1); color: var(--success); }
+
+    /* ── Token ref table ── */
+    .token-table { width: 100%; border-collapse: collapse; }
+    .token-table th, .token-table td {
+      padding: 8px 12px; text-align: left; font-size: 11px;
+      border-bottom: 1px solid var(--border);
+    }
+    .token-table th { font-family: var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); font-weight: 400; }
+    .token-table td { color: var(--text-secondary); }
+    .token-table td:first-child { font-family: var(--font-mono); color: var(--accent); font-size: 10px; }
+    .token-table td:last-child  { color: var(--text-muted); }
+
+    .gap-8  { height: 8px; }
+    .gap-16 { height: 16px; }
+  </style>
+</head>
+<body>
+
+<!-- TOGGLE BAR -->
+<div class="toggle-bar">
+  <div class="toggle-logo">
+    <div class="toggle-logo-bars">
+      <div class="tlb" style="width:28px;background:#ff6b35;"></div>
+      <div class="tlb" style="width:28px;background:#ff6b35;opacity:0.45;"></div>
+      <div class="tlb" style="width:28px;background:#ff6b35;opacity:0.22;"></div>
+    </div>
+    Coursify — App Theme Reference
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span class="toggle-label" id="mode-label">DARK MODE</span>
+    <button class="toggle-btn" onclick="toggleMode()">Toggle light / dark</button>
+  </div>
+</div>
+
+<div class="page">
+
+  <!-- ── COLOUR TOKENS ── -->
+  <div class="section">
+    <p class="section-title">Colour tokens</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;">
+
+      <div>
+        <p style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);letter-spacing:0.12em;margin-bottom:12px;">SURFACE STACK</p>
+        <div class="palette">
+          <div class="palette-row">
+            <div class="swatch" style="background:#080808;"></div>
+            <div><div class="swatch-name">bg-base</div><div class="swatch-label">#080808 · page canvas</div></div>
+          </div>
+          <div class="palette-row">
+            <div class="swatch" style="background:#0f0f0f;border:1px solid rgba(255,255,255,0.07)"></div>
+            <div><div class="swatch-name">bg-surface</div><div class="swatch-label">#0f0f0f · cards, panels</div></div>
+          </div>
+          <div class="palette-row">
+            <div class="swatch" style="background:#161616;border:1px solid rgba(255,255,255,0.07)"></div>
+            <div><div class="swatch-name">bg-raised</div><div class="swatch-label">#161616 · inputs, nested</div></div>
+          </div>
+          <div class="palette-row">
+            <div class="swatch" style="background:#1e1e1e;border:1px solid rgba(255,255,255,0.07)"></div>
+            <div><div class="swatch-name">bg-overlay</div><div class="swatch-label">#1e1e1e · hover states, tooltips</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);letter-spacing:0.12em;margin-bottom:12px;">ACCENT + SEMANTIC</p>
+        <div class="palette">
+          <div class="palette-row">
+            <div class="swatch" style="background:#ff6b35;"></div>
+            <div><div class="swatch-name">accent</div><div class="swatch-label">#ff6b35 · buttons, active states, links</div></div>
+          </div>
+          <div class="palette-row">
+            <div class="swatch" style="background:#3b82f6;"></div>
+            <div><div class="swatch-name">info · learners</div><div class="swatch-label">#3b82f6 · learner count cards</div></div>
+          </div>
+          <div class="palette-row">
+            <div class="swatch" style="background:#22c55e;"></div>
+            <div><div class="swatch-name">success · completion</div><div class="swatch-label">#22c55e · published, completed, active</div></div>
+          </div>
+          <div class="palette-row">
+            <div class="swatch" style="background:#f59e0b;"></div>
+            <div><div class="swatch-name">warning · at-risk</div><div class="swatch-label">#f59e0b · draft, at-risk learners</div></div>
+          </div>
+          <div class="palette-row">
+            <div class="swatch" style="background:#ef4444;"></div>
+            <div><div class="swatch-name">danger</div><div class="swatch-label">#ef4444 · errors, destructive actions</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── TYPOGRAPHY ── -->
+  <div class="section">
+    <p class="section-title">Typography</p>
+    <div class="type-row">
+      <span class="type-label">page title</span>
+      <span style="font-size:26px;font-weight:600;color:var(--text-primary);letter-spacing:-0.02em;">Dashboard</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">section head</span>
+      <span style="font-size:18px;font-weight:600;color:var(--text-primary);">Top Performing Courses</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">card title</span>
+      <span style="font-size:14px;font-weight:600;color:var(--text-primary);">Complete Python for Beginners</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">body / label</span>
+      <span style="font-size:13px;font-weight:400;color:var(--text-secondary);">Manage and organise your learning content</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">caption / meta</span>
+      <span style="font-size:11px;color:var(--text-muted);">Last updated: just now · 9 learners enrolled</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">mono / tag</span>
+      <span style="font-size:10px;font-family:var(--font-mono);letter-spacing:0.18em;color:var(--text-muted);text-transform:uppercase;">Section label</span>
+    </div>
+    <div style="margin-top:8px;padding:12px 16px;background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);">
+      <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">UI font: Inter · Display/mono labels: DM Mono · Do not use more than 2 weights per context</span>
+    </div>
+  </div>
+
+  <!-- ── BUTTONS ── -->
+  <div class="section">
+    <p class="section-title">Buttons</p>
+    <div class="btn-row" style="margin-bottom:12px;">
+      <button class="btn btn-primary">+ Create new course</button>
+      <button class="btn btn-secondary">Export data</button>
+      <button class="btn btn-ghost">Preview</button>
+      <button class="btn btn-success">✓ Publish course</button>
+      <button class="btn btn-danger">Delete</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary btn-sm">Save changes</button>
+      <button class="btn btn-secondary btn-sm">Edit</button>
+      <button class="btn btn-ghost btn-sm">Cancel</button>
+      <button class="btn btn-ghost btn-icon">👁</button>
+      <button class="btn btn-ghost btn-icon">📊</button>
+      <button class="btn btn-ghost btn-icon">⋯</button>
+    </div>
+  </div>
+
+  <!-- ── NAVIGATION ── -->
+  <div class="section">
+    <p class="section-title">Navigation — creator view</p>
+    <div class="nav-demo">
+      <div class="nav-inner">
+        <div class="nav-brand">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <polyline points="1,5 6,8 1,11" stroke="#ff6b35" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <polyline points="7,5 12,8 7,11" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
+            <circle cx="14.5" cy="14.5" r="1.5" fill="#ff6b35"/>
+          </svg>
+          Coursify
+        </div>
+        <div class="nav-tab active"><div class="dot"></div> Dashboard</div>
+        <div class="nav-tab">My Courses</div>
+        <div class="nav-tab">Learners</div>
+        <div class="nav-tab">Analytics</div>
+        <div class="nav-tab">Reports</div>
+        <div class="nav-tab">Q &amp; A</div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+          <div class="avatar" style="width:28px;height:28px;font-size:10px;">RP</div>
+        </div>
+      </div>
+      <div style="padding:12px 16px;display:flex;align-items:center;gap:8px;">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary);">Dashboard</span>
+        <span style="font-size:11px;color:var(--text-muted);">· Wednesday, July 1, 2026 · Last updated: just now</span>
+      </div>
+    </div>
+
+    <div class="gap-16"></div>
+    <p class="section-title" style="margin-bottom:12px;">Navigation — learner view</p>
+    <div class="nav-demo">
+      <div class="nav-inner">
+        <div class="nav-brand">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <polyline points="1,5 6,8 1,11" stroke="#ff6b35" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <polyline points="7,5 12,8 7,11" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
+            <circle cx="14.5" cy="14.5" r="1.5" fill="#ff6b35"/>
+          </svg>
+          Coursify
+        </div>
+        <div class="nav-tab active"><div class="dot"></div> My Learning</div>
+        <div class="nav-tab">My Notes</div>
+        <div class="nav-tab">Q &amp; A</div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+          <div class="avatar" style="width:28px;height:28px;font-size:10px;">RP</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STAT CARDS ── -->
+  <div class="section">
+    <p class="section-title">Stat cards — semantic colour, not decorative</p>
+    <div class="stats-grid">
+      <div class="stat-card info">
+        <div class="stat-card-label">
+          <div class="stat-icon info">👥</div>
+          Total Learners
+        </div>
+        <div class="stat-card-val">9</div>
+        <div class="stat-card-delta">
+          <span class="delta-up">↑ 350%</span>
+          <span class="delta-sub">vs last period</span>
+        </div>
+      </div>
+      <div class="stat-card success">
+        <div class="stat-card-label">
+          <div class="stat-icon success">▶</div>
+          Active Courses
+        </div>
+        <div class="stat-card-val">8</div>
+        <div class="stat-card-delta">
+          <span class="delta-sub">vs 8 last period</span>
+        </div>
+      </div>
+      <div class="stat-card warning">
+        <div class="stat-card-label">
+          <div class="stat-icon warning">◎</div>
+          Completion Rate
+        </div>
+        <div class="stat-card-val">7<span style="font-size:16px;font-weight:400;">%</span></div>
+        <div class="stat-card-delta">
+          <span class="delta-up">↑ 75%</span>
+          <span class="delta-sub">vs last period</span>
+        </div>
+      </div>
+      <div class="stat-card neutral">
+        <div class="stat-card-label">
+          <div class="stat-icon neutral">⏱</div>
+          Avg. Time Spent
+        </div>
+        <div class="stat-card-val">0<span style="font-size:16px;font-weight:400;">h</span></div>
+        <div class="stat-card-delta">
+          <span class="delta-sub">vs 0h last period</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── COURSE CARDS ── -->
+  <div class="section">
+    <p class="section-title">Course cards</p>
+    <div class="cards-grid">
+      <div class="course-card">
+        <div class="course-thumb thumb-gradient-a">
+          <div class="thumb-badge badge-published">Published</div>
+          <div class="thumb-icon">▶</div>
+        </div>
+        <div class="course-body">
+          <div class="course-title">Foundations of Project Management</div>
+          <div class="course-meta">
+            <span>◻ 5 modules</span>
+            <span>⏱ 2h 33m</span>
+            <span>👥 9 learners</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" style="width:22%"></div></div>
+          <div class="course-actions">
+            <button class="btn btn-primary btn-sm" style="flex:1;">✏ Edit</button>
+            <button class="btn btn-ghost btn-icon btn-sm">👁</button>
+            <button class="btn btn-ghost btn-icon btn-sm">📊</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="course-card">
+        <div class="course-thumb thumb-gradient-b">
+          <div class="thumb-badge badge-draft">Draft</div>
+          <div class="thumb-icon">▶</div>
+        </div>
+        <div class="course-body">
+          <div class="course-title">Complete Python for Beginners in Hindi</div>
+          <div class="course-meta">
+            <span>◻ 1 module</span>
+            <span>⏱ 7m</span>
+            <span>👥 0 learners</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" style="width:0%"></div></div>
+          <div class="course-actions">
+            <button class="btn btn-secondary btn-sm" style="flex:1;">✏ Edit</button>
+            <button class="btn btn-ghost btn-icon btn-sm">👁</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="course-card">
+        <div class="course-thumb thumb-gradient-c">
+          <div class="thumb-badge badge-program">Program</div>
+          <div class="thumb-icon">⊞</div>
+        </div>
+        <div class="course-body">
+          <div class="course-title">Test 01 — Multi-course learning track</div>
+          <div class="course-meta">
+            <span>◻ 2 courses</span>
+            <span>👥 10 learners</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" style="width:40%"></div></div>
+          <div class="course-actions">
+            <button class="btn btn-primary btn-sm" style="flex:1;">✉ Invite</button>
+            <button class="btn btn-ghost btn-sm">Co-instructors</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── COURSE BUILDER ── -->
+  <div class="section">
+    <p class="section-title">Course builder</p>
+    <div class="builder-demo">
+      <div class="builder-sidebar">
+        <p style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:12px;">Course Structure</p>
+        <p style="font-size:10px;color:var(--text-muted);margin-bottom:14px;">Drag to reorder modules and lessons.</p>
+        <div class="module-item">
+          <div class="module-label">≡ 1. Getting started</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">2 lessons · 14m</div>
+        </div>
+        <div class="lesson-item active">▶ 1. Installing pandas</div>
+        <div class="lesson-item">? 2. Quick check quiz</div>
+        <button class="add-btn-inline">+ Add Lesson</button>
+        <div class="gap-8"></div>
+        <div class="module-item" style="background:var(--bg-raised);border-color:var(--border);opacity:0.7;">
+          <div class="module-label" style="color:var(--text-secondary);">≡ 2. Data cleaning</div>
+        </div>
+        <div class="gap-8"></div>
+        <button class="add-btn-inline" style="margin-left:0;width:100%;">+ Add Module</button>
+      </div>
+      <div class="builder-main">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
+          <div>
+            <div style="font-size:18px;font-weight:600;color:var(--text-primary);">Lesson 1 — Installing pandas</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">0 items · 0 min · <span style="color:var(--warning);">draft</span></div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-ghost btn-sm">Preview</button>
+            <button class="btn btn-secondary btn-sm">Save changes</button>
+            <button class="btn btn-success btn-sm">✓ Publish</button>
+          </div>
+        </div>
+        <div class="content-add-btns">
+          <button class="add-content-btn btn-add-video">▶ Add Video</button>
+          <button class="add-content-btn btn-add-reading">≡ Add Reading</button>
+          <button class="add-content-btn btn-add-assess">◻ Add Assessment</button>
+          <button class="add-content-btn btn-add-form">◎ Add Google Form</button>
+        </div>
+        <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;">
+          <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">⊙ Version History — No versions yet. Save the course to create a version.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── LEARNER ROWS ── -->
+  <div class="section">
+    <p class="section-title">Learner list rows</p>
+    <div class="learner-table">
+      <div class="learner-row">
+        <div class="avatar">RP</div>
+        <div>
+          <div class="learner-name">Raghavendra Pratap</div>
+          <div class="learner-email">random.raghavendrapratap@gmail.com · learner · Last active Jun 29</div>
+        </div>
+        <div class="learner-stats">
+          <div class="l-stat"><div class="l-stat-val">2</div><div class="l-stat-label">Enrolled</div></div>
+          <div class="l-stat"><div class="l-stat-val">0</div><div class="l-stat-label">Completed</div></div>
+          <div class="l-stat"><div class="l-stat-val" style="color:var(--warning);">3%</div><div class="l-stat-label">Progress</div></div>
+        </div>
+        <div class="status-pill status-active">Active</div>
+        <button class="btn btn-secondary btn-sm">View details</button>
+      </div>
+      <div class="learner-row">
+        <div class="avatar" style="background:var(--warning-subtle);border-color:rgba(245,158,11,0.25);color:var(--warning);">DI</div>
+        <div>
+          <div class="learner-name">Demo Instructor</div>
+          <div class="learner-email">demo@coursify.app · admin · Last active Jun 20</div>
+        </div>
+        <div class="learner-stats">
+          <div class="l-stat"><div class="l-stat-val">5</div><div class="l-stat-label">Enrolled</div></div>
+          <div class="l-stat"><div class="l-stat-val">0</div><div class="l-stat-label">Completed</div></div>
+          <div class="l-stat"><div class="l-stat-val" style="color:var(--danger);">0%</div><div class="l-stat-label">Progress</div></div>
+        </div>
+        <div class="status-pill status-risk">At Risk</div>
+        <button class="btn btn-secondary btn-sm">View details</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── BADGES ── -->
+  <div class="section">
+    <p class="section-title">Badges &amp; status pills</p>
+    <div class="badge-row">
+      <span class="badge badge-published">Published</span>
+      <span class="badge badge-draft">Draft</span>
+      <span class="badge badge-program">Program</span>
+      <span class="badge" style="background:var(--info-subtle);color:var(--info);border:1px solid rgba(59,130,246,0.25);">Enrolled</span>
+      <span class="badge status-active">Active</span>
+      <span class="badge status-risk">At Risk</span>
+      <span class="badge" style="background:var(--bg-raised);color:var(--text-muted);border:1px solid var(--border);">Inactive</span>
+      <span class="badge" style="background:rgba(168,85,247,0.1);color:#a855f7;border:1px solid rgba(168,85,247,0.2);">Admin</span>
+    </div>
+  </div>
+
+  <!-- ── INPUTS ── -->
+  <div class="section">
+    <p class="section-title">Form inputs</p>
+    <div class="input-row">
+      <div class="input-group">
+        <label class="input-label">Course title</label>
+        <input class="input" type="text" placeholder="e.g. Python for Data Analysts"/>
+      </div>
+      <div class="input-group">
+        <label class="input-label">Video URL</label>
+        <input class="input" type="text" placeholder="YouTube, Google Drive, or any URL"/>
+      </div>
+      <div class="input-group" style="max-width:140px;">
+        <label class="input-label">Start time</label>
+        <input class="input" type="text" placeholder="00:00:00"/>
+      </div>
+      <div class="input-group" style="max-width:140px;">
+        <label class="input-label">End time</label>
+        <input class="input" type="text" placeholder="00:00:00"/>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CSS TOKEN REFERENCE ── -->
+  <div class="section">
+    <p class="section-title">CSS token reference</p>
+    <table class="token-table">
+      <thead>
+        <tr><th>Token</th><th>Dark value</th><th>Light value</th><th>Use</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>--bg-base</td><td>#080808</td><td>#f8f8f6</td><td>Page canvas</td></tr>
+        <tr><td>--bg-surface</td><td>#0f0f0f</td><td>#ffffff</td><td>Cards, nav, modals</td></tr>
+        <tr><td>--bg-raised</td><td>#161616</td><td>#f2f2f0</td><td>Inputs, nested elements</td></tr>
+        <tr><td>--border</td><td>rgba(255,255,255,0.07)</td><td>rgba(0,0,0,0.07)</td><td>Default hairline</td></tr>
+        <tr><td>--border-md</td><td>rgba(255,255,255,0.12)</td><td>rgba(0,0,0,0.12)</td><td>Hover / emphasis</td></tr>
+        <tr><td>--text-primary</td><td>rgba(255,255,255,0.92)</td><td>rgba(0,0,0,0.88)</td><td>Headings, values</td></tr>
+        <tr><td>--text-secondary</td><td>rgba(255,255,255,0.5)</td><td>rgba(0,0,0,0.5)</td><td>Labels, descriptions</td></tr>
+        <tr><td>--text-muted</td><td>rgba(255,255,255,0.28)</td><td>rgba(0,0,0,0.32)</td><td>Captions, placeholders</td></tr>
+        <tr><td>--accent</td><td colspan="2">#ff6b35</td><td>Buttons, active nav, links, progress</td></tr>
+        <tr><td>--accent-hover</td><td colspan="2">#e85520</td><td>Button hover</td></tr>
+        <tr><td>--info</td><td colspan="2">#3b82f6</td><td>Learner count cards</td></tr>
+        <tr><td>--success</td><td colspan="2">#22c55e</td><td>Published, completed, active</td></tr>
+        <tr><td>--warning</td><td colspan="2">#f59e0b</td><td>Draft, at-risk, low completion</td></tr>
+        <tr><td>--danger</td><td colspan="2">#ef4444</td><td>Errors, destructive, 0% progress</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+  function toggleMode() {
+    const html = document.documentElement;
+    const label = document.getElementById('mode-label');
+    if (html.getAttribute('data-mode') === 'dark') {
+      html.setAttribute('data-mode', 'light');
+      label.textContent = 'LIGHT MODE';
+    } else {
+      html.setAttribute('data-mode', 'dark');
+      label.textContent = 'DARK MODE';
+    }
+  }
+</script>
+</body>
+</html>

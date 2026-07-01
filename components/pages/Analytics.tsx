@@ -1,6 +1,13 @@
-'use client'
+'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import {
+  ThemeFilterTab,
+  ThemeStatCard,
+  legacyStatColor,
+  themeDelta,
+} from '@/components/ui/ThemeStatCard';
+import { headerPrimaryBtn, primaryBtn, toolbarToggleBtn, pageHeaderActions } from '@/components/ui/theme-classes';
 import { 
   Users, BarChart3, Clock, Calendar, Download, Filter, Target, Activity, Percent, Trophy, BookOpen,
   ArrowUp, ArrowDown, RefreshCw, CheckCircle, Star, Zap, TrendingUp, TrendingDown, AlertCircle,
@@ -14,7 +21,17 @@ import {
   filterLearnersByDepartment,
 } from '@/lib/analytics-filters';
 
-const StatCard = ({ title, current, previous, change, trend, icon: Icon, color, suffix = '', comparisonMode = false }: {
+const renderAnalyticsStat = ({
+  title,
+  current,
+  previous,
+  change,
+  trend,
+  icon: Icon,
+  color,
+  suffix = '',
+  comparisonMode = false,
+}: {
   title: string;
   current: number | string;
   previous: number | string;
@@ -24,37 +41,18 @@ const StatCard = ({ title, current, previous, change, trend, icon: Icon, color, 
   color: 'blue' | 'green' | 'purple' | 'orange';
   suffix?: string;
   comparisonMode?: boolean;
-}) => {
-  const isPositive = trend === 'up';
-  const changeValue = Math.abs(change);
-  const colorClasses = {
-    blue: 'from-blue-500 to-blue-600',
-    green: 'from-green-500 to-green-600',
-    purple: 'from-purple-500 to-purple-600',
-    orange: 'from-orange-500 to-orange-600'
-  };
-  return (
-    <div className={`bg-gradient-to-br ${colorClasses[color]} text-white p-6 rounded-2xl shadow-lg hover:shadow-xl transition-all cursor-pointer`}>
-      <div className="flex items-center justify-between mb-4">
-        <div className="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center backdrop-blur-sm">
-          <Icon className="w-6 h-6" />
-        </div>
-        <div className={`flex items-center space-x-1 text-sm font-semibold bg-white bg-opacity-20 px-3 py-1 rounded-full`}>
-          {isPositive ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
-          <span>{changeValue.toFixed(1)}%</span>
-        </div>
-      </div>
-      <p className="text-sm opacity-90 mb-1">{title}</p>
-      <div className="flex items-baseline">
-        <p className="text-4xl font-bold">{current}</p>
-        {suffix && <span className="text-xl ml-1 opacity-90">{suffix}</span>}
-      </div>
-      {comparisonMode && (
-        <p className="text-xs opacity-90 mt-2">vs {previous}{suffix} last period</p>
-      )}
-    </div>
-  );
-};
+}) => (
+  <ThemeStatCard
+    icon={Icon}
+    title={title}
+    value={<>{current}{suffix}</>}
+    variant={legacyStatColor(color)}
+    delta={themeDelta(trend === 'up' ? change : -change, comparisonMode ? 'vs last period' : '')}
+    footnote={comparisonMode ? `vs ${previous}${suffix} last period` : undefined}
+  />
+);
+
+const StatCard = (props: Parameters<typeof renderAnalyticsStat>[0]) => renderAnalyticsStat(props);
 
 const Analytics: React.FC<{ setCurrentView?: (view: string) => void }> = ({ setCurrentView }) => {
   const [dateRange, setDateRange] = useState('30days');
@@ -330,7 +328,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
   };
 
   const content = (
-    <div className="min-h-full dark:bg-gray-900">
+    <div className="min-h-full bg-canvas">
       {configMissing ? (
         <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-8 py-2 text-sm text-amber-800 dark:text-amber-200">
           Configure Supabase to see analytics.
@@ -341,36 +339,36 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
           {actionMessage}
         </div>
       ) : null}
-      <div className="bg-white dark:bg-gray-900 dark:border-gray-800 border-b border-gray-200 dark:border-gray-800 px-8 py-6 sticky top-0 z-20">
+      <div className="bg-surface border-b border-line px-8 py-6 sticky top-0 z-20">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Analytics Dashboard</h1>
-            <div className="flex items-center mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <h1 className="text-2xl font-semibold text-content">Analytics Dashboard</h1>
+            <div className="flex items-center mt-2 text-sm text-content-secondary">
               <Calendar className="w-4 h-4 mr-2" />
               <span>Last updated: Just now</span>
               <span className="mx-2">•</span>
               <span>Showing data for {dateRange === '7days' ? 'last 7 days' : dateRange === '90days' ? 'last 90 days' : 'last 30 days'}</span>
             </div>
           </div>
-          <div className="flex space-x-3">
+          <div className={pageHeaderActions}>
             <button 
+              type="button"
               onClick={() => setComparisonMode(!comparisonMode)}
-              className={`px-4 py-2 rounded-lg font-semibold transition-all flex items-center ${
-                comparisonMode ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
+              className={toolbarToggleBtn(comparisonMode)}
             >
-              <RefreshCw className="w-4 h-4 mr-2" />
+              <RefreshCw className="w-4 h-4" />
               Compare
             </button>
             <button 
+              type="button"
               onClick={() => setShowFilters(!showFilters)}
-              className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 font-semibold flex items-center transition-all"
+              className={toolbarToggleBtn(showFilters)}
             >
-              <Filter className="w-4 h-4 mr-2" />
+              <Filter className="w-4 h-4" />
               Filters
             </button>
-            <button type="button" onClick={exportAnalyticsCsv} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center transition-all">
-              <Download className="w-4 h-4 mr-2" />
+            <button type="button" onClick={exportAnalyticsCsv} className={headerPrimaryBtn}>
+              <Download className="w-4 h-4" />
               Export Report
             </button>
           </div>
@@ -378,14 +376,14 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
 
         {/* Filters Panel */}
         {showFilters && (
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-4 border border-gray-200 dark:border-gray-700">
+          <div className="bg-raised rounded-xl p-4 mb-4 border border-line">
             <div className="grid grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-semibold mb-2">Date Range</label>
                 <select 
                   value={dateRange}
                   onChange={(e) => setDateRange(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand"
                 >
                   <option value="7days">Last 7 days</option>
                   <option value="30days">Last 30 days</option>
@@ -399,7 +397,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                 <select 
                   value={selectedCourse}
                   onChange={(e) => setSelectedCourse(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand"
                 >
                   <option value="all">All Courses</option>
                   {courseOptions.map((c) => (
@@ -412,7 +410,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                 <select 
                   value={selectedDepartment}
                   onChange={(e) => setSelectedDepartment(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand"
                 >
                   <option value="all">All Departments</option>
                   <option value="sales">Sales</option>
@@ -428,7 +426,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                 <button
                   type="button"
                   onClick={() => setShowFilters(false)}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
+                  className={`w-full ${primaryBtn}`}
                 >
                   Apply Filters
                 </button>
@@ -438,39 +436,19 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
         )}
 
         {/* Metric Tabs */}
-        <div className="flex items-center space-x-2">
-          <button 
-            onClick={() => setSelectedMetric('overview')}
-            className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-              selectedMetric === 'overview' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
+        <div className="flex items-center gap-2 flex-wrap">
+          <ThemeFilterTab active={selectedMetric === 'overview'} onClick={() => setSelectedMetric('overview')}>
             Overview
-          </button>
-          <button 
-            onClick={() => setSelectedMetric('engagement')}
-            className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-              selectedMetric === 'engagement' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
+          </ThemeFilterTab>
+          <ThemeFilterTab active={selectedMetric === 'engagement'} onClick={() => setSelectedMetric('engagement')}>
             Engagement
-          </button>
-          <button 
-            onClick={() => setSelectedMetric('completion')}
-            className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-              selectedMetric === 'completion' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
+          </ThemeFilterTab>
+          <ThemeFilterTab active={selectedMetric === 'completion'} onClick={() => setSelectedMetric('completion')}>
             Completion
-          </button>
-          <button 
-            onClick={() => setSelectedMetric('performance')}
-            className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-              selectedMetric === 'performance' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
+          </ThemeFilterTab>
+          <ThemeFilterTab active={selectedMetric === 'performance'} onClick={() => setSelectedMetric('performance')}>
             Performance
-          </button>
+          </ThemeFilterTab>
         </div>
       </div>
 
@@ -526,7 +504,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
             {/* Charts Row 1 */}
             <div className="grid lg:grid-cols-2 gap-6 mb-6">
               {/* Engagement Trend */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="app-card rounded-lg p-6">
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <h3 className="text-xl font-bold">Engagement Trend</h3>
@@ -535,7 +513,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                   <button
                     type="button"
                     onClick={exportAnalyticsCsv}
-                    className="p-2 hover:bg-gray-100 rounded-lg"
+                    className="p-2 hover:bg-raised rounded-lg"
                     title="Download CSV"
                   >
                     <Download className="w-5 h-5 text-gray-600" />
@@ -567,7 +545,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
               </div>
 
               {/* Department Breakdown */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="app-card rounded-lg p-6">
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <h3 className="text-xl font-bold">Department Performance</h3>
@@ -617,7 +595,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
             {/* Charts Row 2 */}
             <div className="grid lg:grid-cols-3 gap-6 mb-6">
               {/* Completion Funnel */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="app-card rounded-lg p-6">
                 <h3 className="text-xl font-bold mb-6">Completion Funnel</h3>
                 <div className="space-y-3">
                   {completionFunnel.length === 0 ? (
@@ -640,7 +618,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
               </div>
 
               {/* Device Breakdown */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="app-card rounded-lg p-6">
                 <h3 className="text-xl font-bold mb-6">Device Usage</h3>
                 <div className="space-y-6">
                   {deviceBreakdown.length === 0 ? (
@@ -673,7 +651,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
               </div>
 
               {/* Top Performers */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="app-card rounded-lg p-6">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-xl font-bold">Top Performers</h3>
                   <Trophy className="w-6 h-6 text-yellow-500" />
@@ -682,7 +660,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                   {topPerformers.length === 0 ? (
                     <div className="py-6 text-center text-gray-500 text-sm">No data yet.</div>
                   ) : topPerformers.map((performer, i) => (
-                    <div key={i} className="flex items-center p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-all">
+                    <div key={i} className="flex items-center p-3 bg-raised rounded-xl hover:bg-canvas transition-all">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
                         i === 0 ? 'bg-yellow-400 text-white' :
                         i === 1 ? 'bg-gray-300 text-gray-700' :
@@ -703,93 +681,92 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
             </div>
 
             {/* Course Performance Table */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-              <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                <h3 className="text-xl font-bold dark:text-white">Course Performance</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Detailed metrics for all courses</p>
+            <div className="app-card rounded-lg overflow-hidden">
+              <div className="p-6 border-b border-line">
+                <h3 className="text-xl font-bold text-content">Course Performance</h3>
+                <p className="text-sm text-content-secondary mt-1">Detailed metrics for all courses</p>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 dark:bg-gray-700/80 border-b-2 border-gray-200 dark:border-gray-600">
+                <table className="c-table">
+                  <thead>
                     <tr>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Course Name</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Enrolled</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Completed</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Completion Rate</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Avg. Score</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Avg. Time</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Drop-off</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Satisfaction</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Trend</th>
+                      <th>Course Name</th>
+                      <th>Enrolled</th>
+                      <th>Completed</th>
+                      <th>Completion Rate</th>
+                      <th>Avg. Score</th>
+                      <th>Avg. Time</th>
+                      <th>Drop-off</th>
+                      <th>Satisfaction</th>
+                      <th>Trend</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  <tbody>
                     {coursePerformance.length === 0 ? (
-                      <tr><td colSpan={9} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400 text-sm">No courses yet.</td></tr>
+                      <tr><td colSpan={9} className="px-6 py-8 text-center text-content-muted text-sm">No courses yet.</td></tr>
                     ) : filteredCoursePerformance.map((course) => (
-                      <tr key={course.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all">
-                        <td className="px-6 py-4">
-                          <p className="font-semibold dark:text-white">{course.name}</p>
+                      <tr key={course.id}>
+                        <td>
+                          <p className="font-semibold text-content">{course.name}</p>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className="font-semibold dark:text-white">{course.enrolled}</span>
+                        <td>
+                          <span className="font-semibold text-content">{course.enrolled}</span>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className="font-semibold text-green-600 dark:text-green-400">{course.completed}</span>
-                          <span className="text-gray-600 dark:text-gray-400 text-sm ml-1">({course.inProgress} in progress)</span>
+                        <td>
+                          <span className="font-semibold text-ok">{course.completed}</span>
+                          <span className="text-content-secondary text-sm ml-1">({course.inProgress} in progress)</span>
                         </td>
-                        <td className="px-6 py-4">
+                        <td>
                           <div className="flex items-center space-x-2">
-                            <div className="w-20 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                            <div className="w-20 c-progress h-2">
                               <div 
-                                className={`h-2 rounded-full ${
-                                  course.completionRate >= 85 ? 'bg-green-500' :
-                                  course.completionRate >= 70 ? 'bg-yellow-500' :
-                                  'bg-red-500'
+                                className={`c-progress-fill h-2 ${
+                                  course.completionRate >= 85 ? 'ok' :
+                                  course.completionRate >= 70 ? 'warn' : ''
                                 }`}
                                 style={{width: `${course.completionRate}%`}}
-                              ></div>
+                              />
                             </div>
-                            <span className="text-sm font-semibold dark:text-white">{course.completionRate}%</span>
+                            <span className="text-sm font-semibold text-content">{course.completionRate}%</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td>
                           <span className={`font-semibold ${
-                            course.avgScore >= 90 ? 'text-green-600 dark:text-green-400' :
-                            course.avgScore >= 75 ? 'text-yellow-600 dark:text-yellow-400' :
-                            'text-red-600 dark:text-red-400'
+                            course.avgScore >= 90 ? 'text-ok' :
+                            course.avgScore >= 75 ? 'text-warn' :
+                            'text-err'
                           }`}>
                             {course.avgScore}%
                           </span>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className="text-gray-700 dark:text-gray-300">{course.avgTime}</span>
+                        <td>
+                          <span className="text-content-secondary">{course.avgTime}</span>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            course.dropOffRate < 15 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' :
-                            course.dropOffRate < 25 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300' :
-                            'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                        <td>
+                          <span className={`c-badge ${
+                            course.dropOffRate < 15 ? 'c-badge-ok' :
+                            course.dropOffRate < 25 ? 'c-badge-warn' :
+                            'c-badge-err'
                           }`}>
                             {course.dropOffRate}%
                           </span>
                         </td>
-                        <td className="px-6 py-4">
+                        <td>
                           <div className="flex items-center">
-                            <Star className="w-4 h-4 text-yellow-500 fill-yellow-500 mr-1" />
-                            <span className="font-semibold dark:text-white">{course.satisfaction}</span>
+                            <Star className="w-4 h-4 text-warn fill-current mr-1" />
+                            <span className="font-semibold text-content">{course.satisfaction}</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td>
                           <div className={`flex items-center space-x-1 ${
-                            course.trend === 'up' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                            course.trend === 'up' ? 'text-ok' : 'text-err'
                           }`}>
                             {course.trend === 'up' ? (
                               <TrendingUp className="w-4 h-4" />
                             ) : (
                               <TrendingDown className="w-4 h-4" />
                             )}
-                            <span className="text-sm font-semibold dark:text-white">{course.trendValue}%</span>
+                            <span className="text-sm font-semibold">{course.trendValue}%</span>
                           </div>
                         </td>
                       </tr>
@@ -849,7 +826,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
             </div>
 
             {/* Peak Hours Chart */}
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
+            <div className="app-card rounded-lg p-6 mb-6">
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="text-xl font-bold">Peak Usage Hours</h3>
@@ -878,7 +855,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
             </div>
 
             {/* At-Risk Learners */}
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+            <div className="app-card rounded-lg p-6">
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="text-xl font-bold">At-Risk Learners</h3>
@@ -887,7 +864,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                 <button
                   type="button"
                   onClick={handleSendRemindersToAtRisk}
-                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-semibold flex items-center"
+                  className={`${primaryBtn} flex items-center`}
                 >
                   <AlertCircle className="w-4 h-4 mr-2" />
                   Send Reminders
@@ -898,7 +875,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                 {filteredAtRiskLearners.length === 0 ? (
                   <div className="py-6 text-center text-gray-500 text-sm">No at-risk learners.</div>
                 ) : filteredAtRiskLearners.map((learner) => (
-                  <div key={learner.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-all">
+                  <div key={learner.id} className="flex items-center justify-between p-4 bg-raised rounded-xl hover:bg-canvas transition-all">
                     <div className="flex items-center flex-1">
                       <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-white ${
                         learner.status === 'critical' ? 'bg-red-500' : 'bg-orange-500'
@@ -918,7 +895,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                       <button
                         type="button"
                         onClick={() => handleContactAtRiskLearner(learner)}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
+                        className={primaryBtn}
                       >
                         Contact
                       </button>
@@ -978,7 +955,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
             </div>
 
             {/* Completion by Course Type */}
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
+            <div className="app-card rounded-lg p-6 mb-6">
               <h3 className="text-xl font-bold mb-6">Completion Rate by Course</h3>
               <div className="grid grid-cols-2 gap-6">
                 {completionByCourse.length === 0 ? (
@@ -1016,7 +993,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
             </div>
 
             {/* Completion Timeline */}
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+            <div className="app-card rounded-lg p-6">
               <h3 className="text-xl font-bold mb-6">Completion Timeline Distribution</h3>
               <div className="space-y-4">
                 {[
@@ -1105,7 +1082,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
 
             {/* Score Distribution */}
             <div className="grid lg:grid-cols-2 gap-6 mb-6">
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="app-card rounded-lg p-6">
                 <h3 className="text-xl font-bold mb-6">Score Distribution</h3>
                 <div className="h-64 flex items-end justify-around space-x-2">
                   {[
@@ -1138,7 +1115,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="app-card rounded-lg p-6">
                 <h3 className="text-xl font-bold mb-6">Performance Insights</h3>
                 <div className="space-y-4">
                   <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
@@ -1176,7 +1153,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
 
             {/* Top and Bottom Performing Content */}
             <div className="grid lg:grid-cols-2 gap-6">
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="app-card rounded-lg p-6">
                 <h3 className="text-xl font-bold mb-6 flex items-center">
                   <Trophy className="w-6 h-6 text-yellow-500 mr-2" />
                   Best Performing Content
@@ -1199,7 +1176,7 @@ type StatBlock = { current: number; previous: number; change: number; trend: 'up
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="app-card rounded-lg p-6">
                 <h3 className="text-xl font-bold mb-6 flex items-center">
                   <AlertCircle className="w-6 h-6 text-orange-500 mr-2" />
                   Content Needing Improvement

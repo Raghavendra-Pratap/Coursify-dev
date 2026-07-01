@@ -407,7 +407,7 @@ function SegmentEnforcedIframePlayer({
         <button
           type="button"
           onClick={handleReplay}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg"
         >
           Replay segment
         </button>
@@ -2148,16 +2148,16 @@ function onFormSubmit(e) {
   return (
     <div className="h-full flex flex-col">
       {saveMessage && (
-        <div className="bg-blue-50 border-b border-blue-200 px-6 py-2 text-sm text-blue-800 flex-shrink-0">
+        <div className="bg-brand/10 border-b border-brand/30 px-6 py-2 text-sm text-brand flex-shrink-0">
           {saveMessage}
         </div>
       )}
       <div className="flex flex-1 min-h-0">
       {/* Course Structure Sidebar */}
-      <div className="w-96 min-w-[20rem] bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 overflow-auto flex-shrink-0">
-        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-bold mb-2 dark:text-white">Course Structure</h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400">Drag to reorder modules and lessons. Use the top bar for import and organize.</p>
+      <div className="w-96 min-w-[20rem] surface-1 border-r border-line overflow-auto flex-shrink-0">
+        <div className="p-6 border-b border-line">
+          <h3 className="text-lg font-bold mb-2 text-content">Course Structure</h3>
+          <p className="text-sm text-content-secondary">Drag to reorder modules and lessons. Use the top bar for import and organize.</p>
         </div>
 
         {savedCourseId && (
@@ -2179,8 +2179,8 @@ function onFormSubmit(e) {
                 onDrop={(e) => handleDrop(e, 'module', module.id)}
                 className={`p-4 rounded-xl border-2 transition-all ${
                   currentModule === moduleIdx 
-                    ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 dark:border-blue-500 shadow-md' 
-                    : 'border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500 hover:bg-gray-50 dark:hover:bg-gray-700'
+                    ? 'bg-brand/10 border-brand shadow-md' 
+                    : 'border-line hover:border-brand/40 hover:bg-overlay/50'
                 } ${draggedItem?.type === 'module' && draggedItem.id === module.id ? 'opacity-50' : ''}`}
               >
                 <div className="flex items-start justify-between gap-2 mb-2">
@@ -2248,7 +2248,7 @@ function onFormSubmit(e) {
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400 mb-2 pl-6">
+                <div className="flex items-center justify-between text-xs text-content-muted mb-2 pl-6">
                   <span>{module.lessons.length} lessons</span>
                   <span>{module.duration}</span>
                 </div>
@@ -2270,15 +2270,15 @@ function onFormSubmit(e) {
                         }}
                         className={`p-3 rounded-lg border transition-all cursor-pointer ${
                           currentModule === moduleIdx && currentLesson === lessonIdx
-                            ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-400 dark:border-blue-500'
-                            : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500'
+                            ? 'bg-brand/15 border-brand'
+                            : 'bg-raised border-line hover:border-brand/40'
                         } ${draggedItem?.type === 'lesson' && draggedItem.id === lesson.id ? 'opacity-50' : ''}`}
                       >
                         <div className="flex items-start w-full gap-2">
                           <Menu className="w-3 h-3 text-gray-400 cursor-move flex-shrink-0 mt-0.5" />
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold break-words leading-snug dark:text-white">{lesson.order + 1}. {lesson.title}</p>
-                            <div className="flex items-center justify-between mt-1 text-xs text-gray-500 dark:text-gray-400 gap-2">
+                            <p className="text-xs font-semibold break-words leading-snug text-content">{lesson.order + 1}. {lesson.title}</p>
+                            <div className="flex items-center justify-between mt-1 text-xs text-content-muted gap-2">
                               <span className="flex-shrink-0">{lesson.content.length} items</span>
                               <span className="flex-shrink-0">{lesson.duration}</span>
                             </div>
@@ -2301,7 +2301,7 @@ function onFormSubmit(e) {
                 {!moduleCollapsed && (
                 <button
                   onClick={() => handleAddLesson(module.id)}
-                  className="mt-2 w-full text-xs px-3 py-1.5 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:border-blue-500 hover:text-blue-600 dark:hover:border-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-gray-700 transition-all flex items-center justify-center"
+                  className="mt-2 w-full text-xs px-3 py-1.5 border border-dashed border-line rounded-lg text-content-secondary hover:border-brand hover:text-brand hover:bg-brand/5 transition-all flex items-center justify-center"
                 >
                   <Plus className="w-3 h-3 mr-1" />
                   Add Lesson
@@ -2313,7 +2313,7 @@ function onFormSubmit(e) {
             
             <button 
               onClick={handleAddModule}
-              className="w-full p-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl text-gray-600 dark:text-gray-300 hover:border-blue-500 hover:text-blue-600 dark:hover:border-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-gray-700 transition-all flex items-center justify-center font-semibold"
+              className="w-full p-4 border-2 border-dashed border-line rounded-xl text-content-secondary hover:border-brand hover:text-brand hover:bg-brand/5 transition-all flex items-center justify-center font-semibold"
             >
               <Plus className="w-5 h-5 mr-2" />
               Add Module
@@ -2323,24 +2323,20 @@ function onFormSubmit(e) {
       </div>
 
       {/* Main Editor Area */}
-      <div className="flex-1 overflow-auto dark:bg-gray-900">
+      <div className="flex-1 overflow-auto bg-canvas">
         {/* Header */}
-        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 p-6 sticky top-0 z-10">
+        <div className="surface-1 border-b border-line p-6 sticky top-0 z-10">
           <div className="flex items-center justify-between mb-4">
             <div className="flex-1">
               <input 
                 type="text" 
                 value={courseData.title}
                 onChange={(e) => setCourseData({ ...courseData, title: e.target.value })}
-                className="text-3xl font-bold border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 w-full bg-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                className="text-3xl font-bold border-none focus:outline-none focus:ring-2 focus:ring-brand/50 rounded px-2 w-full bg-transparent text-content placeholder:text-content-muted"
               />
-              <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600 dark:text-gray-400">
+              <div className="flex items-center space-x-4 mt-2 text-sm text-content-secondary">
                 <span>Last edited {courseData.lastEdited}</span>
-                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                  courseData.status === 'published' 
-                    ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' 
-                    : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300'
-                }`}>
+                <span className={`c-badge ${courseData.status === 'published' ? 'c-badge-published' : 'c-badge-draft'}`}>
                   {courseData.status}
                 </span>
               </div>
@@ -2348,21 +2344,22 @@ function onFormSubmit(e) {
             <div className="flex space-x-3">
               <button 
                 onClick={() => setPreviewMode(!previewMode)}
-                className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-200 font-semibold flex items-center transition-all"
+                className="c-btn c-btn-ghost px-6 py-3 font-semibold flex items-center"
               >
                 <Eye className="w-5 h-5 mr-2" />
                 Preview
               </button>
               <button 
                 onClick={() => void handleSave()}
-                className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center transition-all shadow-lg"
+                className="c-btn c-btn-primary px-6 py-3 font-semibold flex items-center shadow-lg"
               >
                 <Save className="w-5 h-5 mr-2" />
                 Save Changes
               </button>
               <button 
                 onClick={handlePublish}
-                className="px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold flex items-center transition-all shadow-lg"
+                className="c-btn px-6 py-3 font-semibold flex items-center shadow-lg text-[#080808]"
+                style={{ background: 'var(--c-ok)' }}
               >
                 <CheckCircle className="w-5 h-5 mr-2" />
                 Publish Course
@@ -2390,10 +2387,10 @@ function onFormSubmit(e) {
                     modules[currentModule].lessons[currentLesson].title = e.target.value;
                     setCourseData({ ...courseData, modules });
                   }}
-                  className="text-2xl font-bold w-full max-w-4xl border border-transparent focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-lg px-3 py-2 bg-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                  className="text-2xl font-bold w-full max-w-4xl border border-transparent focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/50 rounded-lg px-3 py-2 bg-transparent text-content placeholder:text-content-muted"
                 />
                 <div className="flex flex-wrap items-center justify-between gap-3 mt-2">
-                  <p className="text-sm text-gray-600 dark:text-gray-400">{currentLessonData.duration} • {currentLessonData.content.length} content items</p>
+                  <p className="text-sm text-content-secondary">{currentLessonData.duration} • {currentLessonData.content.length} content items</p>
                   <button
                     type="button"
                     onClick={() => setShowStructurePanel(true)}
@@ -2619,27 +2616,27 @@ function onFormSubmit(e) {
               </div>
 
               {/* Add Content Buttons */}
-              <div className="flex space-x-3 mb-6">
+              <div className="flex flex-wrap gap-3 mb-6">
                 <button
                   onClick={() => handleAddContent('video')}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center transition-all shadow-lg"
+                  className="c-btn c-btn-primary px-6 py-3 font-semibold flex items-center shadow-lg"
                 >
                   <Video className="w-5 h-5 mr-2" />
                   Add Video
                 </button>
                 <button
                   onClick={() => handleAddContent('reading')}
-                  className="px-6 py-3 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-semibold flex items-center transition-all shadow-lg"
+                  className="c-btn px-6 py-3 font-semibold flex items-center shadow-lg border border-warning/40 bg-warning-subtle text-warning hover:bg-warning/20"
                 >
                   <BookOpen className="w-5 h-5 mr-2" />
                   Add Reading
                 </button>
                 <button
                   onClick={() => handleAddContent('assessment')}
-                  className={`px-6 py-3 rounded-xl font-semibold flex items-center transition-all shadow-lg ${
+                  className={`c-btn px-6 py-3 font-semibold flex items-center shadow-lg border ${
                     showAssessmentPanel
-                      ? 'bg-indigo-800 text-white ring-2 ring-indigo-300'
-                      : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                      ? 'border-brand bg-brand/20 text-brand ring-2 ring-brand/30'
+                      : 'border-line bg-raised text-content hover:bg-overlay'
                   }`}
                 >
                   <Award className="w-5 h-5 mr-2" />
@@ -2647,7 +2644,7 @@ function onFormSubmit(e) {
                 </button>
                 <button
                   onClick={() => openGoogleFormModal('form')}
-                  className="px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-semibold flex items-center transition-all shadow-lg"
+                  className="c-btn px-6 py-3 font-semibold flex items-center shadow-lg border border-line bg-raised text-content-secondary hover:bg-overlay"
                 >
                   <FileText className="w-5 h-5 mr-2" />
                   Add Google Form
@@ -2869,7 +2866,7 @@ function onFormSubmit(e) {
                         <button
                           type="button"
                           onClick={() => { if (combinedSegmentIndex < totalSteps - 1) setCombinedSegmentIndex((i) => i + 1); }}
-                          className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+                          className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium"
                         >
                           Next
                         </button>
@@ -3385,7 +3382,7 @@ function onFormSubmit(e) {
                   <button
                     type="button"
                     onClick={() => driveUploadInputRef.current?.click()}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center text-sm"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold flex items-center text-sm"
                   >
                     <Upload className="w-4 h-4 mr-2" />
                     Upload New
@@ -3551,7 +3548,7 @@ function onFormSubmit(e) {
                                 href={unifiedVideoUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
+                                className="px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium"
                               >
                                 Open link in new tab
                               </a>
@@ -3825,7 +3822,7 @@ function onFormSubmit(e) {
                           return false;
                         })()
                       }
-                      className="flex-1 px-6 py-3 bg-blue-600 dark:bg-blue-600 text-white rounded-xl hover:bg-blue-700 dark:hover:bg-blue-700 font-semibold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex-1 px-6 py-3 bg-blue-600 dark:bg-blue-600 text-white rounded-xl dark:hover:bg-blue-700 font-semibold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {contentToReplace ? 'Replace Content' : 'Add Content'}
                     </button>

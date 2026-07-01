@@ -56,7 +56,7 @@ class LessonErrorBoundary extends Component<
                 this.setState({ hasError: false });
                 this.props.onRetry();
               }}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700"
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium"
             >
               Try again
             </button>
@@ -106,6 +106,9 @@ interface TakeCourseProps {
   /** When provided, open directly to this lesson after course loads. */
   initialLessonId?: string | null;
 }
+
+const learnerPanel = 'rounded-xl border border-line bg-surface overflow-hidden';
+const learnerPanelHeader = 'flex items-center justify-between flex-shrink-0 px-3 py-2 border-b border-line';
 
 const NOTES_STORAGE_PREFIX = 'coursify_note_';
 const NOTES_MANIFEST_KEY = 'coursify_notes_manifest';
@@ -886,7 +889,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
           <div key={mod.id} className="mb-1">
             <button
               onClick={() => toggleModule(mod.id)}
-              className="w-full flex items-center gap-2 py-2 px-3 rounded-lg text-left text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/80 transition-colors"
+              className="w-full flex items-center gap-2 py-2 px-3 rounded-lg text-left text-sm font-medium text-content-secondary hover:bg-overlay transition-colors"
             >
               {isExpanded ? (
                 <ChevronDown className="w-4 h-4 flex-shrink-0 text-gray-400" />
@@ -909,8 +912,8 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
                         onClick={() => setSelectedLessonId(l.id)}
                         className={`w-full flex items-center gap-2 py-2 px-3 rounded-lg text-left text-sm transition-colors ${
                           active
-                            ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium'
-                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/80'
+                            ? 'bg-brand/15 text-brand font-medium border border-brand/30'
+                            : 'text-content-secondary hover:bg-overlay'
                         }`}
                       >
                         {done ? (
@@ -934,30 +937,30 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
   return (
     <div className="h-full max-h-full flex flex-col min-h-0 min-w-0">
       {/* Course sub-header: back, title, progress */}
-      <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/95 z-10 shadow-sm">
+      <div className="flex-shrink-0 border-b border-line surface-1 z-10">
         <div className="px-4 sm:px-6 py-3">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-4 min-w-0">
               <button
                 onClick={onBack}
-                className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium transition-colors flex-shrink-0"
+                className="flex items-center gap-2 text-content-secondary hover:text-content font-medium transition-colors flex-shrink-0"
               >
                 <ArrowLeft className="w-5 h-5" />
                 Back to My learning
               </button>
-              <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 hidden sm:block flex-shrink-0" />
-              <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white truncate">
+              <div className="h-6 w-px bg-line hidden sm:block flex-shrink-0" />
+              <h1 className="text-lg sm:text-xl font-bold text-content truncate">
                 {course.title}
               </h1>
             </div>
             <div className="flex items-center gap-3 w-full sm:w-auto">
-              <div className="flex-1 sm:flex-initial sm:min-w-[140px] h-2.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+              <div className="flex-1 sm:flex-initial sm:min-w-[140px] c-progress h-2.5">
                 <div
-                  className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                  className="c-progress-fill ok h-2.5"
                   style={{ width: `${totalLessons ? (completedCount / totalLessons) * 100 : 0}%` }}
                 />
               </div>
-              <span className="text-sm font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">
+              <span className="text-sm font-medium text-content-secondary whitespace-nowrap">
                 {completedCount} / {totalLessons} lessons
               </span>
             </div>
@@ -970,18 +973,18 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
         {courseContentOpen ? (
           <>
             <aside
-              className="flex-shrink-0 flex flex-col rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden"
+              className={`flex-shrink-0 flex flex-col ${learnerPanel}`}
               style={{ width: courseContentWidth }}
             >
-              <div className="flex items-center justify-between flex-shrink-0 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
-                  <BookOpen className="w-4 h-4 text-blue-500" />
+              <div className={learnerPanelHeader}>
+                <span className="text-sm font-semibold text-content flex items-center gap-1.5">
+                  <BookOpen className="w-4 h-4 text-brand" />
                   Course content
                 </span>
                 <button
                   type="button"
                   onClick={() => setCourseContentOpen(false)}
-                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                  className="p-1 rounded hover:bg-overlay text-content-secondary"
                   aria-label="Close course content"
                 >
                   <ChevronRight className="w-4 h-4" />
@@ -1012,7 +1015,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
         )}
 
         {/* Lesson area */}
-        <main className="flex-1 min-h-0 min-w-0 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
+        <main className={`flex-1 min-h-0 min-w-0 ${learnerPanel} flex flex-col`}>
           {contentLoading && !lessonContent ? (
             <div className="flex-1 flex items-center justify-center p-8 text-gray-500 dark:text-gray-400">
               Loading lesson…
@@ -1020,18 +1023,18 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
           ) : lessonContent ? (
             <LessonErrorBoundary key={lessonErrorBoundaryKey} onRetry={() => setLessonErrorBoundaryKey((k) => k + 1)} onBack={onBack}>
             <>
-              <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+              <div className="p-6 border-b border-line">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
-                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">{lessonContent.lesson?.title ?? 'Lesson'}</h2>
+                    <h2 className="text-xl font-bold text-content">{lessonContent.lesson?.title ?? 'Lesson'}</h2>
                     {lessonContent.lesson?.description && (
-                      <p className="text-gray-600 dark:text-gray-400 mt-1 text-sm">{lessonContent.lesson.description}</p>
+                      <p className="text-content-secondary mt-1 text-sm">{lessonContent.lesson.description}</p>
                     )}
                   </div>
                   <button
                     type="button"
                     onClick={() => setQuestionsPanelOpen(true)}
-                    className="flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-500 dark:border-blue-400 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors text-sm font-medium"
+                    className="flex-shrink-0 c-btn c-btn-ghost gap-2 px-4 py-2 text-sm font-medium border-brand/30 text-brand hover:bg-brand/10"
                     aria-label="Ask a question"
                   >
                     <HelpCircle className="w-4 h-4" />
@@ -1084,11 +1087,11 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
                                           className="h-full rounded-full overflow-hidden flex-1 min-w-0 flex bg-white/25"
                                         >
                                           <div
-                                            className="h-full bg-blue-500 transition-all duration-150 shrink-0"
+                                            className="h-full bg-brand transition-all duration-150 shrink-0"
                                             style={{ width: `${fillPct}%` }}
                                           />
                                           <div
-                                            className={`h-full flex-1 min-w-0 ${isCompleted ? 'bg-blue-500' : isCurrent ? 'bg-white/40' : 'bg-white/25'}`}
+                                            className={`h-full flex-1 min-w-0 ${isCompleted ? 'bg-brand' : isCurrent ? 'bg-white/40' : 'bg-white/25'}`}
                                           />
                                         </div>
                                       );
@@ -1170,7 +1173,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
                                 <button
                                   type="button"
                                   onClick={handleContinue}
-                                  className="ml-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+                                  className="ml-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium"
                                 >
                                   Continue
                                 </button>
@@ -1226,7 +1229,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
                                   <HelpCircle className="w-4 h-4 text-purple-600 flex-shrink-0" />
                                   {step.item.quiz?.title ?? 'Quiz'}
                                 </span>
-                                <button type="button" onClick={handleContinue} className="ml-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Continue</button>
+                                <button type="button" onClick={handleContinue} className="ml-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium">Continue</button>
                               </div>
                               <div className="flex-1 min-h-0 overflow-auto bg-white dark:bg-gray-900">
                                 {step.item.quiz.form_entry_id_webhook ? (
@@ -1255,7 +1258,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
                                 <h3 className="font-semibold text-gray-900 dark:text-white">{step.item.quiz?.title ?? 'Quiz'}</h3>
                               </div>
                               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">No quiz link configured.</p>
-                              <button type="button" onClick={handleContinue} className="self-start px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Continue</button>
+                              <button type="button" onClick={handleContinue} className="self-start px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium">Continue</button>
                             </div>
                           )
                         ) : step.type === 'form' ? (
@@ -1266,7 +1269,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
                                   <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
                                   {step.item.form?.title ?? 'Form'}
                                 </span>
-                                <button type="button" onClick={handleContinue} className="ml-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Continue</button>
+                                <button type="button" onClick={handleContinue} className="ml-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium">Continue</button>
                               </div>
                               <div className="flex-1 min-h-0 overflow-auto bg-white dark:bg-gray-900">
                                 <iframe
@@ -1281,7 +1284,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
                           ) : (
                             <div className="flex flex-col flex-1 p-6 overflow-y-auto">
                               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">No form link configured.</p>
-                              <button type="button" onClick={handleContinue} className="self-start px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Continue</button>
+                              <button type="button" onClick={handleContinue} className="self-start px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium">Continue</button>
                             </div>
                           )
                         ) : step.type === 'assessment' ? (
@@ -1291,7 +1294,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
                                 <HelpCircle className="w-4 h-4 text-indigo-600 flex-shrink-0" />
                                 {step.item.externalAssessment?.title ?? 'Assessment'}
                               </span>
-                              <button type="button" onClick={handleContinue} className="ml-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Continue</button>
+                              <button type="button" onClick={handleContinue} className="ml-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium">Continue</button>
                             </div>
                             <div className="flex-1 min-h-0 overflow-auto bg-white dark:bg-gray-900 flex flex-col">
                               <AssessmentStepEmbed
@@ -1357,7 +1360,8 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
                       <button
                         onClick={handleCompleteLesson}
                         disabled={!canCompleteLesson || submittingComplete}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-emerald-600 hover:bg-emerald-700 text-white shadow-md hover:shadow-lg disabled:shadow-none flex-shrink-0"
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed c-btn c-btn-primary flex-shrink-0 disabled:shadow-none"
+                        style={canCompleteLesson && !submittingComplete ? { background: 'var(--c-ok)', color: '#080808' } : undefined}
                       >
                         <CheckCircle className="w-5 h-5" />
                         {submittingComplete ? 'Saving…' : canCompleteLesson ? 'Complete lesson' : 'Watch all segments to complete'}
@@ -1402,18 +1406,18 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
               <div className="w-0.5 h-8 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-blue-500 dark:group-hover:bg-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
             <aside
-              className="flex-shrink-0 flex flex-col rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden"
+              className={`flex-shrink-0 flex flex-col ${learnerPanel}`}
               style={{ width: notesWidth }}
             >
-              <div className="flex items-center justify-between flex-shrink-0 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
-                  <StickyNote className="w-4 h-4 text-amber-500" />
+              <div className={learnerPanelHeader}>
+                <span className="text-sm font-semibold text-content flex items-center gap-1.5">
+                  <StickyNote className="w-4 h-4 text-warning" />
                   Notes
                 </span>
                 <button
                   type="button"
                   onClick={() => setNotesOpen(false)}
-                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                  className="p-1 rounded hover:bg-overlay text-content-secondary"
                   aria-label="Close notes"
                 >
                   <ChevronRight className="w-4 h-4 rotate-180" />
@@ -1425,7 +1429,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
                     value={noteContent}
                     onChange={(e) => setNoteContent(e.target.value)}
                     placeholder="Your notes for this lesson…"
-                    className="w-full h-full min-h-[8rem] p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 text-sm"
+                    className="w-full h-full min-h-[8rem] app-input resize-none text-sm"
                   />
                 ) : (
                   <p className="text-sm text-gray-500 dark:text-gray-400 p-3">Sign in to save notes.</p>
@@ -1455,7 +1459,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
               onClick={() => setQuestionsPanelOpen(false)}
             />
             <div
-              className="fixed top-0 right-0 bottom-0 w-full max-w-md bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 shadow-xl z-50 flex flex-col"
+              className="fixed top-0 right-0 bottom-0 w-full max-w-md app-card border-l border-line shadow-xl z-50 flex flex-col rounded-none"
               role="dialog"
               aria-label="Questions for this lesson"
             >
@@ -1494,7 +1498,7 @@ export default function TakeCourse({ courseId, onBack, initialLessonId = null }:
                     type="button"
                     onClick={submitQuestion}
                     disabled={questionSubmitting || !questionInput.trim()}
-                    className="mt-2 flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none"
+                    className="mt-2 flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-50 disabled:pointer-events-none"
                   >
                     <Send className="w-4 h-4" />
                     {questionSubmitting ? 'Sending…' : 'Send question'}

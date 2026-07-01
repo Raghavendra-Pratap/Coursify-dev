@@ -1,6 +1,12 @@
 'use client'
 
 import React, { useState, useEffect } from 'react';
+import {
+  ThemeStatCard,
+  ThemeAvatar,
+  legacyStatColor,
+  themeDelta,
+} from '@/components/ui/ThemeStatCard';
 import { 
   Play, Users, BarChart3, Settings, Plus, Clock, Video, 
   ChevronRight, Menu, Search, Bell, Award, TrendingUp, Trophy,
@@ -168,75 +174,47 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
   const getActivityIcon = (type: string) => {
     switch(type) {
       case 'completion': return <CheckCircle className="w-5 h-5 text-green-600" />;
-      case 'enrollment': return <Play className="w-5 h-5 text-blue-600" />;
+      case 'enrollment': return <Play className="w-5 h-5 text-info" />;
       case 'update': return <AlertCircle className="w-5 h-5 text-orange-600" />;
       case 'failure': return <XCircle className="w-5 h-5 text-red-600" />;
-      default: return <AlertCircle className="w-5 h-5 text-gray-600" />;
+      default: return <AlertCircle className="w-5 h-5 text-content-muted" />;
     }
   };
 
-  const StatCard = ({ icon: Icon, title, current, previous, unit = '', color }: {
-    icon: React.ElementType;
-    title: string;
-    current: number;
-    previous: number;
-    unit?: string;
-    color: 'blue' | 'purple' | 'green' | 'orange';
-  }) => {
+  const renderStat = (
+    icon: React.ElementType,
+    title: string,
+    current: number,
+    previous: number,
+    color: 'blue' | 'purple' | 'green' | 'orange',
+    unit = '',
+  ) => {
     const change = parseFloat(calculateChange(current, previous));
-    const isPositive = change > 0;
-    const colorClasses = {
-      blue: 'from-blue-500 to-blue-600',
-      purple: 'from-purple-500 to-purple-600',
-      green: 'from-green-500 to-green-600',
-      orange: 'from-orange-500 to-orange-600'
-    };
-    const darkBorderClasses = {
-      blue: 'dark:border-l-blue-500',
-      purple: 'dark:border-l-purple-500',
-      green: 'dark:border-l-emerald-500',
-      orange: 'dark:border-l-amber-500'
-    };
-    const darkIconClasses = {
-      blue: 'dark:text-blue-400',
-      purple: 'dark:text-purple-400',
-      green: 'dark:text-emerald-400',
-      orange: 'dark:text-amber-400'
-    };
     return (
-      <div className={`bg-gradient-to-br ${colorClasses[color]} text-white p-6 rounded-2xl shadow-lg hover:shadow-xl transition-all cursor-pointer dark:bg-gray-800 dark:border-l-4 ${darkBorderClasses[color]} dark:border-gray-700 dark:shadow-none`}>
-        <div className="flex items-center justify-between mb-4">
-          <div className="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center backdrop-blur-sm dark:bg-gray-700/50">
-            <Icon className={`w-6 h-6 ${darkIconClasses[color]}`} />
-          </div>
-          <div className="flex items-center space-x-1 text-sm font-semibold bg-white bg-opacity-20 px-3 py-1 rounded-full dark:bg-gray-700/50 dark:text-gray-300">
-            {isPositive ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
-            <span>{Math.abs(change).toFixed(1)}%</span>
-          </div>
-        </div>
-        <p className="text-sm opacity-90 mb-1 dark:text-gray-300">{title}</p>
-        <div className="flex items-baseline">
-          <p className="text-4xl font-bold dark:text-white">{current.toLocaleString()}</p>
-          {unit && <span className="text-xl ml-1 opacity-90 dark:text-gray-300">{unit}</span>}
-        </div>
-        <p className="text-xs opacity-75 mt-2 dark:text-gray-300">vs {previous.toLocaleString()}{unit} last period</p>
-      </div>
+      <ThemeStatCard
+        icon={icon}
+        title={title}
+        value={<>{current.toLocaleString()}{unit && <span className="text-base font-normal ml-0.5">{unit}</span>}</>}
+        variant={legacyStatColor(color)}
+        delta={themeDelta(change, 'vs last period')}
+        footnote={`vs ${previous.toLocaleString()}${unit} last period`}
+      />
     );
   };
 
   return (
-    <div className="dark:bg-gray-900 min-h-full">
+    <div className="bg-canvas min-h-full">
       {configMissing && (
         <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-8 py-2 text-sm text-amber-800 dark:text-amber-200">
           Configure Supabase to see real stats.
         </div>
       )}
       {/* Header */}
-      <div className="bg-white dark:bg-gray-900 dark:border-gray-800 border-b border-gray-200 dark:border-gray-800 px-8 py-6 sticky top-0 z-10">
+      <div className="bg-surface border-b border-line px-8 py-6 sticky top-0 z-10">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
-            <div className="flex items-center mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <h1 className="text-2xl font-semibold text-content">Dashboard</h1>
+            <div className="flex items-center mt-2 text-sm text-content-secondary">
               <Calendar className="w-4 h-4 mr-2" />
               <span>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
               <span className="mx-2">•</span>
@@ -245,13 +223,13 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
           </div>
           <div className="flex items-center space-x-4">
             <div className="relative">
-              <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+              <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-content-muted" />
               <input 
                 type="text" 
                 placeholder="Search courses, learners..." 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg w-80 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white transition-all" 
+                className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg w-80 focus:ring-2 focus:ring-brand bg-raised text-content transition-all" 
               />
             </div>
           </div>
@@ -261,48 +239,22 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
       <div className="p-8">
         {/* Stats Cards */}
         <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 ${loading ? 'animate-pulse' : ''}`}>
-          <StatCard 
-            icon={Users} 
-            title="Total Learners" 
-            current={stats.learners.current} 
-            previous={stats.learners.previous}
-            color="blue" 
-          />
-          <StatCard 
-            icon={Video} 
-            title="Active Courses" 
-            current={stats.courses.current} 
-            previous={stats.courses.previous}
-            color="purple" 
-          />
-          <StatCard 
-            icon={Award} 
-            title="Completion Rate" 
-            current={stats.completion.current} 
-            previous={stats.completion.previous}
-            unit="%"
-            color="green" 
-          />
-          <StatCard 
-            icon={Clock} 
-            title="Avg. Time Spent" 
-            current={stats.avgTime.current} 
-            previous={stats.avgTime.previous}
-            unit="h"
-            color="orange" 
-          />
+          {renderStat(Users, 'Total Learners', stats.learners.current, stats.learners.previous, 'blue')}
+          {renderStat(Video, 'Active Courses', stats.courses.current, stats.courses.previous, 'purple')}
+          {renderStat(Award, 'Completion Rate', stats.completion.current, stats.completion.previous, 'green', '%')}
+          {renderStat(Clock, 'Avg. Time Spent', stats.avgTime.current, stats.avgTime.previous, 'orange', 'h')}
         </div>
 
         {/* Dashboard grid: Learning Progress, Top Courses, Top Learners, Recent Activity */}
         <div className="grid lg:grid-cols-2 gap-6">
           {/* Learning Progress */}
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-[28rem]">
+          <div className="app-card rounded-lg p-6 flex flex-col min-h-[28rem]">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Learning Progress</h3>
+              <h3 className="text-xl font-bold text-content">Learning Progress</h3>
               <select 
                 value={selectedPeriod}
                 onChange={(e) => setSelectedPeriod(e.target.value)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                className="px-4 py-2 border border-line rounded-lg text-sm focus:ring-2 focus:ring-brand bg-raised text-content"
               >
                 <option value="7days">Last 7 days</option>
                 <option value="30days">Last 30 days</option>
@@ -312,12 +264,12 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
             {/* Chart */}
             <div className="h-64 flex items-end justify-around space-x-2 mb-4">
               {weeklyData.length === 0 ? (
-                <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm">No activity data yet.</div>
+                <div className="flex-1 flex items-center justify-center text-content-muted text-sm">No activity data yet.</div>
               ) : weeklyData.map((data, i) => (
                 <div key={i} className="flex flex-col items-center flex-1 group">
                   <div className="relative w-full">
                     <div 
-                      className="w-full bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-lg transition-all duration-300 hover:from-blue-600 hover:to-blue-500 cursor-pointer" 
+                      className="w-full bg-brand rounded-t-lg transition-all duration-300 hover:opacity-90 cursor-pointer" 
                       style={{height: `${Math.max(4, data.completions * 2.5)}px`}}
                     >
                       <div className="opacity-0 group-hover:opacity-100 absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap transition-opacity pointer-events-none">
@@ -328,18 +280,18 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                       </div>
                     </div>
                   </div>
-                  <span className="text-xs text-gray-600 dark:text-gray-400 mt-2 font-medium">{data.week}</span>
+                  <span className="text-xs text-content-secondary mt-2 font-medium">{data.week}</span>
                 </div>
               ))}
             </div>
 
             {/* Legend */}
-            <div className="flex items-center justify-center space-x-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-center space-x-6 pt-4 border-t border-line">
               <div className="flex items-center">
-                <div className="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
-                <span className="text-sm text-gray-600 dark:text-gray-400">Completion Rate</span>
+                <div className="w-3 h-3 bg-brand rounded-full mr-2"></div>
+                <span className="text-sm text-content-secondary">Completion Rate</span>
               </div>
-              <button type="button" onClick={exportDashboardCsv} className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold flex items-center">
+              <button type="button" onClick={exportDashboardCsv} className="text-sm text-accent hover:opacity-80 font-semibold flex items-center">
                 <Download className="w-4 h-4 mr-1" />
                 Export Data
               </button>
@@ -347,45 +299,45 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
           </div>
 
           {/* Top Performing Courses */}
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-[28rem]">
+          <div className="app-card rounded-lg p-6 flex flex-col min-h-[28rem]">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Top Performing Courses</h3>
+              <h3 className="text-xl font-bold text-content">Top Performing Courses</h3>
               <button 
                 onClick={() => setCurrentView('courses')}
-                className="text-blue-600 dark:text-blue-400 text-sm hover:text-blue-700 dark:hover:text-blue-300 font-semibold transition-all"
+                className="text-accent text-sm hover:opacity-80 font-semibold transition-all"
               >
                 View All →
               </button>
             </div>
             <div className="space-y-4 flex-1 overflow-y-auto pr-1">
               {filteredTopCourses.length === 0 ? (
-                <div className="py-6 text-center text-gray-500 dark:text-gray-400 text-sm">No courses yet.</div>
+                <div className="py-6 text-center text-content-muted text-sm">No courses yet.</div>
               ) : filteredTopCourses.map((course) => (
                 <div 
                   key={course.id}
                   onClick={() => setSelectedCourse(course.id === selectedCourse ? null : course.id)}
-                  className={`p-4 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all cursor-pointer ${selectedCourse === course.id ? 'bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-500 dark:border-blue-400' : 'bg-gray-50 dark:bg-gray-700/50 border-2 border-transparent'}`}
+                  className={`p-4 rounded-xl hover:bg-overlay transition-all cursor-pointer border border-line ${selectedCourse === course.id ? 'surface-2 border-brand' : 'surface-1 border-transparent'}`}
                 >
                   <div className="flex items-center gap-2 mb-2 min-w-0">
                     <p
-                      className="font-semibold text-sm text-gray-900 dark:text-white shrink-0 max-w-[38%] truncate"
+                      className="font-semibold text-sm text-content shrink-0 max-w-[38%] truncate"
                       title={course.name}
                     >
                       {course.name}
                     </p>
-                    <div className="flex-1 min-w-0 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                    <div className="flex-1 min-w-0 c-progress h-2">
                       <div
-                        className="bg-blue-500 dark:bg-blue-400 h-2 rounded-full transition-all duration-500"
+                        className="c-progress-fill h-2"
                         style={{ width: `${course.completion}%` }}
                       />
                     </div>
-                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 shrink-0 tabular-nums">
+                    <span className="text-sm font-semibold text-content-secondary shrink-0 tabular-nums">
                       {course.completion}%
                     </span>
                   </div>
 
                   <div className="flex justify-between items-center">
-                    <div className="flex items-center space-x-2 text-xs text-gray-600 dark:text-gray-400">
+                    <div className="flex items-center space-x-2 text-xs text-content-secondary">
                       <span className="flex items-center">
                         <Users className="w-3 h-3 mr-1" />
                         {course.learners} learners
@@ -396,9 +348,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                         {course.avgTime}
                       </span>
                     </div>
-                    <div className={`flex items-center space-x-1 text-xs font-semibold px-2 py-1 rounded-full ${
-                      course.trend === 'up' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-                    }`}>
+                    <div className={`c-badge ${course.trend === 'up' ? 'c-badge-ok' : 'c-badge-err'}`}>
                       {course.trend === 'up' ? <TrendingUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
                       <span>{course.trendValue}%</span>
                     </div>
@@ -408,20 +358,20 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                   {selectedCourse === course.id && (
                     <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 space-y-2">
                       <div className="flex justify-between text-xs">
-                        <span className="text-gray-600 dark:text-gray-400">Status:</span>
-                        <span className="font-semibold text-green-600 dark:text-green-400 capitalize">{course.status}</span>
+                        <span className="text-content-secondary">Status:</span>
+                        <span className={`c-badge ${course.status === 'published' ? 'c-badge-published' : 'c-badge-draft'}`}>{course.status}</span>
                       </div>
                       <div className="flex justify-between text-xs">
-                        <span className="text-gray-600 dark:text-gray-400">Last Updated:</span>
-                        <span className="font-semibold text-gray-900 dark:text-white">{course.lastUpdated}</span>
+                        <span className="text-content-secondary">Last Updated:</span>
+                        <span className="font-semibold text-content">{course.lastUpdated}</span>
                       </div>
                       <div className="flex justify-between text-xs">
-                        <span className="text-gray-600 dark:text-gray-400">Drop-off Point:</span>
+                        <span className="text-content-secondary">Drop-off Point:</span>
                         <span className="font-semibold text-orange-600 dark:text-orange-400">{course.dropOffPoint}</span>
                       </div>
                       <button 
                         onClick={() => setCurrentView('courses')}
-                        className="w-full mt-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-semibold transition-all"
+                        className="w-full mt-2 px-3 py-2 btn-brand rounded-lg text-xs font-semibold transition-all"
                       >
                         View Details
                       </button>
@@ -433,14 +383,14 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
           </div>
 
           {/* Top Performers */}
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-[28rem]">
+          <div className="app-card rounded-lg p-6 flex flex-col min-h-[28rem]">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Top Performers</h3>
+              <h3 className="text-xl font-bold text-content">Top Performers</h3>
               <div className="flex items-center gap-3">
                 <Trophy className="w-5 h-5 text-yellow-500" />
                 <button
                   onClick={() => setCurrentView('learners')}
-                  className="text-blue-600 dark:text-blue-400 text-sm hover:text-blue-700 dark:hover:text-blue-300 font-semibold transition-all"
+                  className="text-accent text-sm hover:opacity-80 font-semibold transition-all"
                 >
                   View All →
                 </button>
@@ -448,27 +398,25 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
             </div>
             <div className="space-y-4 flex-1 overflow-y-auto pr-1">
               {filteredTopLearners.length === 0 ? (
-                <div className="py-6 text-center text-gray-500 dark:text-gray-400 text-sm">No learners yet.</div>
+                <div className="py-6 text-center text-content-muted text-sm">No learners yet.</div>
               ) : filteredTopLearners.map((learner) => (
                 <div
                   key={learner.id}
                   onClick={() => setSelectedLearner(learner.id === selectedLearner ? null : learner.id)}
-                  className={`p-4 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all cursor-pointer ${selectedLearner === learner.id ? 'bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-500 dark:border-blue-400' : 'bg-gray-50 dark:bg-gray-700/50 border-2 border-transparent'}`}
+                  className={`p-4 rounded-xl hover:bg-overlay transition-all cursor-pointer ${selectedLearner === learner.id ? 'bg-brand-subtle border-2 border-brand' : 'bg-raised/50 border-2 border-transparent'}`}
                 >
                   <div className="flex items-center gap-2 mb-2 min-w-0">
                     <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
                       learner.rank === 1 ? 'bg-yellow-400 text-white' :
-                      learner.rank === 2 ? 'bg-gray-300 text-gray-700 dark:bg-gray-500 dark:text-white' :
+                      learner.rank === 2 ? 'bg-raised text-content-secondary' :
                       learner.rank === 3 ? 'bg-orange-400 text-white' :
-                      'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                      'bg-info-subtle text-info'
                     }`}>
                       {learner.rank}
                     </div>
-                    <div className="w-7 h-7 bg-gradient-to-br from-indigo-400 to-indigo-500 rounded-full flex items-center justify-center text-white font-bold text-[10px] shrink-0">
-                      {learner.avatar}
-                    </div>
+                    <ThemeAvatar initials={learner.avatar} className="w-7 h-7 text-[10px] shrink-0" />
                     <p
-                      className="font-semibold text-sm text-gray-900 dark:text-white shrink-0 max-w-[28%] truncate"
+                      className="font-semibold text-sm text-content shrink-0 max-w-[28%] truncate"
                       title={learner.name}
                     >
                       {learner.name}
@@ -479,13 +427,13 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                         style={{ width: `${learner.progress}%` }}
                       />
                     </div>
-                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 shrink-0 tabular-nums">
+                    <span className="text-sm font-semibold text-content-secondary shrink-0 tabular-nums">
                       {learner.progress}%
                     </span>
                   </div>
 
                   <div className="flex justify-between items-center pl-[4.25rem]">
-                    <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
+                    <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs text-content-secondary">
                       <span>{learner.enrolledCourses} enrolled</span>
                       <span>•</span>
                       <span>{learner.completedCourses} completed</span>
@@ -501,9 +449,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                         {learner.totalTimeSpent}
                       </span>
                     </div>
-                    <div className={`flex items-center space-x-1 text-xs font-semibold px-2 py-1 rounded-full ${
-                      learner.trend === 'up' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-                    }`}>
+                    <div className={`c-badge ${learner.trend === 'up' ? 'c-badge-ok' : 'c-badge-err'}`}>
                       {learner.trend === 'up' ? <TrendingUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
                       <span>{learner.trendValue}%</span>
                     </div>
@@ -512,20 +458,20 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                   {selectedLearner === learner.id && (
                     <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 space-y-2 pl-[4.25rem]">
                       <div className="flex justify-between text-xs">
-                        <span className="text-gray-600 dark:text-gray-400">Courses completed:</span>
-                        <span className="font-semibold text-gray-900 dark:text-white">{learner.completedCourses} / {learner.enrolledCourses}</span>
+                        <span className="text-content-secondary">Courses completed:</span>
+                        <span className="font-semibold text-content">{learner.completedCourses} / {learner.enrolledCourses}</span>
                       </div>
                       <div className="flex justify-between text-xs">
-                        <span className="text-gray-600 dark:text-gray-400">Average score:</span>
-                        <span className="font-semibold text-gray-900 dark:text-white">{learner.averageScore > 0 ? `${learner.averageScore}%` : '—'}</span>
+                        <span className="text-content-secondary">Average score:</span>
+                        <span className="font-semibold text-content">{learner.averageScore > 0 ? `${learner.averageScore}%` : '—'}</span>
                       </div>
                       <div className="flex justify-between text-xs">
-                        <span className="text-gray-600 dark:text-gray-400">Time spent:</span>
-                        <span className="font-semibold text-gray-900 dark:text-white">{learner.totalTimeSpent}</span>
+                        <span className="text-content-secondary">Time spent:</span>
+                        <span className="font-semibold text-content">{learner.totalTimeSpent}</span>
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); setCurrentView('learners'); }}
-                        className="w-full mt-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-semibold transition-all"
+                        className="w-full mt-2 px-3 py-2 btn-brand rounded-lg text-xs font-semibold transition-all"
                       >
                         View Learner
                       </button>
@@ -537,18 +483,18 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
           </div>
 
           {/* Recent Activity */}
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-[28rem]">
+          <div className="app-card rounded-lg p-6 flex flex-col min-h-[28rem]">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white">Recent Activity</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Latest learner updates</p>
+                <h3 className="text-xl font-bold text-content">Recent Activity</h3>
+                <p className="text-sm text-content-secondary mt-1">Latest learner updates</p>
               </div>
               {(filteredRecentActivity.length > ACTIVITY_PREVIEW_COUNT || showAllActivity) && (
                 <button
                   type="button"
                   onClick={handleToggleAllActivity}
                   disabled={activityLoading}
-                  className="text-blue-600 dark:text-blue-400 text-sm hover:text-blue-700 dark:hover:text-blue-300 font-semibold transition-all disabled:opacity-60 shrink-0"
+                  className="text-accent text-sm hover:opacity-80 font-semibold transition-all disabled:opacity-60 shrink-0"
                 >
                   {activityLoading ? 'Loading…' : showAllActivity ? 'Show less' : 'View All →'}
                 </button>
@@ -556,29 +502,27 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
             </div>
             <div className={`space-y-1 flex-1 overflow-y-auto pr-1 ${showAllActivity ? '' : ''}`}>
               {filteredRecentActivity.length === 0 ? (
-                <div className="py-8 text-center text-gray-500 dark:text-gray-400 text-sm">No recent activity yet.</div>
+                <div className="py-8 text-center text-content-muted text-sm">No recent activity yet.</div>
               ) : visibleRecentActivity.map((activity) => (
                 <div
                   key={activity.id}
-                  className="flex items-center justify-between py-3 px-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-all cursor-pointer group"
+                  className="flex items-center justify-between py-3 px-3 hover:bg-overlay rounded-xl transition-all cursor-pointer group"
                 >
                   <div className="flex items-center flex-1 min-w-0">
-                    <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-blue-500 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-md shrink-0">
-                      {activity.avatar}
-                    </div>
+                    <ThemeAvatar initials={activity.avatar} className="w-10 h-10 text-xs shrink-0" />
                     <div className="ml-3 flex-1 min-w-0">
-                      <p className="text-sm text-gray-900 dark:text-gray-100 truncate">
+                      <p className="text-sm text-content truncate">
                         <span className="font-semibold">{activity.user}</span>
-                        <span className="text-gray-600 dark:text-gray-400"> {activity.action} </span>
+                        <span className="text-content-secondary"> {activity.action} </span>
                         <span className="font-semibold">{activity.course}</span>
                       </p>
                       <div className="flex items-center space-x-3 mt-0.5">
-                        <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{activity.time}</p>
+                        <p className="text-xs text-content-muted truncate">{activity.time}</p>
                         {activity.score && (
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                            activity.score >= 80 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
-                            activity.score >= 50 ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400' :
-                            'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                          <span className={`c-badge ${
+                            activity.score >= 80 ? 'c-badge-ok' :
+                            activity.score >= 50 ? 'c-badge-warn' :
+                            'c-badge-err'
                           }`}>
                             Score: {activity.score}%
                           </span>
@@ -588,7 +532,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                   </div>
                   <div className="flex items-center space-x-2 shrink-0 ml-2">
                     {getActivityIcon(activity.type)}
-                    <ChevronRight className="w-4 h-4 text-gray-400 dark:text-gray-500 group-hover:translate-x-1 transition-transform" />
+                    <ChevronRight className="w-4 h-4 text-content-muted group-hover:translate-x-1 transition-transform" />
                   </div>
                 </div>
               ))}

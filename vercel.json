@@ -6,7 +6,7 @@
       "has": [
         { "type": "host", "value": "coursify-dev.vercel.app" }
       ],
-      "destination": "https://coursify.bsoc.space/:path*",
+      "destination": "https://app.coursify.bsoc.space/:path*",
       "permanent": true
     }
   ]

@@ -1,13 +1,17 @@
 import { redirect } from 'next/navigation'
-import { verifyCourseMagicToken } from '@/lib/magic-link'
+import { verifyMagicToken } from '@/lib/magic-link'
+import { ROUTES } from '@/lib/site-urls'
 
 type Props = { params: { token: string } }
 
 export default async function GoMagicPage({ params }: Props) {
   const token = params.token
-  const courseId = verifyCourseMagicToken(token)
-  if (!courseId) {
-    redirect('/?error=invalid_link')
+  const verified = verifyMagicToken(token)
+  if (!verified) {
+    redirect(`${ROUTES.login}?error=invalid_link`)
   }
-  redirect(`/course/${courseId}`)
+  if (verified.type === 'program') {
+    redirect(`/program/${verified.id}`)
+  }
+  redirect(`/course/${verified.id}`)
 }

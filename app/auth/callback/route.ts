@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getPublicOrigin } from '@/lib/public-origin'
+import { ROUTES } from '@/lib/site-urls'
 
 const DEBUG_AUTH = process.env.NODE_ENV === 'development'
 
@@ -8,13 +9,13 @@ export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
   const origin = getPublicOrigin(request)
-  const next = requestUrl.searchParams.get('next') ?? '/'
+  const next = requestUrl.searchParams.get('next') ?? ROUTES.login
 
   const response = NextResponse.redirect(`${origin}${next}`)
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!supabaseUrl || !supabaseAnonKey) return NextResponse.redirect(`${origin}/`)
+  if (!supabaseUrl || !supabaseAnonKey) return NextResponse.redirect(`${origin}${ROUTES.login}`)
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
     if (DEBUG_AUTH) console.warn('[auth/callback] exchangeCodeForSession', error ? 'error: ' + error.message : 'ok', data?.session ? 'session.user_id=' + data.session.user?.id : 'no session')
     if (error) {
       console.error('Auth callback exchangeCodeForSession error:', error.message)
-      return NextResponse.redirect(`${origin}/?error=auth_callback_failed`)
+      return NextResponse.redirect(`${origin}${ROUTES.login}?error=auth_callback_failed`)
     }
   }
 

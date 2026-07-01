@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Coursify — Micro-video LMS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #080808;
+      --s1:       #0f0f0f;
+      --s2:       #141414;
+      --border:   rgba(255,255,255,0.07);
+      --border2:  rgba(255,255,255,0.12);
+      --text:     rgba(255,255,255,0.88);
+      --muted:    rgba(255,255,255,0.3);
+      --dim:      rgba(255,255,255,0.06);
+      --orange:   #ff6b35;
+      --orange-d: #cc4d1a;
+      --orange-g: rgba(255,107,53,0.08);
+      --yellow:   #d4ff47;
+      --white:    #ffffff;
+    }
+
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      overflow-x: hidden;
+    }
+
+    /* grain */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 200; pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      opacity: 0.55;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      padding: 18px 48px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      background: rgba(8,8,8,0.9);
+      backdrop-filter: blur(14px);
+    }
+    .nav-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .nav-mark {
+      width: 26px; height: 26px; border-radius: 5px;
+      background: #161616; border: 1px solid #242424;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .nav-mark svg { width: 16px; height: 16px; }
+    .nav-name { font-size: 13px; font-weight: 500; color: var(--white); letter-spacing: 0.04em; }
+    .nav-links { display: flex; gap: 28px; }
+    .nav-links a {
+      font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--muted); text-decoration: none; transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .nav-right { display: flex; gap: 10px; align-items: center; }
+    .btn-nav-ghost {
+      font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 400;
+      letter-spacing: 0.15em; text-transform: uppercase; text-decoration: none;
+      color: var(--muted); border: 1px solid var(--border);
+      padding: 7px 16px; border-radius: 3px;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .btn-nav-ghost:hover { color: var(--text); border-color: var(--border2); }
+    .btn-nav-cta {
+      font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 500;
+      letter-spacing: 0.15em; text-transform: uppercase; text-decoration: none;
+      color: var(--bg); background: var(--orange);
+      padding: 8px 18px; border-radius: 3px; border: none; cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-nav-cta:hover { background: var(--orange-d); }
+
+    /* ── HERO ── */
+    .hero {
+      min-height: 100vh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 120px 48px 80px;
+      text-align: center; position: relative;
+    }
+    .hero-glow {
+      position: absolute; width: 800px; height: 500px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse, rgba(255,107,53,0.07) 0%, transparent 65%);
+      top: 45%; left: 50%; transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    .hero-eyebrow {
+      font-size: 10px; letter-spacing: 0.3em; color: var(--muted);
+      text-transform: uppercase; margin-bottom: 48px;
+      animation: fadeUp 0.5s 0.05s ease both;
+    }
+
+    /* slash wordmark */
+    .hero-title {
+      display: flex; align-items: baseline; justify-content: center;
+      margin-bottom: 10px;
+      animation: fadeUp 0.6s 0.15s ease both;
+    }
+    .t-course {
+      font-family: 'DM Mono', monospace;
+      font-size: clamp(52px, 9.5vw, 116px);
+      font-weight: 500; color: var(--white);
+      letter-spacing: -0.03em; line-height: 1;
+    }
+    .t-slash {
+      font-family: 'DM Mono', monospace;
+      font-size: clamp(52px, 9.5vw, 116px);
+      font-weight: 300; color: var(--orange);
+      letter-spacing: -0.03em; line-height: 1;
+      margin: 0 2px;
+    }
+    .t-ify {
+      font-family: 'DM Mono', monospace;
+      font-size: clamp(52px, 9.5vw, 116px);
+      font-weight: 300; color: rgba(255,255,255,0.2);
+      letter-spacing: -0.03em; line-height: 1;
+    }
+
+    /* segment underline */
+    .seg-underline {
+      display: flex; gap: 5px; justify-content: center;
+      margin-bottom: 48px;
+      animation: fadeUp 0.5s 0.25s ease both;
+    }
+    .su { height: 2px; border-radius: 1px; }
+    .su-dim  { background: rgba(255,255,255,0.07); }
+    .su-mid  { background: rgba(255,107,53,0.3); }
+    .su-hot  { background: var(--orange); }
+
+    .hero-sub {
+      font-size: 14px; line-height: 1.9; color: var(--muted);
+      max-width: 440px; letter-spacing: 0.02em; margin-bottom: 44px;
+      animation: fadeUp 0.5s 0.3s ease both;
+    }
+    .hero-actions {
+      display: flex; gap: 12px; align-items: center; justify-content: center;
+      flex-wrap: wrap;
+      animation: fadeUp 0.5s 0.38s ease both;
+    }
+    .btn-primary {
+      font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+      letter-spacing: 0.14em; text-transform: uppercase; text-decoration: none;
+      color: var(--bg); background: var(--orange);
+      padding: 13px 28px; border-radius: 3px; border: none; cursor: pointer;
+      transition: background 0.2s, transform 0.15s;
+    }
+    .btn-primary:hover { background: var(--orange-d); transform: translateY(-1px); }
+    .btn-ghost {
+      font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 400;
+      letter-spacing: 0.14em; text-transform: uppercase; text-decoration: none;
+      color: var(--muted); border: 1px solid var(--border);
+      padding: 13px 28px; border-radius: 3px;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .btn-ghost:hover { color: var(--text); border-color: var(--border2); }
+
+    /* ── STAT BAR ── */
+    .stat-bar {
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      display: flex; justify-content: center;
+      background: var(--s1);
+    }
+    .stat-bar-inner {
+      display: flex; align-items: stretch;
+      max-width: 900px; width: 100%;
+    }
+    .stat-item {
+      flex: 1; padding: 28px 32px;
+      display: flex; flex-direction: column; gap: 4px;
+      border-right: 1px solid var(--border);
+    }
+    .stat-item:last-child { border-right: none; }
+    .stat-val { font-size: 22px; font-weight: 500; color: var(--white); letter-spacing: -0.02em; }
+    .stat-val span { color: var(--orange); }
+    .stat-label { font-size: 10px; color: var(--muted); letter-spacing: 0.18em; text-transform: uppercase; }
+
+    /* ── SECTIONS ── */
+    .section { padding: 100px 48px; }
+    .section-inner { max-width: 900px; margin: 0 auto; }
+    .section-tag {
+      font-size: 10px; letter-spacing: 0.28em; color: var(--muted);
+      text-transform: uppercase; margin-bottom: 16px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .section-tag::before {
+      content: ''; width: 24px; height: 1px; background: var(--border2);
+    }
+    .section-h {
+      font-family: 'DM Serif Display', serif; font-style: italic;
+      font-size: clamp(28px, 4vw, 44px); color: var(--white);
+      letter-spacing: -0.02em; line-height: 1.2;
+      margin-bottom: 16px;
+    }
+    .section-h em { color: var(--orange); font-style: normal; }
+    .section-sub {
+      font-size: 13px; line-height: 1.9; color: var(--muted);
+      max-width: 480px; margin-bottom: 56px;
+    }
+
+    /* ── HIERARCHY VIZ ── */
+    .hierarchy {
+      background: var(--s1); border: 1px solid var(--border);
+      border-radius: 6px; overflow: hidden;
+    }
+    .hier-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .hier-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .hier-title { font-size: 10px; letter-spacing: 0.2em; color: var(--muted); text-transform: uppercase; }
+    .hier-body { padding: 24px 20px; display: flex; flex-direction: column; gap: 6px; }
+
+    .h-course {
+      background: rgba(255,107,53,0.1); border: 1px solid rgba(255,107,53,0.25);
+      border-radius: 4px; padding: 10px 14px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .h-course-name { font-size: 12px; font-weight: 500; color: var(--white); }
+    .h-badge {
+      font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--orange); background: rgba(255,107,53,0.12);
+      border: 1px solid rgba(255,107,53,0.2); padding: 2px 8px; border-radius: 2px;
+    }
+    .h-module {
+      margin-left: 20px; background: var(--s2); border: 1px solid var(--border);
+      border-radius: 4px; padding: 8px 14px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .h-module-name { font-size: 11px; color: rgba(255,255,255,0.6); }
+    .h-lesson {
+      margin-left: 40px; background: var(--dim); border: 1px solid rgba(255,255,255,0.04);
+      border-radius: 3px; padding: 6px 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .h-lesson-icon { font-size: 9px; color: var(--muted); width: 14px; }
+    .h-lesson-name { font-size: 10px; color: rgba(255,255,255,0.45); }
+    .h-lesson-type {
+      margin-left: auto; font-size: 9px; letter-spacing: 0.1em;
+      color: rgba(255,255,255,0.2); text-transform: uppercase;
+    }
+    .h-lesson.active .h-lesson-name { color: var(--white); }
+    .h-lesson.active .h-lesson-icon { color: var(--orange); }
+    .h-lesson.active { border-color: rgba(255,107,53,0.2); background: rgba(255,107,53,0.05); }
+
+    /* ── PIPELINE VIZ ── */
+    .pipeline-wrap {
+      background: var(--s1); border: 1px solid var(--border);
+      border-radius: 6px; overflow: hidden;
+    }
+    .pipe-header {
+      padding: 14px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .pipe-label { font-size: 10px; letter-spacing: 0.18em; color: var(--muted); text-transform: uppercase; }
+    .pipe-status {
+      font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--orange); border: 1px solid rgba(255,107,53,0.3);
+      padding: 2px 8px; border-radius: 2px;
+    }
+    .pipe-body { padding: 28px 24px; }
+    .track { display: flex; align-items: center; gap: 0; margin-bottom: 8px; }
+    .track-name {
+      font-size: 9px; letter-spacing: 0.14em; color: var(--muted);
+      text-transform: uppercase; width: 68px; flex-shrink: 0;
+      text-align: right; padding-right: 14px;
+    }
+    .track-segs { flex: 1; display: flex; gap: 3px; position: relative; align-items: center; }
+    .seg { height: 24px; border-radius: 2px; flex-shrink: 0; }
+    .seg-off { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); }
+    .seg-on  { background: rgba(255,107,53,0.18); border: 1px solid rgba(255,107,53,0.4); }
+    .seg-dash{ background: rgba(255,107,53,0.06); border: 1px dashed rgba(255,107,53,0.25); }
+    .seg-dot-on {
+      width: 5px; height: 5px; border-radius: 50%; background: var(--orange);
+      position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+    }
+    .playhead {
+      position: absolute; left: 194px; top: -4px; bottom: -4px;
+      width: 1.5px; background: var(--orange); pointer-events: none;
+    }
+    .playhead::before {
+      content: ''; position: absolute; top: -6px; left: 50%;
+      transform: translateX(-50%);
+      border-left: 4px solid transparent; border-right: 4px solid transparent;
+      border-top: 6px solid var(--orange);
+    }
+    .pipe-meta {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 20px; padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+    .pipe-meta-t { font-size: 10px; color: var(--muted); }
+    .pipe-meta-t strong { color: var(--orange); font-weight: 500; }
+
+    /* ── TWO VIEWS ── */
+    .two-views {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+      background: var(--border); border: 1px solid var(--border);
+      border-radius: 6px; overflow: hidden;
+    }
+    .view-card { background: var(--s1); padding: 36px 32px; }
+    .view-role {
+      font-size: 9px; letter-spacing: 0.24em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 20px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .view-role-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--orange); }
+    .view-role-dot.learner { background: rgba(255,255,255,0.25); }
+    .view-title { font-size: 18px; font-weight: 500; color: var(--white); margin-bottom: 12px; }
+    .view-desc { font-size: 12px; line-height: 1.8; color: var(--muted); margin-bottom: 24px; }
+    .view-items { display: flex; flex-direction: column; gap: 6px; }
+    .view-item {
+      font-size: 11px; color: rgba(255,255,255,0.4);
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px;
+      background: var(--dim); border-radius: 3px;
+      border: 1px solid rgba(255,255,255,0.04);
+    }
+    .view-item.active {
+      color: var(--white);
+      background: rgba(255,107,53,0.06);
+      border-color: rgba(255,107,53,0.15);
+    }
+    .view-item-icon { font-size: 10px; opacity: 0.5; width: 14px; }
+    .view-item.active .view-item-icon { opacity: 1; color: var(--orange); }
+
+    /* ── PREFERENCE LOOP ── */
+    .pref-loop {
+      background: var(--s1); border: 1px solid var(--border);
+      border-radius: 6px; overflow: hidden;
+    }
+    .pref-header {
+      padding: 14px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .pref-label { font-size: 10px; letter-spacing: 0.2em; color: var(--muted); text-transform: uppercase; }
+    .pref-live {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--orange);
+    }
+    .pref-live-dot {
+      width: 5px; height: 5px; border-radius: 50%; background: var(--orange);
+      animation: blink 2s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    .pref-body { padding: 28px 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .pref-col-label {
+      font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 12px;
+    }
+    .pref-signal {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; border-radius: 3px; margin-bottom: 6px;
+      font-size: 11px;
+    }
+    .pref-signal.done { background: rgba(255,107,53,0.06); border: 1px solid rgba(255,107,53,0.12); color: var(--white); }
+    .pref-signal.skip { background: var(--dim); border: 1px solid rgba(255,255,255,0.04); color: rgba(255,255,255,0.35); }
+    .pref-signal-tag {
+      font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 2px 6px; border-radius: 2px;
+    }
+    .tag-done { background: rgba(255,107,53,0.15); color: var(--orange); }
+    .tag-skip { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.3); }
+    .pref-rec {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 12px; border-radius: 3px; margin-bottom: 6px;
+      background: rgba(255,107,53,0.06); border: 1px solid rgba(255,107,53,0.12);
+    }
+    .pref-rec-icon { color: var(--orange); font-size: 11px; margin-top: 1px; }
+    .pref-rec-text { font-size: 11px; color: var(--white); line-height: 1.5; }
+    .pref-rec-sub { font-size: 10px; color: var(--muted); }
+
+    /* ── CONTENT TYPES ── */
+    .ct-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    }
+    .ct-card {
+      background: var(--s1); border: 1px solid var(--border);
+      border-radius: 5px; padding: 22px 18px;
+      transition: border-color 0.2s;
+    }
+    .ct-card:hover { border-color: rgba(255,107,53,0.3); }
+    .ct-icon {
+      width: 32px; height: 32px; border-radius: 4px;
+      background: var(--orange-g); border: 1px solid rgba(255,107,53,0.15);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 14px; font-size: 13px;
+    }
+    .ct-name { font-size: 12px; font-weight: 500; color: var(--white); margin-bottom: 6px; }
+    .ct-desc { font-size: 10px; line-height: 1.7; color: var(--muted); }
+
+    /* ── SOURCES ── */
+    .sources { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 0; }
+    .source-chip {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 16px; border: 1px solid var(--border);
+      border-radius: 3px; font-size: 11px; color: var(--muted);
+      background: var(--s1); transition: border-color 0.2s, color 0.2s;
+    }
+    .source-chip:hover { border-color: rgba(255,107,53,0.3); color: var(--text); }
+    .source-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--orange); }
+
+    /* ── DIVIDER ── */
+    .divider {
+      border: none; border-top: 1px solid var(--border);
+      margin: 0;
+    }
+
+    /* ── CTA SECTION ── */
+    .cta-section {
+      padding: 100px 48px;
+      text-align: center;
+    }
+    .cta-inner { max-width: 540px; margin: 0 auto; }
+    .cta-h {
+      font-family: 'DM Serif Display', serif; font-style: italic;
+      font-size: clamp(28px, 4vw, 44px); color: var(--white);
+      letter-spacing: -0.02em; margin-bottom: 16px;
+    }
+    .cta-h em { color: var(--orange); font-style: normal; }
+    .cta-sub { font-size: 13px; color: var(--muted); margin-bottom: 36px; line-height: 1.8; }
+    .cta-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+    /* ── FOOTER ── */
+    footer {
+      padding: 22px 48px;
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .footer-l { font-size: 10px; color: rgba(255,255,255,0.2); letter-spacing: 0.1em; }
+    .footer-r { font-size: 10px; color: rgba(255,255,255,0.15); letter-spacing: 0.1em; }
+    .footer-r a { color: var(--yellow); text-decoration: none; }
+
+    /* ── ANIMATIONS ── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 720px) {
+      nav { padding: 16px 20px; }
+      .nav-links { display: none; }
+      .hero { padding: 100px 24px 64px; }
+      .section { padding: 72px 24px; }
+      .stat-bar-inner { flex-direction: column; }
+      .stat-item { border-right: none; border-bottom: 1px solid var(--border); }
+      .stat-item:last-child { border-bottom: none; }
+      .two-views { grid-template-columns: 1fr; }
+      .ct-grid { grid-template-columns: 1fr 1fr; }
+      .pref-body { grid-template-columns: 1fr; }
+      footer { flex-direction: column; gap: 8px; padding: 16px 24px; }
+      .cta-section { padding: 72px 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="nav-mark">
+      <svg viewBox="0 0 16 16" fill="none">
+        <polyline points="1,5 6,8 1,11"  stroke="#ff6b35" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <polyline points="7,5 12,8 7,11" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="14.5" cy="14.5" r="1.5" fill="#ff6b35"/>
+      </svg>
+    </div>
+    <span class="nav-name">Coursify</span>
+  </a>
+  <div class="nav-links">
+    <a href="#how">How it works</a>
+    <a href="#views">Creator vs learner</a>
+    <a href="#assessments">Assessments</a>
+    <a href="#content">Content types</a>
+  </div>
+  <div class="nav-right">
+    <a href="#" class="btn-nav-ghost">Sign in</a>
+    <a href="#" class="btn-nav-cta">Get early access</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-glow"></div>
+  <p class="hero-eyebrow">coursify.bsoc.space &nbsp;·&nbsp; micro-video LMS</p>
+  <div class="hero-title">
+    <span class="t-course">Course</span>
+    <span class="t-slash">/</span>
+    <span class="t-ify">ify</span>
+  </div>
+  <div class="seg-underline">
+    <div class="su su-dim" style="width:72px"></div>
+    <div class="su su-hot" style="width:48px"></div>
+    <div class="su su-mid" style="width:36px"></div>
+    <div class="su su-dim" style="width:60px"></div>
+    <div class="su su-hot" style="width:40px"></div>
+    <div class="su su-dim" style="width:52px"></div>
+    <div class="su su-mid" style="width:28px"></div>
+  </div>
+  <p class="hero-sub">
+    Build courses from YouTube videos, Drive files, and any URL.
+    Pick exact segments. Add quizzes, forms, reading, and proctored exams.
+    When content goes stale, swap the segment — not the whole video.
+  </p>
+  <div class="hero-actions">
+    <a href="#" class="btn-primary">Get early access</a>
+    <a href="#how" class="btn-ghost">See how it works</a>
+  </div>
+</section>
+
+<!-- STAT BAR -->
+<div class="stat-bar">
+  <div class="stat-bar-inner">
+    <div class="stat-item">
+      <span class="stat-val">5<span>×</span></span>
+      <span class="stat-label">content types</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-val">3<span>+</span></span>
+      <span class="stat-label">video sources</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-val">HH<span>:</span>MM<span>:</span>SS</span>
+      <span class="stat-label">segment precision</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-val">2<span>×</span></span>
+      <span class="stat-label">distinct experiences</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-val" style="color:var(--orange)">Pro</span>
+      <span class="stat-label">proctored exams</span>
+    </div>
+  </div>
+</div>
+
+<!-- HOW IT WORKS: HIERARCHY -->
+<section class="section" id="how">
+  <div class="section-inner">
+    <p class="section-tag">Course structure</p>
+    <h2 class="section-h">Courses → Modules → Lessons<br><em>everything in its place.</em></h2>
+    <p class="section-sub">
+      A clear four-level hierarchy. Drag to reorder modules and lessons.
+      Mix content types freely within any lesson.
+    </p>
+
+    <div class="hierarchy">
+      <div class="hier-header">
+        <div class="hier-dot" style="background:#ff6b35"></div>
+        <div class="hier-dot" style="background:#333"></div>
+        <div class="hier-dot" style="background:#333"></div>
+        <span class="hier-title" style="margin-left:8px">Course builder</span>
+      </div>
+      <div class="hier-body">
+        <div class="h-course">
+          <span class="h-course-name">Python for Data Analysts</span>
+          <span class="h-badge">8 modules · 24 lessons</span>
+        </div>
+        <div class="h-module">
+          <span class="h-module-name">1. Getting started with pandas</span>
+          <span style="font-size:10px;color:rgba(255,255,255,0.2)">4 lessons</span>
+        </div>
+        <div class="h-lesson active">
+          <span class="h-lesson-icon">▶</span>
+          <span class="h-lesson-name">Installing pandas & first DataFrame</span>
+          <span class="h-lesson-type">video · 04:12–07:38</span>
+        </div>
+        <div class="h-lesson">
+          <span class="h-lesson-icon">?</span>
+          <span class="h-lesson-name">Quick check: selecting columns</span>
+          <span class="h-lesson-type">quiz</span>
+        </div>
+        <div class="h-lesson">
+          <span class="h-lesson-icon">📄</span>
+          <span class="h-lesson-name">Pandas cheat sheet</span>
+          <span class="h-lesson-type">reading</span>
+        </div>
+        <div class="h-module">
+          <span class="h-module-name">2. Data cleaning essentials</span>
+          <span style="font-size:10px;color:rgba(255,255,255,0.2)">6 lessons</span>
+        </div>
+        <div class="h-lesson">
+          <span class="h-lesson-icon">▶</span>
+          <span class="h-lesson-name">Handling nulls and duplicates</span>
+          <span class="h-lesson-type">video · 11:00–18:45</span>
+        </div>
+        <div class="h-lesson">
+          <span class="h-lesson-icon">◻</span>
+          <span class="h-lesson-name">Feedback: what was confusing?</span>
+          <span class="h-lesson-type">form</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- PIPELINE -->
+<section class="section" id="pipeline">
+  <div class="section-inner">
+    <p class="section-tag">Segmented pipeline</p>
+    <h2 class="section-h">Pick the 4 minutes that matter.<br><em>Enforce them for learners.</em></h2>
+    <p class="section-sub">
+      Set a start and end timestamp on any video. Learners can't scrub
+      outside the segment — no more "skip to the good part" or
+      accidentally watching unrelated content. When a segment goes stale,
+      swap it. The rest of the course stays untouched.
+    </p>
+
+    <div class="pipeline-wrap">
+      <div class="pipe-header">
+        <span class="pipe-label">// segment editor</span>
+        <span class="pipe-status">● enforced playback</span>
+      </div>
+      <div class="pipe-body">
+        <div class="track">
+          <span class="track-name">Source</span>
+          <div class="track-segs" style="position:relative">
+            <div class="seg seg-off" style="width:90px"></div>
+            <div class="seg seg-on"  style="width:76px"></div>
+            <div class="seg seg-off" style="width:50px"></div>
+            <div class="seg seg-off" style="width:110px"></div>
+            <div class="seg seg-off" style="width:64px"></div>
+            <div class="playhead"></div>
+          </div>
+        </div>
+        <div class="track">
+          <span class="track-name">Selected</span>
+          <div class="track-segs">
+            <div class="seg seg-on" style="width:76px;position:relative">
+              <div class="seg-dot-on"></div>
+            </div>
+            <div style="font-size:10px;color:var(--muted);padding:0 8px">04:12 → 07:38</div>
+          </div>
+        </div>
+        <div class="track">
+          <span class="track-name">Course</span>
+          <div class="track-segs">
+            <div class="seg seg-on"  style="width:60px"></div>
+            <div class="seg seg-off" style="width:44px"></div>
+            <div class="seg seg-dash" style="width:76px"></div>
+            <div class="seg seg-on"  style="width:50px;position:relative">
+              <div class="seg-dot-on"></div>
+            </div>
+            <span style="font-size:10px;color:var(--orange);padding-left:8px">↑ replaced</span>
+          </div>
+        </div>
+        <div class="pipe-meta">
+          <span class="pipe-meta-t"><strong>1</strong> segment selected · <strong>04:12–07:38</strong> · 3m 26s</span>
+          <span class="pipe-meta-t"><strong>1</strong> outdated segment swapped · no rerecord</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sources" style="margin-top:20px">
+      <div class="source-chip"><div class="source-dot"></div>YouTube URL</div>
+      <div class="source-chip"><div class="source-dot"></div>Google Drive</div>
+      <div class="source-chip"><div class="source-dot"></div>Any public video URL</div>
+      <div class="source-chip"><div class="source-dot"></div>Uploaded file</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- TWO VIEWS -->
+<section class="section" id="views">
+  <div class="section-inner">
+    <p class="section-tag">Two experiences</p>
+    <h2 class="section-h">One product.<br><em>Two completely different views.</em></h2>
+    <p class="section-sub">
+      Creators never see learner UI clutter. Learners never see authoring tools.
+      Each person gets exactly what they need — nothing else.
+    </p>
+
+    <div class="two-views">
+      <div class="view-card">
+        <div class="view-role">
+          <div class="view-role-dot"></div>
+          Creator
+        </div>
+        <div class="view-title">Build, manage, measure.</div>
+        <div class="view-desc">
+          Everything you need to create and run a course.
+          No learner noise, no clutter.
+        </div>
+        <div class="view-items">
+          <div class="view-item active"><span class="view-item-icon">◼</span>Dashboard</div>
+          <div class="view-item active"><span class="view-item-icon">+</span>Create course</div>
+          <div class="view-item active"><span class="view-item-icon">◻</span>My courses</div>
+          <div class="view-item active"><span class="view-item-icon">◻</span>Learners</div>
+          <div class="view-item active"><span class="view-item-icon">↗</span>Analytics</div>
+          <div class="view-item active"><span class="view-item-icon">≡</span>Reports</div>
+        </div>
+      </div>
+      <div class="view-card">
+        <div class="view-role">
+          <div class="view-role-dot learner"></div>
+          Learner
+        </div>
+        <div class="view-title">Learn. Track. Continue.</div>
+        <div class="view-desc">
+          A focused view for learning. Recommended content,
+          progress tracking, and nothing to distract.
+        </div>
+        <div class="view-items">
+          <div class="view-item active"><span class="view-item-icon">▶</span>Continue learning</div>
+          <div class="view-item active"><span class="view-item-icon">◼</span>My progress</div>
+          <div class="view-item active"><span class="view-item-icon">★</span>Recommended for you</div>
+          <div class="view-item"><span class="view-item-icon">◻</span>Explore courses</div>
+          <div class="view-item"><span class="view-item-icon">◻</span>Settings</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- ASSESSMENTS -->
+<section class="section" id="assessments">
+  <div class="section-inner">
+    <p class="section-tag">Assessments</p>
+    <h2 class="section-h">Practice in Coursify.<br><em>Get certified via Assessment Pro.</em></h2>
+    <p class="section-sub">
+      Ungraded quizzes live inside Coursify — low stakes, immediate feedback, built for learning.
+      When it's time to certify, Assessment Pro takes over: proctored, scored, server-enforced.
+    </p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:20px;">
+
+      <!-- Ungraded / native -->
+      <div style="background:var(--s1);padding:32px 28px;">
+        <div style="font-size:9px;letter-spacing:0.22em;text-transform:uppercase;color:var(--muted);margin-bottom:18px;display:flex;align-items:center;gap:8px;">
+          <div style="width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,0.25)"></div>
+          Ungraded · native to Coursify
+        </div>
+        <div style="font-size:16px;font-weight:500;color:var(--white);margin-bottom:10px;">Practice checks</div>
+        <div style="font-size:12px;line-height:1.8;color:var(--muted);margin-bottom:22px;">
+          Quick MCQs inside any lesson. No score, no pressure.
+          Learners get instant feedback and move on.
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <div style="background:var(--dim);border:1px solid rgba(255,255,255,0.05);border-radius:3px;padding:10px 12px;font-size:11px;color:rgba(255,255,255,0.5);display:flex;align-items:center;gap:8px;">
+            <span style="color:rgba(255,255,255,0.2);width:14px">?</span>MCQ — single or multi select
+          </div>
+          <div style="background:var(--dim);border:1px solid rgba(255,255,255,0.05);border-radius:3px;padding:10px 12px;font-size:11px;color:rgba(255,255,255,0.5);display:flex;align-items:center;gap:8px;">
+            <span style="color:rgba(255,255,255,0.2);width:14px">✓</span>Instant correct/incorrect feedback
+          </div>
+          <div style="background:var(--dim);border:1px solid rgba(255,255,255,0.05);border-radius:3px;padding:10px 12px;font-size:11px;color:rgba(255,255,255,0.5);display:flex;align-items:center;gap:8px;">
+            <span style="color:rgba(255,255,255,0.2);width:14px">→</span>No pass/fail threshold
+          </div>
+          <div style="background:var(--dim);border:1px solid rgba(255,255,255,0.05);border-radius:3px;padding:10px 12px;font-size:11px;color:rgba(255,255,255,0.5);display:flex;align-items:center;gap:8px;">
+            <span style="color:rgba(255,255,255,0.2);width:14px">◻</span>Results visible to creator in reports
+          </div>
+        </div>
+      </div>
+
+      <!-- Graded / Assessment Pro -->
+      <div style="background:var(--s1);padding:32px 28px;">
+        <div style="font-size:9px;letter-spacing:0.22em;text-transform:uppercase;color:var(--orange);margin-bottom:18px;display:flex;align-items:center;gap:8px;">
+          <div style="width:6px;height:6px;border-radius:50%;background:var(--orange)"></div>
+          Graded · powered by Assessment Pro
+        </div>
+        <div style="font-size:16px;font-weight:500;color:var(--white);margin-bottom:10px;">Proctored exams</div>
+        <div style="font-size:12px;line-height:1.8;color:var(--muted);margin-bottom:22px;">
+          Full Assessment Pro session embedded in the course.
+          Webcam, tab monitoring, server-enforced timer, scored results.
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.15);border-radius:3px;padding:10px 12px;font-size:11px;color:var(--white);display:flex;align-items:center;gap:8px;">
+            <span style="color:var(--orange);width:14px">🎥</span>Webcam + tab-switch proctoring
+          </div>
+          <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.15);border-radius:3px;padding:10px 12px;font-size:11px;color:var(--white);display:flex;align-items:center;gap:8px;">
+            <span style="color:var(--orange);width:14px">⏱</span>Server-enforced timer · auto-submit
+          </div>
+          <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.15);border-radius:3px;padding:10px 12px;font-size:11px;color:var(--white);display:flex;align-items:center;gap:8px;">
+            <span style="color:var(--orange);width:14px">✓</span>Pass threshold · scored results
+          </div>
+          <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.15);border-radius:3px;padding:10px 12px;font-size:11px;color:var(--white);display:flex;align-items:center;gap:8px;">
+            <span style="color:var(--orange);width:14px">📊</span>Full audit trail · export to Excel
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Assessment Pro callout -->
+    <div style="background:var(--s1);border:1px solid rgba(255,107,53,0.2);border-radius:5px;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:32px;height:32px;background:rgba(255,107,53,0.1);border:1px solid rgba(255,107,53,0.2);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:13px;">📋</div>
+        <div>
+          <div style="font-size:12px;font-weight:500;color:var(--white);">Assessment Pro</div>
+          <div style="font-size:10px;color:var(--muted);letter-spacing:0.08em;">assessments.bsoc.space · free during early access</div>
+        </div>
+      </div>
+      <a href="https://assessments.bsoc.space" target="_blank" style="font-family:'DM Mono',monospace;font-size:10px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;text-decoration:none;color:var(--orange);border:1px solid rgba(255,107,53,0.3);padding:7px 16px;border-radius:3px;white-space:nowrap;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,107,53,0.08)'" onmouseout="this.style.background='transparent'">Open Assessment Pro ↗</a>
+    </div>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- CONTENT TYPES -->
+<section class="section" id="content">
+  <div class="section-inner">
+    <p class="section-tag">Content types</p>
+    <h2 class="section-h">Five types.<br><em>Mix freely in any lesson.</em></h2>
+    <p class="section-sub">
+      Every lesson can hold video segments, quizzes, forms, reading, and graded exams —
+      in any order, in any combination.
+    </p>
+
+    <div class="ct-grid" style="grid-template-columns:repeat(5,1fr);">
+      <div class="ct-card">
+        <div class="ct-icon">▶</div>
+        <div class="ct-name">Video segment</div>
+        <div class="ct-desc">YouTube, Drive, or any URL. Set start and end. Enforce playback within the segment.</div>
+      </div>
+      <div class="ct-card">
+        <div class="ct-icon">?</div>
+        <div class="ct-name">Quiz</div>
+        <div class="ct-desc">Ungraded practice checks. Instant feedback. No pass/fail — just learning.</div>
+      </div>
+      <div class="ct-card">
+        <div class="ct-icon">◻</div>
+        <div class="ct-name">Form</div>
+        <div class="ct-desc">Collect responses, reflections, or feedback mid-course. Data goes to your reports.</div>
+      </div>
+      <div class="ct-card">
+        <div class="ct-icon">≡</div>
+        <div class="ct-name">Reading</div>
+        <div class="ct-desc">Paste text or link to an article. Pair with a video or stand alone as a reference.</div>
+      </div>
+      <div class="ct-card" style="border-color:rgba(255,107,53,0.2);background:rgba(255,107,53,0.03);">
+        <div class="ct-icon" style="background:rgba(255,107,53,0.12);border-color:rgba(255,107,53,0.25);">📋</div>
+        <div class="ct-name">Graded exam</div>
+        <div class="ct-desc">Proctored, scored, server-timed. Powered by Assessment Pro — embedded directly in the lesson.</div>
+        <div style="margin-top:10px;font-size:9px;letter-spacing:0.12em;color:var(--orange);text-transform:uppercase;">via Assessment Pro</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <div class="cta-inner">
+    <h2 class="cta-h">Courses that stay<br><em>current.</em></h2>
+    <p class="cta-sub">
+      The world changes faster than most course platforms can handle.
+      Coursify is built from the ground up for creators who ship fast
+      and update often.
+    </p>
+    <div class="cta-actions">
+      <a href="#" class="btn-primary">Get early access</a>
+      <a href="https://bsoc.space" class="btn-ghost">A BSOC project ↗</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span class="footer-l">coursify.bsoc.space &nbsp;·&nbsp; micro-video LMS &nbsp;·&nbsp; early access</span>
+  <span class="footer-r">A <a href="https://bsoc.space">BSOC</a> product &nbsp;·&nbsp; Raghav · IN</span>
+</footer>
+
+</body>
+</html>

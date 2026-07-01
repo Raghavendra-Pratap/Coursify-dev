@@ -96,7 +96,7 @@ export function AssessmentStepEmbed({
         <button
           type="button"
           onClick={() => void fetchLaunch()}
-          className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+          className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium"
         >
           Retry
         </button>
