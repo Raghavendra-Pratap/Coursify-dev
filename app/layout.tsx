@@ -9,7 +9,11 @@ export const metadata: Metadata = {
   title: 'Coursify LMS',
   description: 'Micro-video learning management',
   icons: {
-    icon: [{ url: '/brand/coursify-mark.svg', type: 'image/svg+xml' }],
+    icon: [
+      { url: '/favicon.ico' },
+      { url: '/brand/coursify-mark.svg', type: 'image/svg+xml' },
+      { url: '/brand/favicon-32.png', sizes: '32x32', type: 'image/png' },
+    ],
     apple: '/apple-icon.png',
   },
 }
